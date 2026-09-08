@@ -140,9 +140,6 @@ ON drop_items (status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_drop_items_expires_at
 ON drop_items (expires_at);
 
-CREATE INDEX IF NOT EXISTS idx_drop_items_space_room_status_created
-ON drop_items (space_type, room_id, status, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS usage_daily (
   date TEXT PRIMARY KEY,
   uploads_count INTEGER NOT NULL DEFAULT 0 CHECK (uploads_count >= 0),

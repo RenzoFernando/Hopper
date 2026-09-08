@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { ensureEvolutionSchema } from "../cloudflare/src/schema.js";
 import { TestD1 } from "./d1-test-helper.js";
+
+const bootstrapSchema = readFileSync(new URL("../cloudflare/schema.sql", import.meta.url), "utf8");
 
 const legacySchema = `
 CREATE TABLE drop_items (
@@ -30,6 +33,7 @@ test("migra una D1 existente para aceptar 5 minutos y scopes sin perder datos", 
         id, type, status, content, size, created_at, expires_at, ttl_minutes, updated_at
       ) VALUES (?1, 'text', 'ready', 'antes', 0, ?2, ?3, 15, ?2)
     `).bind(crypto.randomUUID(), now, new Date(Date.now() + 900_000).toISOString()).run();
+    db.exec(bootstrapSchema);
     await ensureEvolutionSchema({ DB: db });
     const migrated = await db.prepare("SELECT content, ttl_minutes AS ttl, space_type AS scope, room_id AS roomId FROM drop_items LIMIT 1").first();
     assert.deepEqual(migrated, { content: "antes", ttl: 15, scope: "personal", roomId: null });
