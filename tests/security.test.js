@@ -30,7 +30,8 @@ test("rechaza una sesión alterada o expirada", async () => {
   const now = Date.UTC(2026, 8, 7, 20, 0, 0);
   const token = await createSessionToken(SECRET, 1, now);
   const [body, signature] = token.split(".");
-  const tampered = `${body}.${signature.slice(0, -1)}A`;
+  const tamperedSignature = `${signature[0] === "A" ? "B" : "A"}${signature.slice(1)}`;
+  const tampered = `${body}.${tamperedSignature}`;
 
   assert.equal(await verifySessionToken(tampered, SECRET, now + 1000), null);
   assert.equal(await verifySessionToken(token, SECRET, now + 31 * 60 * 1000), null);

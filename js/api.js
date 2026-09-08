@@ -1,4 +1,4 @@
-import { appConfig } from "./config.js";
+import { appConfig } from "./config.js?v=20260908-1";
 
 const SESSION_KEY = "hopper-session-v1";
 

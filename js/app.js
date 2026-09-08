@@ -1,5 +1,5 @@
-import { hopperApi, ApiError } from "./api.js";
-import { appConfig } from "./config.js";
+import { hopperApi, ApiError } from "./api.js?v=20260908-1";
+import { appConfig } from "./config.js?v=20260908-1";
 import {
   closePreview,
   elements,
@@ -19,7 +19,7 @@ import {
   setSyncState,
   showToast,
   updateCountdowns
-} from "./ui.js";
+} from "./ui.js?v=20260908-1";
 
 const state = {
   items: [],
