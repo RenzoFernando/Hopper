@@ -134,14 +134,14 @@ function uploadToSignedUrl(file, uploadUrl, onProgress, contentType = "") {
         return;
       }
 
-      reject(new ApiError(`R2 rechazó la subida (${xhr.status}).`, {
+      reject(new ApiError(`El almacenamiento rechazó la subida (${xhr.status}).`, {
         status: xhr.status,
         code: "storage-upload-error"
       }));
     });
 
     xhr.addEventListener("error", () => {
-      reject(new ApiError("La subida a R2 se interrumpió.", { code: "storage-upload-error" }));
+      reject(new ApiError("La subida al almacenamiento se interrumpió.", { code: "storage-upload-error" }));
     });
 
     xhr.addEventListener("abort", () => {

@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "r2", "cors", "cleanup", "url")]
+  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url")]
   [string]$Action = "menu"
 )
 
@@ -8,21 +8,20 @@ Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
 $deployConfigPath = Join-Path $PSScriptRoot ".hopper-wrangler.json"
-$r2CorsPath = Join-Path $PSScriptRoot ".hopper-r2-cors.json"
 $schemaPath = Join-Path $PSScriptRoot "cloudflare\schema.sql"
 $frontendConfigPath = Join-Path $PSScriptRoot "js\config.js"
 
 $script:DatabaseName = ""
 $script:DatabaseId = ""
-$script:R2BucketName = ""
-$script:R2AccountId = ""
+$script:B2BucketName = ""
+$script:B2Endpoint = ""
 $script:WorkerName = ""
 $script:WorkerUrl = ""
 $script:PublicAppUrl = ""
 $script:AllowedOrigin = ""
 $script:MaxFileBytes = [long](512MB)
 $script:SessionSecretConfigured = $false
-$script:R2SecretConfigured = $false
+$script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
 
 function Invoke-Wrangler {
@@ -68,8 +67,8 @@ function Load-Config {
 
   $script:DatabaseName = [string]$config.databaseName
   $script:DatabaseId = [string]$config.databaseId
-  $script:R2BucketName = [string]$config.r2BucketName
-  $script:R2AccountId = [string]$config.r2AccountId
+  $script:B2BucketName = [string]$config.b2BucketName
+  $script:B2Endpoint = [string]$config.b2Endpoint
   $script:WorkerName = [string]$config.workerName
   $script:WorkerUrl = [string]$config.workerUrl
   $script:PublicAppUrl = [string]$config.publicAppUrl
@@ -80,7 +79,7 @@ function Load-Config {
   }
 
   $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
-  $script:R2SecretConfigured = [bool]$config.r2SecretConfigured
+  $script:B2SecretConfigured = [bool]$config.b2SecretConfigured
   $script:RecoveryConfigured = [bool]$config.recoveryConfigured
 }
 
@@ -88,15 +87,15 @@ function Save-Config {
   $payload = [ordered]@{
     databaseName = $script:DatabaseName
     databaseId = $script:DatabaseId
-    r2BucketName = $script:R2BucketName
-    r2AccountId = $script:R2AccountId
+    b2BucketName = $script:B2BucketName
+    b2Endpoint = $script:B2Endpoint
     workerName = $script:WorkerName
     workerUrl = $script:WorkerUrl
     publicAppUrl = $script:PublicAppUrl
     allowedOrigin = $script:AllowedOrigin
     maxFileBytes = $script:MaxFileBytes
     sessionSecretConfigured = $script:SessionSecretConfigured
-    r2SecretConfigured = $script:R2SecretConfigured
+    b2SecretConfigured = $script:B2SecretConfigured
     recoveryConfigured = $script:RecoveryConfigured
   }
 
@@ -199,50 +198,9 @@ function Select-Database {
   Save-Config
 }
 
-function Test-R2Bucket {
-  param([string]$Name)
 
-  if (-not $Name) {
-    return $false
-  }
 
-  & npx --yes wrangler r2 bucket info $Name --json *> $null
-  return $LASTEXITCODE -eq 0
-}
 
-function Select-R2Bucket {
-  if ($script:R2BucketName -and (Test-R2Bucket $script:R2BucketName)) {
-    return
-  }
-
-  $defaultName = if ($script:R2BucketName) { $script:R2BucketName } else { "hopper-files" }
-  $bucketName = (Read-Host "Bucket privado de R2 [$defaultName]").Trim().ToLowerInvariant()
-
-  if (-not $bucketName) {
-    $bucketName = $defaultName
-  }
-
-  if ($bucketName -notmatch "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$") {
-    throw "El bucket debe tener entre 3 y 63 caracteres y usar solo minúsculas, números y guiones."
-  }
-
-  if (-not (Test-R2Bucket $bucketName)) {
-    $answer = (Read-Host "El bucket '$bucketName' no existe. ¿Crearlo en R2? [S/n]").Trim().ToLowerInvariant()
-
-    if ($answer -and $answer -notin @("s", "si", "sí", "y", "yes")) {
-      throw "Debes crear o seleccionar un bucket de R2 antes de continuar."
-    }
-
-    Invoke-Wrangler r2 bucket create $bucketName
-  }
-
-  if (-not (Test-R2Bucket $bucketName)) {
-    throw "El bucket de R2 no quedó disponible después de la operación."
-  }
-
-  $script:R2BucketName = $bucketName
-  Save-Config
-}
 
 function Read-ValidatedUrl {
   param([string]$Prompt, [string]$Default = "")
@@ -267,9 +225,32 @@ function Read-ValidatedUrl {
   return $parsed
 }
 
+function Test-B2BucketName {
+  param([string]$Name)
+
+  if (-not $Name -or $Name.Length -lt 6 -or $Name.Length -gt 63) {
+    return $false
+  }
+
+  if ($Name -notmatch "^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$") {
+    return $false
+  }
+
+  if ($Name.ToLowerInvariant().StartsWith("b2-") -or $Name.Contains("..")) {
+    return $false
+  }
+
+  if ($Name -match "^\d{1,3}(\.\d{1,3}){3}$") {
+    return $false
+  }
+
+  return $true
+}
+
 function Configure-BaseValues {
   $previousWorkerName = $script:WorkerName
-  $previousAccountId = $script:R2AccountId
+  $previousBucketName = $script:B2BucketName
+  $previousEndpoint = $script:B2Endpoint
   $workerDefault = if ($script:WorkerName) { $script:WorkerName } else { "hopper-api" }
   $workerName = (Read-Host "Nombre del Worker [$workerDefault]").Trim()
 
@@ -286,26 +267,58 @@ function Configure-BaseValues {
   $script:PublicAppUrl = $publicUri.AbsoluteUri.TrimEnd("/") + "/"
   $script:AllowedOrigin = $publicUri.GetLeftPart([UriPartial]::Authority)
 
-  $accountLabel = if ($script:R2AccountId) { "Cloudflare Account ID [$($script:R2AccountId)]" } else { "Cloudflare Account ID" }
-  $accountId = (Read-Host $accountLabel).Trim().ToLowerInvariant()
+  $bucketLabel = if ($script:B2BucketName) {
+    "Bucket privado de Backblaze B2 [$($script:B2BucketName)]"
+  } else {
+    "Bucket privado de Backblaze B2"
+  }
+  $bucketName = (Read-Host $bucketLabel).Trim()
 
-  if (-not $accountId) {
-    $accountId = $script:R2AccountId
+  if (-not $bucketName) {
+    $bucketName = $script:B2BucketName
   }
 
-  if ($accountId -notmatch "^[0-9a-f]{32}$") {
-    throw "El Account ID de Cloudflare debe contener 32 caracteres hexadecimales."
+  if (-not (Test-B2BucketName $bucketName)) {
+    throw "El nombre del bucket de Backblaze B2 no es válido."
   }
 
-  $script:R2AccountId = $accountId
+  $script:B2BucketName = $bucketName
+  $endpointLabel = if ($script:B2Endpoint) {
+    "Endpoint S3 de Backblaze B2 [$($script:B2Endpoint)]"
+  } else {
+    "Endpoint S3 de Backblaze B2, por ejemplo https://s3.us-west-004.backblazeb2.com"
+  }
+  $endpointInput = (Read-Host $endpointLabel).Trim()
+
+  if (-not $endpointInput) {
+    $endpointInput = $script:B2Endpoint
+  }
+
+  $endpointUri = $null
+
+  if (
+    -not [Uri]::TryCreate($endpointInput, [UriKind]::Absolute, [ref]$endpointUri) -or
+    $endpointUri.Scheme -ne "https" -or
+    $endpointUri.Host -notmatch "^s3\.[a-z0-9-]+\.backblazeb2\.com$" -or
+    ($endpointUri.AbsolutePath -and $endpointUri.AbsolutePath -ne "/") -or
+    $endpointUri.Query -or
+    $endpointUri.Fragment
+  ) {
+    throw "El endpoint debe tener el formato https://s3.<region>.backblazeb2.com."
+  }
+
+  $script:B2Endpoint = $endpointUri.GetLeftPart([UriPartial]::Authority)
 
   if ($previousWorkerName -and $script:WorkerName -ne $previousWorkerName) {
     $script:WorkerUrl = ""
     $script:SessionSecretConfigured = $false
-    $script:R2SecretConfigured = $false
+    $script:B2SecretConfigured = $false
     $script:RecoveryConfigured = $false
-  } elseif ($previousAccountId -and $script:R2AccountId -ne $previousAccountId) {
-    $script:R2SecretConfigured = $false
+  } elseif (
+    ($previousBucketName -and $script:B2BucketName -ne $previousBucketName) -or
+    ($previousEndpoint -and $script:B2Endpoint -ne $previousEndpoint)
+  ) {
+    $script:B2SecretConfigured = $false
   }
 
   $currentMb = [math]::Round($script:MaxFileBytes / 1MB)
@@ -410,7 +423,13 @@ export { appConfig };
 }
 
 function New-DeployConfig {
-  if (-not $script:DatabaseId -or -not $script:WorkerName -or -not $script:PublicAppUrl -or -not $script:R2BucketName -or -not $script:R2AccountId) {
+  if (
+    -not $script:DatabaseId -or
+    -not $script:WorkerName -or
+    -not $script:PublicAppUrl -or
+    -not $script:B2BucketName -or
+    -not $script:B2Endpoint
+  ) {
     throw "Faltan valores de configuración. Ejecuta primero la configuración guiada."
   }
 
@@ -424,20 +443,14 @@ function New-DeployConfig {
       ALLOW_LOCALHOST = "true"
       PUBLIC_APP_URL = $script:PublicAppUrl
       MAX_FILE_BYTES = [string]$script:MaxFileBytes
-      R2_ACCOUNT_ID = $script:R2AccountId
-      R2_BUCKET_NAME = $script:R2BucketName
+      B2_BUCKET_NAME = $script:B2BucketName
+      B2_ENDPOINT = $script:B2Endpoint
     }
     d1_databases = @(
       [ordered]@{
         binding = "DB"
         database_name = $script:DatabaseName
         database_id = $script:DatabaseId
-      }
-    )
-    r2_buckets = @(
-      [ordered]@{
-        binding = "FILES"
-        bucket_name = $script:R2BucketName
       }
     )
     triggers = [ordered]@{
@@ -447,10 +460,6 @@ function New-DeployConfig {
 }
 
 function Deploy-Worker {
-  if (-not $script:R2BucketName) {
-    Select-R2Bucket
-  }
-
   Initialize-Schema
   $config = New-DeployConfig
   $config | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
@@ -492,23 +501,23 @@ function Configure-SessionSecret {
   Save-Config
 }
 
-function Configure-R2Secrets {
-  if (-not $script:R2BucketName) {
-    Select-R2Bucket
+function Configure-B2Secrets {
+  if (-not $script:B2BucketName -or -not $script:B2Endpoint) {
+    throw "Primero configura el bucket y el endpoint de Backblaze B2."
   }
 
-  $accessKeyId = Read-SecretText "R2 Access Key ID"
-  $secretAccessKey = Read-SecretText "R2 Secret Access Key"
+  $keyId = Read-SecretText "Backblaze B2 Key ID"
+  $applicationKey = Read-SecretText "Backblaze B2 Application Key"
 
-  if (-not $accessKeyId -or -not $secretAccessKey) {
-    throw "Las dos credenciales S3 de R2 son obligatorias."
+  if (-not $keyId -or -not $applicationKey) {
+    throw "El Key ID y el Application Key de Backblaze B2 son obligatorios."
   }
 
   Set-WorkerSecretsBulk ([ordered]@{
-    R2_ACCESS_KEY_ID = $accessKeyId
-    R2_SECRET_ACCESS_KEY = $secretAccessKey
+    B2_KEY_ID = $keyId
+    B2_APPLICATION_KEY = $applicationKey
   })
-  $script:R2SecretConfigured = $true
+  $script:B2SecretConfigured = $true
   Save-Config
 }
 
@@ -545,13 +554,101 @@ function Configure-RecoveryEmail {
   Save-Config
 }
 
-function Configure-R2Cors {
-  if (-not $script:R2BucketName) {
-    Select-R2Bucket
+function Invoke-B2NativeRequest {
+  param(
+    [string]$Url,
+    [string]$AuthorizationToken,
+    [hashtable]$Body
+  )
+
+  $headers = @{ Authorization = $AuthorizationToken }
+  $json = $Body | ConvertTo-Json -Depth 10 -Compress
+  return Invoke-RestMethod -Uri $Url -Method Post -Headers $headers -ContentType "application/json" -Body $json
+}
+
+function Get-B2MasterAuthorization {
+  $keyId = Read-SecretText "Backblaze Master Application Key ID para configurar CORS"
+  $applicationKey = Read-SecretText "Backblaze Master Application Key para configurar CORS"
+
+  if (-not $keyId -or -not $applicationKey) {
+    throw "Las credenciales maestras de Backblaze son obligatorias para configurar CORS."
   }
 
-  if (-not $script:AllowedOrigin) {
-    throw "La URL pública de Hopper todavía no está configurada."
+  $pair = "${keyId}:$applicationKey"
+  $basic = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
+  $headers = @{ Authorization = "Basic $basic" }
+
+  try {
+    $authorization = Invoke-RestMethod `
+      -Uri "https://api.backblazeb2.com/b2api/v4/b2_authorize_account" `
+      -Method Get `
+      -Headers $headers
+  } finally {
+    $applicationKey = $null
+    $pair = $null
+    $basic = $null
+  }
+
+  $storageApi = $authorization.apiInfo.storageApi
+
+  if (-not $authorization.accountId -or -not $authorization.authorizationToken -or -not $storageApi.apiUrl) {
+    throw "Backblaze no devolvió una autorización administrativa válida."
+  }
+
+  $capabilities = @($storageApi.allowed.capabilities)
+
+  foreach ($required in @("listBuckets", "writeBuckets")) {
+    if ($capabilities -notcontains $required) {
+      throw "La credencial utilizada no tiene la capacidad '$required'. Usa la Master Application Key."
+    }
+  }
+
+  return $authorization
+}
+
+function Configure-B2Cors {
+  if (-not $script:B2BucketName -or -not $script:B2Endpoint -or -not $script:AllowedOrigin) {
+    throw "Primero configura el bucket, el endpoint y la URL pública de Hopper."
+  }
+
+  Write-Host ""
+  Write-Host "CORS de Backblaze B2"
+  Write-Host "La Master Application Key se usa solo durante esta operación y no se guarda."
+  $authorization = Get-B2MasterAuthorization
+  $storageApi = $authorization.apiInfo.storageApi
+  $apiUrl = [string]$storageApi.apiUrl
+  $reportedEndpoint = ([string]$storageApi.s3ApiUrl).TrimEnd("/")
+
+  if ($reportedEndpoint -and $reportedEndpoint -ne $script:B2Endpoint) {
+    throw "El endpoint S3 configurado no coincide con el endpoint de la cuenta Backblaze."
+  }
+
+  $listBody = @{
+    accountId = [string]$authorization.accountId
+    bucketName = $script:B2BucketName
+  }
+  $listed = Invoke-B2NativeRequest `
+    "$($apiUrl.TrimEnd('/'))/b2api/v4/b2_list_buckets" `
+    ([string]$authorization.authorizationToken) `
+    $listBody
+  $buckets = @($listed.buckets)
+
+  if ($buckets.Count -ne 1) {
+    throw "No se encontró exactamente un bucket con el nombre '$($script:B2BucketName)'."
+  }
+
+  $bucket = $buckets[0]
+
+  if ([string]$bucket.bucketType -ne "allPrivate") {
+    throw "El bucket de Hopper debe ser privado (allPrivate)."
+  }
+
+  if (@($bucket.options) -notcontains "s3") {
+    throw "El bucket seleccionado no está habilitado para la API S3 compatible."
+  }
+
+  if ($bucket.fileLockConfiguration.value.isFileLockEnabled) {
+    throw "Object Lock está habilitado. Hopper necesita poder eliminar archivos temporales; usa un bucket sin Object Lock."
   }
 
   $origins = @(
@@ -559,27 +656,52 @@ function Configure-R2Cors {
     "http://localhost:5500",
     "http://127.0.0.1:5500"
   ) | Where-Object { $_ } | Select-Object -Unique
-
-  $payload = [ordered]@{
-    rules = @(
+  $corsRules = @(
+    [ordered]@{
+      corsRuleName = "hopperDirectTransfer"
+      allowedOrigins = @($origins)
+      allowedHeaders = @("content-type")
+      allowedOperations = @("S3_put", "S3_get", "S3_head")
+      exposeHeaders = @("etag", "content-length", "content-type", "x-amz-version-id")
+      maxAgeSeconds = 3600
+    }
+  )
+  $updateBody = @{
+    accountId = [string]$authorization.accountId
+    bucketId = [string]$bucket.bucketId
+    corsRules = $corsRules
+    lifecycleRules = @(
       [ordered]@{
-        allowed = [ordered]@{
-          origins = @($origins)
-          methods = @("GET", "HEAD", "PUT")
-          headers = @("Content-Type")
-        }
-        exposeHeaders = @("ETag", "Content-Length", "Content-Type", "Content-Disposition")
-        maxAgeSeconds = 3600
+        fileNamePrefix = "drop/"
+        daysFromUploadingToHiding = 1
+        daysFromHidingToDeleting = 1
+        daysFromStartingToCancelingUnfinishedLargeFiles = 1
       }
     )
   }
 
-  try {
-    $payload | ConvertTo-Json -Depth 8 | Set-Content $r2CorsPath -Encoding UTF8
-    Invoke-Wrangler r2 bucket cors set $script:R2BucketName --file $r2CorsPath
-    Invoke-Wrangler r2 bucket cors list $script:R2BucketName
-  } finally {
-    Remove-Item $r2CorsPath -Force -ErrorAction SilentlyContinue
+  Invoke-B2NativeRequest `
+    "$($apiUrl.TrimEnd('/'))/b2api/v4/b2_update_bucket" `
+    ([string]$authorization.authorizationToken) `
+    $updateBody | Out-Null
+
+  Write-Host "CORS y regla de seguridad de ciclo de vida configurados para Hopper."
+}
+
+function Test-B2WorkerAccess {
+  if (-not $script:B2SecretConfigured) {
+    throw "Primero configura el Key ID y el Application Key de Backblaze B2."
+  }
+
+  Use-TemporaryAdminToken {
+    param($adminToken)
+    $result = Invoke-AdminRequest "/admin/storage-check" @{} $adminToken
+
+    if (-not $result.ok) {
+      throw "El Worker no confirmó el acceso de lectura/escritura/eliminación a Backblaze B2."
+    }
+
+    Write-Host "Backblaze B2: $($result.bucket) — acceso operativo OK"
   }
 }
 
@@ -646,19 +768,16 @@ function Show-Status {
   Initialize-Schema
   Invoke-D1Command "SELECT failed_attempts, locked, locked_at, last_failed_at, last_success_at, updated_at FROM security_state WHERE id = 1; SELECT version, updated_at FROM session_state WHERE id = 1; SELECT COUNT(*) AS active_items FROM drop_items WHERE status = 'ready' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'); SELECT target, kind, created_at, note FROM blocked_clients ORDER BY id DESC;"
 
-  if ($script:R2BucketName) {
-    if (Test-R2Bucket $script:R2BucketName) {
-      Write-Host "R2: $script:R2BucketName — OK"
-    } else {
-      Write-Warning "El bucket R2 configurado no está disponible."
-    }
+  if ($script:B2BucketName -and $script:B2Endpoint) {
+    Write-Host "B2: $script:B2BucketName"
+    Write-Host "Endpoint: $script:B2Endpoint"
   }
 
   if ($script:WorkerUrl) {
     try {
       $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get
       Write-Host "Worker: $($health.service) — OK"
-      Write-Host "R2 binding: $($health.configured.r2Bucket) | firma: $($health.configured.r2Signing) | correo: $($health.configured.recoveryEmail)"
+      Write-Host "B2: $($health.configured.b2Bucket) | firma: $($health.configured.b2Signing) | correo: $($health.configured.recoveryEmail)"
     } catch {
       Write-Warning "El Worker no respondió al health check."
     }
@@ -734,33 +853,33 @@ function Update-PublicUrl {
   $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
   Save-Config
   Deploy-Worker
-  Configure-R2Cors
+  Configure-B2Cors
 }
 
 function Invoke-GuidedSetup {
   Write-Host ""
   Write-Host "Hopper - configuración inicial"
-  Write-Host "Necesitas Cloudflare con D1 y R2 disponibles, credenciales S3 de R2 y una API key de Resend."
-  Write-Host "El administrador no activa planes de pago ni configura facturación."
+  Write-Host "Necesitas Cloudflare Workers/D1 en Free, un bucket privado de Backblaze B2 sin método de pago y una API key de Resend Free."
+  Write-Host "No añadas una tarjeta ni un método de pago para configurar Hopper."
   Write-Host ""
 
   Select-Database
-  Select-R2Bucket
   Configure-BaseValues
   Initialize-Schema
   Deploy-Worker
   Configure-SessionSecret
-  Configure-R2Secrets
+  Configure-B2Secrets
+  Test-B2WorkerAccess
   Configure-RecoveryEmail
   Set-NewPin
-  Configure-R2Cors
+  Configure-B2Cors
   Write-FrontendConfig
   Show-Status
 
   Write-Host ""
   Write-Host "Configuración terminada."
   Write-Host "Worker: $script:WorkerUrl"
-  Write-Host "R2: $script:R2BucketName"
+  Write-Host "Backblaze B2: $script:B2BucketName"
   Write-Host "Frontend enlazado en: js/config.js"
 }
 
@@ -779,8 +898,8 @@ function Invoke-Action {
     "unblock" { Initialize-Schema; Remove-BlockedClient }
     "events" { Initialize-Schema; Show-Events }
     "email" { Configure-RecoveryEmail }
-    "r2" { Select-R2Bucket; Configure-R2Secrets }
-    "cors" { Configure-R2Cors }
+    "b2" { Configure-B2Secrets; Test-B2WorkerAccess }
+    "cors" { Configure-B2Cors }
     "cleanup" { Invoke-Cleanup }
     "url" { Update-PublicUrl }
   }
@@ -799,7 +918,7 @@ do {
   Write-Host ""
   Write-Host "Hopper - administración"
   Write-Host "D1: $script:DatabaseName"
-  if ($script:R2BucketName) { Write-Host "R2: $script:R2BucketName" }
+  if ($script:B2BucketName) { Write-Host "B2: $script:B2BucketName" }
   if ($script:WorkerUrl) { Write-Host "Worker: $script:WorkerUrl" }
   Write-Host "[1] Configuración inicial guiada"
   Write-Host "[2] Inicializar o actualizar esquema D1"
@@ -812,8 +931,8 @@ do {
   Write-Host "[9] Desbloquear IP o red"
   Write-Host "[10] Ver eventos de seguridad"
   Write-Host "[11] Configurar correo de recuperación"
-  Write-Host "[12] Configurar credenciales de R2"
-  Write-Host "[13] Configurar CORS de R2"
+  Write-Host "[12] Configurar credenciales de Backblaze B2"
+  Write-Host "[13] Configurar CORS de Backblaze B2"
   Write-Host "[14] Ejecutar limpieza ahora"
   Write-Host "[15] Cambiar URL pública"
   Write-Host "[0] Salir"
@@ -832,7 +951,7 @@ do {
     "9" { Invoke-Action "unblock" }
     "10" { Invoke-Action "events" }
     "11" { Invoke-Action "email" }
-    "12" { Invoke-Action "r2" }
+    "12" { Invoke-Action "b2" }
     "13" { Invoke-Action "cors" }
     "14" { Invoke-Action "cleanup" }
     "15" { Invoke-Action "url" }

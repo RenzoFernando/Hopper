@@ -40,7 +40,7 @@
 - JavaScript ES Modules
 - Cloudflare Workers
 - Cloudflare D1
-- Cloudflare R2
+- Backblaze B2
 - Resend
 
 ## Uso

@@ -8,13 +8,12 @@ import {
   TTL_OPTIONS,
   UPLOAD_URL_TTL_SECONDS
 } from "./constants.js";
-import { rfc3986Encode } from "./crypto.js";
 import { HttpError, normalizeText } from "./http.js";
 import {
-  createSignedR2Url,
-  deleteR2Object,
-  getR2ObjectMetadata
-} from "./r2.js";
+  createSignedB2Url,
+  deleteB2Object,
+  getB2ObjectMetadata
+} from "./b2.js";
 
 export function normalizeTtlMinutes(value) {
   const minutes = Number(value);
@@ -250,7 +249,7 @@ export async function initializeFileUpload(env, payload) {
   ).run();
 
   try {
-    const uploadUrl = await createSignedR2Url(env, {
+    const uploadUrl = await createSignedB2Url(env, {
       method: "PUT",
       objectName: storageKey,
       expiresSeconds: UPLOAD_URL_TTL_SECONDS,
@@ -285,23 +284,23 @@ export async function completeFileUpload(env, id) {
     throw new HttpError(410, "upload-expired", "La ventana de subida de este archivo ya venció.");
   }
 
-  const metadata = await getR2ObjectMetadata(env, item.storageKey);
+  const metadata = await getB2ObjectMetadata(env, item.storageKey);
 
   if (!metadata) {
-    throw new HttpError(409, "upload-not-found", "R2 todavía no confirma la subida del archivo.");
+    throw new HttpError(409, "upload-not-found", "Backblaze B2 todavía no confirma la subida del archivo.");
   }
 
   const actualSize = Number(metadata.size || 0);
 
   if (actualSize !== item.size) {
-    await deleteR2Object(env, item.storageKey).catch(() => {});
+    await deleteB2Object(env, item.storageKey).catch(() => {});
     await deleteDropItemRow(env, item.id).catch(() => {});
     throw new HttpError(409, "upload-size-mismatch", "La subida quedó incompleta y fue descartada.");
   }
 
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + item.ttlMinutes * 60_000);
-  const mimeType = normalizeMimeType(metadata.httpMetadata?.contentType || item.mimeType);
+  const mimeType = normalizeMimeType(metadata.contentType || item.mimeType);
   const now = createdAt.toISOString();
 
   await env.DB.prepare(`
@@ -333,19 +332,10 @@ export async function cancelFileUpload(env, id) {
   }
 
   if (item.type === "file" && item.storageKey) {
-    await deleteR2Object(env, item.storageKey);
+    await deleteB2Object(env, item.storageKey);
   }
 
   await deleteDropItemRow(env, item.id);
-}
-
-function downloadDisposition(name) {
-  const fallback = String(name || "archivo")
-    .replace(/[^\x20-\x7E]/g, "_")
-    .replace(/["\\]/g, "_")
-    .slice(0, 120);
-  const encoded = rfc3986Encode(String(name || "archivo"));
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
 export async function createItemDownloadUrl(env, id, mode = "download") {
@@ -367,11 +357,13 @@ export async function createItemDownloadUrl(env, id, mode = "download") {
     1,
     Math.floor((Date.parse(item.expiresAt) - Date.now()) / 1000)
   );
-  const url = await createSignedR2Url(env, {
+  const url = await createSignedB2Url(env, {
     method: "GET",
     objectName: item.storageKey,
     expiresSeconds: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds),
-    responseDisposition: mode === "download" ? downloadDisposition(item.name) : ""
+    queryParameters: mode === "download"
+      ? { "response-content-type": "application/octet-stream" }
+      : {}
   });
 
   return { url, name: item.name, mimeType: item.mimeType };
@@ -405,7 +397,7 @@ export async function deleteItem(env, id) {
   }
 
   if (item.type === "file" && item.storageKey) {
-    await deleteR2Object(env, item.storageKey);
+    await deleteB2Object(env, item.storageKey);
   }
 
   await deleteDropItemRow(env, item.id);
@@ -451,7 +443,7 @@ export async function cleanupExpiredItems(env) {
   await runWithConcurrency(expired, 5, async (item) => {
     try {
       if (item.type === "file" && item.storageKey) {
-        await deleteR2Object(env, item.storageKey);
+        await deleteB2Object(env, item.storageKey);
       }
 
       await deleteDropItemRow(env, item.id);

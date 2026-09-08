@@ -1,4 +1,5 @@
 import { MAX_FAILED_ATTEMPTS, SESSION_TTL_SECONDS } from "./constants.js";
+import { checkB2Access } from "./b2.js";
 import {
   cancelFileUpload,
   cleanupExpiredItems,
@@ -251,6 +252,17 @@ async function handleAdminCleanup(request, env, origin) {
   return jsonResponse({ ok: true, ...result }, 200, origin);
 }
 
+async function handleAdminStorageCheck(request, env, origin) {
+  const client = await requireAdmin(request, env);
+  await readJson(request);
+  const result = await checkB2Access(env);
+  await logSecurityEvent(env.DB, "admin-storage-check", client, {
+    bucket: result.bucket,
+    endpoint: result.endpoint
+  });
+  return jsonResponse({ ok: true, ...result }, 200, origin);
+}
+
 async function routeRequest(request, env, origin) {
   const url = new URL(request.url);
   const { pathname } = url;
@@ -261,8 +273,8 @@ async function routeRequest(request, env, origin) {
       service: "hopper-api",
       configured: {
         d1: Boolean(env.DB),
-        r2Bucket: Boolean(env.FILES && env.R2_BUCKET_NAME),
-        r2Signing: Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY),
+        b2Bucket: Boolean(env.B2_BUCKET_NAME && env.B2_ENDPOINT),
+        b2Signing: Boolean(env.B2_KEY_ID && env.B2_APPLICATION_KEY),
         recoveryEmail: Boolean(env.RECOVERY_EMAIL)
       }
     }, 200, origin);
@@ -330,6 +342,10 @@ async function routeRequest(request, env, origin) {
 
   if (request.method === "POST" && pathname === "/admin/cleanup") {
     return handleAdminCleanup(request, env, origin);
+  }
+
+  if (request.method === "POST" && pathname === "/admin/storage-check") {
+    return handleAdminStorageCheck(request, env, origin);
   }
 
   throw new HttpError(404, "not-found", "Ruta no encontrada.");

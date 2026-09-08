@@ -13,7 +13,7 @@ type: short description
 - docs: update deployment guide
 - test: add ttl validation tests
 - refactor: simplify item rendering
-- chore: update r2 configuration
+- chore: update b2 configuration
 
 ## Tipos permitidos
 

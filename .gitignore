@@ -20,4 +20,3 @@ cloudflare/.wrangler/
 .wrangler/
 .hopper-admin.json
 .hopper-wrangler.json
-.hopper-r2-cors.json

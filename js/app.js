@@ -435,6 +435,7 @@ async function downloadFile(item) {
   const result = await hopperApi.getFileUrl(item.id, "download");
   const link = document.createElement("a");
   link.href = result.url;
+  link.download = item.name || "archivo";
   link.rel = "noopener";
   document.body.append(link);
   link.click();

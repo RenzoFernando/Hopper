@@ -10,4 +10,4 @@ export const TTL_OPTIONS = Object.freeze([15, 30, 60, 360]);
 export const MAX_TEXT_CHARACTERS = 250_000;
 export const DEFAULT_MAX_FILE_BYTES = 512 * 1024 * 1024;
 export const MAX_LIST_ITEMS = 100;
-export const MAX_CLEANUP_ITEMS = 500;
+export const MAX_CLEANUP_ITEMS = 5;
