@@ -214,10 +214,15 @@ export function parseB2VersionList(xml) {
     const versionId = tagValue(match[2], "VersionId");
 
     if (key && versionId) {
+      const deleteMarker = match[1].toLowerCase() === "deletemarker";
+      const size = Number(tagValue(match[2], "Size") || 0);
+
       entries.push({
         key,
         versionId,
-        deleteMarker: match[1].toLowerCase() === "deletemarker"
+        deleteMarker,
+        isLatest: tagValue(match[2], "IsLatest").toLowerCase() === "true",
+        size: deleteMarker || !Number.isFinite(size) ? 0 : size
       });
     }
   }
@@ -248,24 +253,19 @@ async function requireB2Ok(response, message, code = "b2-error") {
 }
 
 export async function getB2ObjectMetadata(env, objectName) {
-  const url = await createSignedB2Url(env, {
-    method: "HEAD",
-    objectName,
-    expiresSeconds: 60
-  });
-  const response = await fetch(url, { method: "HEAD" });
+  const normalizedObjectName = String(objectName);
+  const listed = await listB2ObjectVersions(env, normalizedObjectName);
+  const exactEntries = listed.entries.filter((entry) => entry.key === normalizedObjectName);
+  const latest = exactEntries.find((entry) => entry.isLatest) || exactEntries[0];
 
-  if (response.status === 404) {
+  if (!latest || latest.deleteMarker) {
     return null;
   }
 
-  await requireB2Ok(response, "Backblaze B2 no pudo verificar el archivo.", "storage-error");
-  const size = Number(response.headers.get("Content-Length") || 0);
-
   return {
-    size: Number.isFinite(size) ? size : 0,
-    contentType: response.headers.get("Content-Type") || "",
-    versionId: response.headers.get("x-amz-version-id") || ""
+    size: Number(latest.size || 0),
+    contentType: "",
+    versionId: latest.versionId
   };
 }
 

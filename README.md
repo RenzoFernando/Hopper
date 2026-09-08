@@ -6,6 +6,9 @@
 
 <img src="assets/favicon.png" alt="Icono de Hopper" width="120" align="center">
 
+<br>
+<br>
+
 <p>
   <a href="https://renzofernando.github.io/Hopper/">
     <img src="https://img.shields.io/badge/VER%20APLICACI%C3%93N%20WEB-202123?style=for-the-badge" alt="Ver aplicación web">

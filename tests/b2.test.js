@@ -59,17 +59,20 @@ test("interpreta versiones y marcadores de borrado de Backblaze B2", () => {
   <Version>
     <Key>drop/a&amp;b.txt</Key>
     <VersionId>v-1</VersionId>
+    <IsLatest>true</IsLatest>
+    <Size>75700</Size>
   </Version>
   <DeleteMarker>
     <Key>drop/a&amp;b.txt</Key>
     <VersionId>v-2</VersionId>
+    <IsLatest>false</IsLatest>
   </DeleteMarker>
 </ListVersionsResult>`);
 
   assert.deepEqual(parsed, {
     entries: [
-      { key: "drop/a&b.txt", versionId: "v-1", deleteMarker: false },
-      { key: "drop/a&b.txt", versionId: "v-2", deleteMarker: true }
+      { key: "drop/a&b.txt", versionId: "v-1", deleteMarker: false, isLatest: true, size: 75700 },
+      { key: "drop/a&b.txt", versionId: "v-2", deleteMarker: true, isLatest: false, size: 0 }
     ],
     truncated: true,
     nextKeyMarker: "drop/a&b.txt",

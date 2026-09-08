@@ -1,4 +1,4 @@
-import { appConfig } from "./config.js";
+import { appConfig } from "./config.js?v=20260908-2";
 
 const elements = {
   authScreen: document.querySelector("#auth-screen"),
@@ -6,7 +6,7 @@ const elements = {
   headerSession: document.querySelector("#header-session"),
   pinForm: document.querySelector("#pin-form"),
   pinInput: document.querySelector("#pin-input"),
-  pinSubmit: document.querySelector("#pin-submit"),
+  pinLoader: document.querySelector("#pin-loader"),
   pinMessage: document.querySelector("#pin-message"),
   lockPanel: document.querySelector("#lock-panel"),
   recoveryRequestButton: document.querySelector("#recovery-request-button"),
@@ -248,9 +248,11 @@ function setAuthenticated(authenticated) {
 }
 
 function setPinLoading(loading) {
-  elements.pinSubmit.disabled = loading;
   elements.pinInput.disabled = loading;
-  elements.pinSubmit.textContent = loading ? "Entrando…" : "Entrar";
+
+  if (elements.pinLoader) {
+    elements.pinLoader.hidden = !loading;
+  }
 }
 
 function setPinMessage(message, type = "") {
@@ -302,6 +304,32 @@ function showToast(message, type = "") {
   }, 3600);
 }
 
+function selectedFileStatus(entry) {
+  const progress = Math.max(0, Math.min(100, Number(entry.progress) || 0));
+
+  if (entry.status === "error") {
+    return { label: "Error", error: true };
+  }
+
+  if (entry.status === "preparando") {
+    return { label: "0% · Preparando", error: false };
+  }
+
+  if (entry.status === "subiendo") {
+    return { label: `${progress}%`, error: false };
+  }
+
+  if (entry.status === "confirmando") {
+    return { label: "100% · Confirmando", error: false };
+  }
+
+  if (entry.status === "listo") {
+    return { label: "100% · Listo", error: false };
+  }
+
+  return { label: "0% · Listo para enviar", error: false };
+}
+
 function renderSelectedFiles(entries, sending = false) {
   elements.selectedFiles.replaceChildren();
   elements.selectedFiles.hidden = entries.length === 0;
@@ -319,14 +347,11 @@ function renderSelectedFiles(entries, sending = false) {
     const size = document.createElement("span");
     size.className = "selected-file-size";
     size.textContent = formatBytes(entry.file.size);
-    copy.append(name, size);
-
-    if (entry.status) {
-      const status = document.createElement("span");
-      status.className = `selected-file-status ${entry.status === "error" ? "is-error" : ""}`;
-      status.textContent = entry.status === "error" ? "Error" : entry.status;
-      copy.append(status);
-    }
+    const statusValue = selectedFileStatus(entry);
+    const status = document.createElement("span");
+    status.className = `selected-file-status selected-file-progress-label ${statusValue.error ? "is-error" : ""}`.trim();
+    status.textContent = statusValue.label;
+    copy.append(name, size, status);
 
     const remove = document.createElement("button");
     remove.type = "button";
@@ -334,7 +359,7 @@ function renderSelectedFiles(entries, sending = false) {
     remove.dataset.action = "remove-selected-file";
     remove.dataset.fileKey = entry.key;
     remove.setAttribute("aria-label", `Quitar ${entry.file.name}`);
-    remove.disabled = sending || entry.status === "subiendo";
+    remove.disabled = sending || ["preparando", "subiendo", "confirmando"].includes(entry.status);
     remove.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
 
     const progress = document.createElement("div");

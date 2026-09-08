@@ -1,5 +1,5 @@
-import { hopperApi, ApiError } from "./api.js?v=20260908-1";
-import { appConfig } from "./config.js?v=20260908-1";
+import { hopperApi, ApiError } from "./api.js?v=20260908-2";
+import { appConfig } from "./config.js?v=20260908-2";
 import {
   closePreview,
   elements,
@@ -19,7 +19,7 @@ import {
   setSyncState,
   showToast,
   updateCountdowns
-} from "./ui.js?v=20260908-1";
+} from "./ui.js?v=20260908-2";
 
 const state = {
   items: [],
@@ -270,7 +270,14 @@ function updateSelectedFile(key, patch) {
   const bar = row?.querySelector(".file-progress > span");
 
   if (bar && patch.progress !== undefined) {
-    bar.style.width = `${Math.max(0, Math.min(100, Number(patch.progress) || 0))}%`;
+    const progress = Math.max(0, Math.min(100, Number(patch.progress) || 0));
+    bar.style.width = `${progress}%`;
+
+    const progressLabel = row?.querySelector(".selected-file-progress-label");
+
+    if (progressLabel && entry.status === "subiendo") {
+      progressLabel.textContent = `${progress}%`;
+    }
   }
 
   if (patch.status !== undefined) {
@@ -280,18 +287,19 @@ function updateSelectedFile(key, patch) {
 
 async function completeUploadWithRetry(id) {
   let lastError = null;
+  const retryableCodes = new Set(["upload-not-found", "storage-error"]);
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
       return await hopperApi.completeUpload(id);
     } catch (error) {
       lastError = error;
 
-      if (error?.code !== "upload-not-found" || attempt === 2) {
+      if (!retryableCodes.has(error?.code) || attempt === 3) {
         throw error;
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 600 * (attempt + 1)));
+      await new Promise((resolve) => window.setTimeout(resolve, 800 * (attempt + 1)));
     }
   }
 
@@ -615,7 +623,19 @@ function bindEvents() {
       handleSend();
     }
   });
-  elements.refreshButton.addEventListener("click", () => refreshItems().catch(() => {}));
+  elements.refreshButton.addEventListener("click", async () => {
+    elements.refreshButton.disabled = true;
+    elements.refreshButton.classList.add("is-spinning");
+
+    try {
+      await refreshItems();
+    } catch {
+      // El estado de sincronización ya muestra el fallo.
+    } finally {
+      elements.refreshButton.classList.remove("is-spinning");
+      elements.refreshButton.disabled = false;
+    }
+  });
   elements.itemList.addEventListener("click", handleItemAction);
   elements.itemList.addEventListener("change", handleItemTtlChange);
 
@@ -655,7 +675,7 @@ async function initialize() {
 
   if (!hopperApi.hasConfiguredWorker()) {
     setAuthenticated(false);
-    elements.pinSubmit.disabled = true;
+    elements.pinInput.disabled = true;
     setPinMessage(
       "Hopper está listo, pero falta enlazar el Worker. Ejecuta hopper-admin.ps1 para completar la configuración.",
       "error"

@@ -141,7 +141,7 @@ summary:focus-visible {
 .header-session {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
 }
 
 .sync-state {
@@ -233,8 +233,8 @@ summary:focus-visible {
 
 .pin-form {
   display: grid;
-  gap: 11px;
-  margin-top: 34px;
+  gap: 9px;
+  margin-top: 30px;
 }
 
 .pin-form label,
@@ -243,6 +243,23 @@ summary:focus-visible {
   color: var(--text-soft);
   font-size: 0.83rem;
   font-weight: 650;
+}
+
+.pin-field {
+  position: relative;
+}
+
+.pin-loader {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 17px;
+  height: 17px;
+  margin-top: -8.5px;
+  border: 2px solid var(--surface-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
 }
 
 .pin-form input,
@@ -376,10 +393,10 @@ summary:focus-visible {
   width: min(100%, 1080px);
   height: 100%;
   margin: 0 auto;
-  padding: 24px 28px 26px;
+  padding: 18px 28px 18px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 18px;
+  gap: 14px;
 }
 
 .composer-card,
@@ -389,30 +406,17 @@ summary:focus-visible {
 }
 
 .composer-card {
-  padding: 20px;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow);
+  padding: 18px;
+  border-radius: 18px;
+  box-shadow: none;
 }
 
 .composer-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 15px;
+  margin-bottom: 12px;
 }
 
 .composer-heading h1 {
-  font-size: 1.25rem;
-}
-
-.composer-note {
-  max-width: 280px;
-  margin: 1px 0 0;
-  color: var(--text-faint);
-  font-size: 0.78rem;
-  line-height: 1.45;
-  text-align: right;
+  font-size: 1.18rem;
 }
 
 #text-input {
@@ -531,6 +535,10 @@ summary:focus-visible {
   font-size: 0.72rem;
 }
 
+.selected-file-status {
+  font-variant-numeric: tabular-nums;
+}
+
 .selected-file-status.is-error {
   color: var(--danger);
 }
@@ -557,7 +565,7 @@ summary:focus-visible {
 .file-progress {
   position: absolute;
   inset: auto 0 0 0;
-  height: 3px;
+  height: 4px;
   background: var(--surface-strong);
 }
 
@@ -888,6 +896,34 @@ summary:focus-visible {
   height: 19px;
 }
 
+.logout-button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--danger);
+}
+
+.logout-button:hover:not(:disabled) {
+  border-color: #ebcccc;
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+
+.refresh-button {
+  width: 34px;
+  height: 34px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.refresh-button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+.refresh-button.is-spinning svg {
+  animation: spin 700ms linear infinite;
+}
+
 .preview-dialog,
 .confirm-dialog {
   border: 1px solid var(--border);
@@ -1078,22 +1114,23 @@ summary:focus-visible {
 
 .project-footer {
   flex: 0 0 auto;
-  min-height: 38px;
+  min-height: 44px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 7px 18px;
+  gap: 1px;
+  padding: 4px 14px;
   border-top: 1px solid var(--border);
   background: var(--page);
   color: var(--text-soft);
   text-align: center;
-  font-size: 0.74rem;
+  font-size: 0.72rem;
 }
 
 .project-footer p {
   margin: 0;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .project-footer p + p {
@@ -1138,10 +1175,6 @@ summary:focus-visible {
 
   .composer-heading {
     margin-bottom: 11px;
-  }
-
-  .composer-note {
-    display: none;
   }
 
   #text-input {
@@ -1209,12 +1242,7 @@ summary:focus-visible {
   }
 
   .project-footer {
-    gap: 2px 10px;
-    padding: 6px 12px;
-  }
-
-  .project-footer p {
-    flex-basis: 100%;
+    padding: 4px 10px;
   }
 
   .project-footer span {

@@ -8,7 +8,7 @@
     <title>Hopper</title>
     <link rel="icon" href="assets/favicon.ico" sizes="any">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="css/styles.css?v=20260908-1">
+    <link rel="stylesheet" href="css/styles.css?v=20260908-2">
   </head>
   <body>
     <div class="app-shell">
@@ -20,7 +20,11 @@
 
         <div class="header-session" id="header-session" hidden>
           <span class="sync-state" id="sync-state" aria-live="polite">Sincronizado</span>
-          <button class="text-button" id="logout-button" type="button">Salir</button>
+          <button class="icon-button logout-button" id="logout-button" type="button" aria-label="Salir" title="Salir">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M10 4H5.8A1.8 1.8 0 0 0 4 5.8v12.4A1.8 1.8 0 0 0 5.8 20H10M14 8l4 4-4 4M18 12H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -34,18 +38,20 @@
 
             <form class="pin-form" id="pin-form" novalidate>
               <label for="pin-input">PIN</label>
-              <input
-                id="pin-input"
-                name="pin"
-                type="password"
-                inputmode="numeric"
-                pattern="[0-9]{4}"
-                maxlength="4"
-                autocomplete="off"
-                aria-describedby="pin-message"
-                placeholder="••••"
-              >
-              <button class="primary-button" id="pin-submit" type="submit">Entrar</button>
+              <div class="pin-field">
+                <input
+                  id="pin-input"
+                  name="pin"
+                  type="password"
+                  inputmode="numeric"
+                  pattern="[0-9]{4}"
+                  maxlength="4"
+                  autocomplete="off"
+                  aria-describedby="pin-message"
+                  placeholder="••••"
+                >
+                <span class="pin-loader" id="pin-loader" hidden aria-hidden="true"></span>
+              </div>
             </form>
 
             <p class="form-message" id="pin-message" aria-live="polite">Todo desaparece automáticamente. 15 min por defecto.</p>
@@ -63,15 +69,11 @@
           <div class="workspace-inner">
             <section class="composer-card" aria-labelledby="workspace-title">
               <div class="composer-heading">
-                <div>
-                  <p class="eyebrow">BANDEJA TEMPORAL</p>
-                  <h1 id="workspace-title">Enviar</h1>
-                </div>
-                <p class="composer-note">El contador empieza cuando el contenido queda disponible.</p>
+                <h1 id="workspace-title">Enviar</h1>
               </div>
 
               <label class="sr-only" for="text-input">Texto o código</label>
-              <textarea id="text-input" rows="4" maxlength="250000" placeholder="Pega texto, código o escribe algo..."></textarea>
+              <textarea id="text-input" rows="4" maxlength="250000" placeholder="Pega tu texto aquí…"></textarea>
 
               <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Adjuntar archivos">
                 <input id="file-input" type="file" multiple hidden>
@@ -105,7 +107,11 @@
                   <h2 id="recent-title">Recientes</h2>
                   <span class="item-count" id="item-count">0</span>
                 </div>
-                <button class="text-button" id="refresh-button" type="button">Actualizar</button>
+                <button class="icon-button refresh-button" id="refresh-button" type="button" aria-label="Actualizar" title="Actualizar">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
+                  </svg>
+                </button>
               </div>
 
               <div class="items-frame">
@@ -164,6 +170,6 @@
       <p>© 2026 — Renzo Fernando Mosquera Daza</p>
     </footer>
 
-    <script type="module" src="js/app.js?v=20260908-1"></script>
+    <script type="module" src="js/app.js?v=20260908-2"></script>
   </body>
 </html>
