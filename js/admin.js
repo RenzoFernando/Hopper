@@ -300,6 +300,7 @@ async function createNewRoom() {
     const result = await hopperApi.createRoom(Number(elements.roomTtl.value) || 5);
     showToast(`Sala ${result.code} creada.`, "success");
     await refreshAll({ includeHealth: false });
+    openQr(result.code);
   } catch (error) {
     showToast(error.message || "No fue posible crear la sala.", "error");
   } finally {

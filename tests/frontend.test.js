@@ -89,3 +89,23 @@ test("Share Target no ofrece 6 horas cuando el destino es una sala", () => {
 test("no conserva el módulo UI antiguo sin referencias", () => {
   assert.equal(existsSync(resolve(root, "js/ui.js")), false);
 });
+
+test("el propietario encuentra la creación de salas y el código se muestra al crear", () => {
+  const index = read("index.html");
+  const admin = read("admin.html");
+  const adminJs = read("js/admin.js");
+
+  assert.match(index, /href="admin\.html#rooms">Crear sala<\/a>/);
+  assert.match(admin, /<section class="admin-panel" id="rooms"[^>]*>/);
+  assert.match(admin, /Quien tenga la invitación puede entrar sin usar tu PIN personal\./);
+  assert.match(adminJs, /await refreshAll\(\{ includeHealth: false \}\);\s*openQr\(result\.code\);/);
+});
+
+test("un enlace de Sala A no reutiliza silenciosamente la sesión de Sala B", () => {
+  const room = read("js/room.js");
+
+  assert.match(room, /const storedRoomSession = hopperApi\.getRoomSession\(\);/);
+  assert.match(room, /storedRoomSession && storedRoomCode !== normalizedHash[\s\S]*?hopperApi\.clearRoomSession\(\)/);
+  assert.match(room, /if \(!hasInviteCode \|\| code === normalizedHash\)[\s\S]*?await enterRoom\(result\.room, code \|\| normalizedHash\)/);
+});
+

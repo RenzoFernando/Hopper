@@ -1,4 +1,4 @@
-const CACHE_NAME = "hopper-shell-20260908-4";
+const CACHE_NAME = "hopper-shell-20260908-4-r1";
 const SHARE_DB = "hopper-share-target-v1";
 const SHELL = [
   "./",

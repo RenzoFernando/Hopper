@@ -233,16 +233,30 @@ async function initialize() {
   const hashCode = decodeURIComponent(window.location.hash.slice(1));
   const normalizedHash = normalizeCode(hashCode);
 
-  if (/^[A-Z]{2}-\d{4}$/.test(normalizedHash)) {
+  const hasInviteCode = /^[A-Z]{2}-\d{4}$/.test(normalizedHash);
+
+  if (hasInviteCode) {
     elements.roomCodeInput.value = normalizedHash;
     setMessage(`Sala ${normalizedHash}. Confirma para entrar.`);
+    const storedRoomSession = hopperApi.getRoomSession();
+    const storedRoomCode = storedRoomSession?.roomId ? rememberedCode(storedRoomSession.roomId) : "";
+
+    if (storedRoomSession && storedRoomCode !== normalizedHash) {
+      hopperApi.clearRoomSession();
+    }
   }
 
   if (hopperApi.hasRoomSession()) {
     try {
       const result = await hopperApi.roomStatus();
-      await enterRoom(result.room, rememberedCode(result.room.id) || normalizedHash);
-      return;
+      const code = rememberedCode(result.room.id);
+
+      if (!hasInviteCode || code === normalizedHash) {
+        await enterRoom(result.room, code || normalizedHash);
+        return;
+      }
+
+      hopperApi.clearRoomSession();
     } catch {
       hopperApi.clearRoomSession();
     }
