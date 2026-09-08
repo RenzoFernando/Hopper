@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "firebase", "cors", "cleanup", "url")]
+  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "r2", "cors", "cleanup", "url")]
   [string]$Action = "menu"
 )
 
@@ -8,20 +8,21 @@ Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
 $deployConfigPath = Join-Path $PSScriptRoot ".hopper-wrangler.json"
+$r2CorsPath = Join-Path $PSScriptRoot ".hopper-r2-cors.json"
 $schemaPath = Join-Path $PSScriptRoot "cloudflare\schema.sql"
 $frontendConfigPath = Join-Path $PSScriptRoot "js\config.js"
 
 $script:DatabaseName = ""
 $script:DatabaseId = ""
+$script:R2BucketName = ""
+$script:R2AccountId = ""
 $script:WorkerName = ""
 $script:WorkerUrl = ""
 $script:PublicAppUrl = ""
 $script:AllowedOrigin = ""
-$script:FirebaseProjectId = ""
-$script:StorageBucket = ""
 $script:MaxFileBytes = [long](512MB)
 $script:SessionSecretConfigured = $false
-$script:FirebaseSecretConfigured = $false
+$script:R2SecretConfigured = $false
 $script:RecoveryConfigured = $false
 
 function Invoke-Wrangler {
@@ -67,19 +68,19 @@ function Load-Config {
 
   $script:DatabaseName = [string]$config.databaseName
   $script:DatabaseId = [string]$config.databaseId
+  $script:R2BucketName = [string]$config.r2BucketName
+  $script:R2AccountId = [string]$config.r2AccountId
   $script:WorkerName = [string]$config.workerName
   $script:WorkerUrl = [string]$config.workerUrl
   $script:PublicAppUrl = [string]$config.publicAppUrl
   $script:AllowedOrigin = [string]$config.allowedOrigin
-  $script:FirebaseProjectId = [string]$config.firebaseProjectId
-  $script:StorageBucket = [string]$config.storageBucket
 
   if ($config.maxFileBytes) {
     $script:MaxFileBytes = [long]$config.maxFileBytes
   }
 
   $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
-  $script:FirebaseSecretConfigured = [bool]$config.firebaseSecretConfigured
+  $script:R2SecretConfigured = [bool]$config.r2SecretConfigured
   $script:RecoveryConfigured = [bool]$config.recoveryConfigured
 }
 
@@ -87,15 +88,15 @@ function Save-Config {
   $payload = [ordered]@{
     databaseName = $script:DatabaseName
     databaseId = $script:DatabaseId
+    r2BucketName = $script:R2BucketName
+    r2AccountId = $script:R2AccountId
     workerName = $script:WorkerName
     workerUrl = $script:WorkerUrl
     publicAppUrl = $script:PublicAppUrl
     allowedOrigin = $script:AllowedOrigin
-    firebaseProjectId = $script:FirebaseProjectId
-    storageBucket = $script:StorageBucket
     maxFileBytes = $script:MaxFileBytes
     sessionSecretConfigured = $script:SessionSecretConfigured
-    firebaseSecretConfigured = $script:FirebaseSecretConfigured
+    r2SecretConfigured = $script:R2SecretConfigured
     recoveryConfigured = $script:RecoveryConfigured
   }
 
@@ -110,7 +111,16 @@ function Get-Databases {
   }
 
   $parsed = $raw | ConvertFrom-Json
-  return if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
+
+  if ($parsed -is [System.Array]) {
+    return @($parsed)
+  }
+
+  if ($parsed.result) {
+    return @($parsed.result)
+  }
+
+  return @($parsed)
 }
 
 function Select-Database {
@@ -127,13 +137,15 @@ function Select-Database {
     }
   }
 
-  $exact = @($databases | Where-Object { $_.name -eq "hopper-security-db" })
+  foreach ($preferredName in @("hopper-db", "hopper-security-db")) {
+    $exact = @($databases | Where-Object { $_.name -eq $preferredName })
 
-  if ($exact.Count -eq 1) {
-    $script:DatabaseName = [string]$exact[0].name
-    $script:DatabaseId = [string]$exact[0].uuid
-    Save-Config
-    return
+    if ($exact.Count -eq 1) {
+      $script:DatabaseName = [string]$exact[0].name
+      $script:DatabaseId = [string]$exact[0].uuid
+      Save-Config
+      return
+    }
   }
 
   $hopperDatabases = @($databases | Where-Object { $_.name -match "hopper" })
@@ -146,12 +158,12 @@ function Select-Database {
   }
 
   if ($hopperDatabases.Count -eq 0) {
-    $answer = (Read-Host "No existe una D1 de Hopper. ¿Crear hopper-security-db? [S/n]").Trim().ToLowerInvariant()
+    $answer = (Read-Host "No existe una D1 de Hopper. ¿Crear hopper-db? [S/n]").Trim().ToLowerInvariant()
 
     if (-not $answer -or $answer -eq "s" -or $answer -eq "si" -or $answer -eq "sí" -or $answer -eq "y" -or $answer -eq "yes") {
-      Invoke-Wrangler d1 create hopper-security-db
+      Invoke-Wrangler d1 create hopper-db
       $databases = @(Get-Databases)
-      $created = @($databases | Where-Object { $_.name -eq "hopper-security-db" })
+      $created = @($databases | Where-Object { $_.name -eq "hopper-db" })
 
       if ($created.Count -ne 1) {
         throw "La base D1 se creó, pero no fue posible resolver su identificador."
@@ -187,6 +199,51 @@ function Select-Database {
   Save-Config
 }
 
+function Test-R2Bucket {
+  param([string]$Name)
+
+  if (-not $Name) {
+    return $false
+  }
+
+  & npx --yes wrangler r2 bucket info $Name --json *> $null
+  return $LASTEXITCODE -eq 0
+}
+
+function Select-R2Bucket {
+  if ($script:R2BucketName -and (Test-R2Bucket $script:R2BucketName)) {
+    return
+  }
+
+  $defaultName = if ($script:R2BucketName) { $script:R2BucketName } else { "hopper-files" }
+  $bucketName = (Read-Host "Bucket privado de R2 [$defaultName]").Trim().ToLowerInvariant()
+
+  if (-not $bucketName) {
+    $bucketName = $defaultName
+  }
+
+  if ($bucketName -notmatch "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$") {
+    throw "El bucket debe tener entre 3 y 63 caracteres y usar solo minúsculas, números y guiones."
+  }
+
+  if (-not (Test-R2Bucket $bucketName)) {
+    $answer = (Read-Host "El bucket '$bucketName' no existe. ¿Crearlo en R2? [S/n]").Trim().ToLowerInvariant()
+
+    if ($answer -and $answer -notin @("s", "si", "sí", "y", "yes")) {
+      throw "Debes crear o seleccionar un bucket de R2 antes de continuar."
+    }
+
+    Invoke-Wrangler r2 bucket create $bucketName
+  }
+
+  if (-not (Test-R2Bucket $bucketName)) {
+    throw "El bucket de R2 no quedó disponible después de la operación."
+  }
+
+  $script:R2BucketName = $bucketName
+  Save-Config
+}
+
 function Read-ValidatedUrl {
   param([string]$Prompt, [string]$Default = "")
 
@@ -212,7 +269,7 @@ function Read-ValidatedUrl {
 
 function Configure-BaseValues {
   $previousWorkerName = $script:WorkerName
-  $previousFirebaseProjectId = $script:FirebaseProjectId
+  $previousAccountId = $script:R2AccountId
   $workerDefault = if ($script:WorkerName) { $script:WorkerName } else { "hopper-api" }
   $workerName = (Read-Host "Nombre del Worker [$workerDefault]").Trim()
 
@@ -229,40 +286,26 @@ function Configure-BaseValues {
   $script:PublicAppUrl = $publicUri.AbsoluteUri.TrimEnd("/") + "/"
   $script:AllowedOrigin = $publicUri.GetLeftPart([UriPartial]::Authority)
 
-  $projectDefault = $script:FirebaseProjectId
-  $projectLabel = if ($projectDefault) { "ID del proyecto Firebase [$projectDefault]" } else { "ID del proyecto Firebase" }
-  $project = (Read-Host $projectLabel).Trim()
+  $accountLabel = if ($script:R2AccountId) { "Cloudflare Account ID [$($script:R2AccountId)]" } else { "Cloudflare Account ID" }
+  $accountId = (Read-Host $accountLabel).Trim().ToLowerInvariant()
 
-  if (-not $project) {
-    $project = $projectDefault
+  if (-not $accountId) {
+    $accountId = $script:R2AccountId
   }
 
-  if (-not $project) {
-    throw "El ID del proyecto Firebase es obligatorio."
+  if ($accountId -notmatch "^[0-9a-f]{32}$") {
+    throw "El Account ID de Cloudflare debe contener 32 caracteres hexadecimales."
   }
 
-  $script:FirebaseProjectId = $project
-  $bucketDefault = $script:StorageBucket
-  $bucketLabel = if ($bucketDefault) { "Bucket de Firebase Storage [$bucketDefault]" } else { "Bucket de Firebase Storage, exactamente como aparece en Firebase" }
-  $bucket = (Read-Host $bucketLabel).Trim()
-
-  if (-not $bucket) {
-    $bucket = $bucketDefault
-  }
-
-  if (-not $bucket) {
-    throw "El bucket de Firebase Storage es obligatorio."
-  }
-
-  $script:StorageBucket = $bucket
+  $script:R2AccountId = $accountId
 
   if ($previousWorkerName -and $script:WorkerName -ne $previousWorkerName) {
     $script:WorkerUrl = ""
     $script:SessionSecretConfigured = $false
-    $script:FirebaseSecretConfigured = $false
-    $script:RecoverySecretConfigured = $false
-  } elseif ($previousFirebaseProjectId -and $script:FirebaseProjectId -ne $previousFirebaseProjectId) {
-    $script:FirebaseSecretConfigured = $false
+    $script:R2SecretConfigured = $false
+    $script:RecoveryConfigured = $false
+  } elseif ($previousAccountId -and $script:R2AccountId -ne $previousAccountId) {
+    $script:R2SecretConfigured = $false
   }
 
   $currentMb = [math]::Round($script:MaxFileBytes / 1MB)
@@ -271,8 +314,8 @@ function Configure-BaseValues {
   if ($maxInput) {
     $maxMb = [long]$maxInput
 
-    if ($maxMb -lt 1 -or $maxMb -gt 10240) {
-      throw "El tamaño máximo debe estar entre 1 MB y 10240 MB."
+    if ($maxMb -lt 1 -or $maxMb -gt 5120) {
+      throw "El tamaño máximo debe estar entre 1 MB y 5120 MB."
     }
 
     $script:MaxFileBytes = [long]($maxMb * 1MB)
@@ -291,7 +334,7 @@ function Invoke-D1File {
   Invoke-Wrangler d1 execute $script:DatabaseName --remote --file $Path --yes
 }
 
-function Initialize-SecuritySchema {
+function Initialize-Schema {
   if (-not $script:DatabaseName) {
     Select-Database
   }
@@ -367,7 +410,7 @@ export { appConfig };
 }
 
 function New-DeployConfig {
-  if (-not $script:DatabaseId -or -not $script:WorkerName -or -not $script:PublicAppUrl -or -not $script:FirebaseProjectId -or -not $script:StorageBucket) {
+  if (-not $script:DatabaseId -or -not $script:WorkerName -or -not $script:PublicAppUrl -or -not $script:R2BucketName -or -not $script:R2AccountId) {
     throw "Faltan valores de configuración. Ejecuta primero la configuración guiada."
   }
 
@@ -379,16 +422,22 @@ function New-DeployConfig {
     vars = [ordered]@{
       ALLOWED_ORIGINS = $script:AllowedOrigin
       ALLOW_LOCALHOST = "true"
-      FIREBASE_PROJECT_ID = $script:FirebaseProjectId
-      FIREBASE_STORAGE_BUCKET = $script:StorageBucket
       PUBLIC_APP_URL = $script:PublicAppUrl
       MAX_FILE_BYTES = [string]$script:MaxFileBytes
+      R2_ACCOUNT_ID = $script:R2AccountId
+      R2_BUCKET_NAME = $script:R2BucketName
     }
     d1_databases = @(
       [ordered]@{
         binding = "DB"
         database_name = $script:DatabaseName
         database_id = $script:DatabaseId
+      }
+    )
+    r2_buckets = @(
+      [ordered]@{
+        binding = "FILES"
+        bucket_name = $script:R2BucketName
       }
     )
     triggers = [ordered]@{
@@ -398,7 +447,11 @@ function New-DeployConfig {
 }
 
 function Deploy-Worker {
-  Initialize-SecuritySchema
+  if (-not $script:R2BucketName) {
+    Select-R2Bucket
+  }
+
+  Initialize-Schema
   $config = New-DeployConfig
   $config | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
 
@@ -439,31 +492,23 @@ function Configure-SessionSecret {
   Save-Config
 }
 
-function Configure-FirebaseSecret {
-  $path = (Read-Host "Ruta del JSON de cuenta de servicio de Firebase").Trim().Trim('"')
-
-  if (-not (Test-Path $path)) {
-    throw "No se encontró el archivo de cuenta de servicio."
+function Configure-R2Secrets {
+  if (-not $script:R2BucketName) {
+    Select-R2Bucket
   }
 
-  $raw = Get-Content $path -Raw
+  $accessKeyId = Read-SecretText "R2 Access Key ID"
+  $secretAccessKey = Read-SecretText "R2 Secret Access Key"
 
-  try {
-    $serviceAccount = $raw | ConvertFrom-Json
-  } catch {
-    throw "El archivo de cuenta de servicio no contiene JSON válido."
+  if (-not $accessKeyId -or -not $secretAccessKey) {
+    throw "Las dos credenciales S3 de R2 son obligatorias."
   }
 
-  if (-not $serviceAccount.client_email -or -not $serviceAccount.private_key -or -not $serviceAccount.project_id) {
-    throw "La cuenta de servicio está incompleta."
-  }
-
-  if ([string]$serviceAccount.project_id -ne $script:FirebaseProjectId) {
-    throw "La cuenta de servicio no pertenece al proyecto Firebase configurado."
-  }
-
-  Set-WorkerSecretsBulk ([ordered]@{ FIREBASE_SERVICE_ACCOUNT_JSON = $raw })
-  $script:FirebaseSecretConfigured = $true
+  Set-WorkerSecretsBulk ([ordered]@{
+    R2_ACCESS_KEY_ID = $accessKeyId
+    R2_SECRET_ACCESS_KEY = $secretAccessKey
+  })
+  $script:R2SecretConfigured = $true
   Save-Config
 }
 
@@ -498,6 +543,44 @@ function Configure-RecoveryEmail {
   Set-WorkerSecretsBulk $secrets
   $script:RecoveryConfigured = $true
   Save-Config
+}
+
+function Configure-R2Cors {
+  if (-not $script:R2BucketName) {
+    Select-R2Bucket
+  }
+
+  if (-not $script:AllowedOrigin) {
+    throw "La URL pública de Hopper todavía no está configurada."
+  }
+
+  $origins = @(
+    $script:AllowedOrigin,
+    "http://localhost:5500",
+    "http://127.0.0.1:5500"
+  ) | Where-Object { $_ } | Select-Object -Unique
+
+  $payload = [ordered]@{
+    rules = @(
+      [ordered]@{
+        allowed = [ordered]@{
+          origins = @($origins)
+          methods = @("GET", "HEAD", "PUT")
+          headers = @("Content-Type")
+        }
+        exposeHeaders = @("ETag", "Content-Length", "Content-Type", "Content-Disposition")
+        maxAgeSeconds = 3600
+      }
+    )
+  }
+
+  try {
+    $payload | ConvertTo-Json -Depth 8 | Set-Content $r2CorsPath -Encoding UTF8
+    Invoke-Wrangler r2 bucket cors set $script:R2BucketName --file $r2CorsPath
+    Invoke-Wrangler r2 bucket cors list $script:R2BucketName
+  } finally {
+    Remove-Item $r2CorsPath -Force -ErrorAction SilentlyContinue
+  }
 }
 
 function Invoke-AdminRequest {
@@ -559,43 +642,23 @@ function Set-NewPin {
   }
 }
 
-function Configure-StorageCors {
-  if (-not $script:FirebaseSecretConfigured) {
-    throw "Primero configura la cuenta de servicio de Firebase."
-  }
+function Show-Status {
+  Initialize-Schema
+  Invoke-D1Command "SELECT failed_attempts, locked, locked_at, last_failed_at, last_success_at, updated_at FROM security_state WHERE id = 1; SELECT version, updated_at FROM session_state WHERE id = 1; SELECT COUNT(*) AS active_items FROM drop_items WHERE status = 'ready' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'); SELECT target, kind, created_at, note FROM blocked_clients ORDER BY id DESC;"
 
-  $origins = @($script:AllowedOrigin, "http://localhost:5500", "http://127.0.0.1:5500") | Where-Object { $_ }
-
-  Use-TemporaryAdminToken {
-    param($adminToken)
-    $result = Invoke-AdminRequest "/admin/storage-cors" @{ origins = $origins } $adminToken
-
-    if (-not $result.ok) {
-      throw "El Worker no confirmó la configuración CORS de Storage."
+  if ($script:R2BucketName) {
+    if (Test-R2Bucket $script:R2BucketName) {
+      Write-Host "R2: $script:R2BucketName — OK"
+    } else {
+      Write-Warning "El bucket R2 configurado no está disponible."
     }
   }
-}
-
-function Deploy-FirebaseRules {
-  if (-not $script:FirebaseProjectId) {
-    throw "El proyecto Firebase no está configurado."
-  }
-
-  & npx --yes firebase-tools deploy --only firestore:rules,storage --project $script:FirebaseProjectId
-
-  if ($LASTEXITCODE -ne 0) {
-    throw "Firebase CLI no pudo desplegar las reglas. Si es la primera vez, ejecuta: npx firebase-tools login"
-  }
-}
-
-function Show-Status {
-  Initialize-SecuritySchema
-  Invoke-D1Command "SELECT failed_attempts, locked, locked_at, last_failed_at, last_success_at, updated_at FROM security_state WHERE id = 1; SELECT version, updated_at FROM session_state WHERE id = 1; SELECT target, kind, created_at, note FROM blocked_clients ORDER BY id DESC;"
 
   if ($script:WorkerUrl) {
     try {
       $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get
       Write-Host "Worker: $($health.service) — OK"
+      Write-Host "R2 binding: $($health.configured.r2Bucket) | firma: $($health.configured.r2Signing) | correo: $($health.configured.recoveryEmail)"
     } catch {
       Write-Warning "El Worker no respondió al health check."
     }
@@ -671,34 +734,33 @@ function Update-PublicUrl {
   $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
   Save-Config
   Deploy-Worker
-
-  if ($script:FirebaseSecretConfigured) {
-    Configure-StorageCors
-  }
+  Configure-R2Cors
 }
 
 function Invoke-GuidedSetup {
   Write-Host ""
   Write-Host "Hopper - configuración inicial"
-  Write-Host "Necesitas un proyecto Firebase con Firestore y Storage habilitados, una cuenta de servicio JSON y una API key de Resend."
+  Write-Host "Necesitas Cloudflare con D1 y R2 disponibles, credenciales S3 de R2 y una API key de Resend."
+  Write-Host "El administrador no activa planes de pago ni configura facturación."
   Write-Host ""
 
   Select-Database
+  Select-R2Bucket
   Configure-BaseValues
-  Initialize-SecuritySchema
+  Initialize-Schema
   Deploy-Worker
   Configure-SessionSecret
-  Configure-FirebaseSecret
+  Configure-R2Secrets
   Configure-RecoveryEmail
   Set-NewPin
-  Configure-StorageCors
-  Deploy-FirebaseRules
+  Configure-R2Cors
   Write-FrontendConfig
   Show-Status
 
   Write-Host ""
   Write-Host "Configuración terminada."
   Write-Host "Worker: $script:WorkerUrl"
+  Write-Host "R2: $script:R2BucketName"
   Write-Host "Frontend enlazado en: js/config.js"
 }
 
@@ -707,18 +769,18 @@ function Invoke-Action {
 
   switch ($SelectedAction) {
     "setup" { Invoke-GuidedSetup }
-    "init" { Initialize-SecuritySchema }
+    "init" { Initialize-Schema }
     "deploy" { Deploy-Worker }
     "status" { Show-Status }
-    "lock" { Initialize-SecuritySchema; Set-ManualLock }
-    "unlock" { Initialize-SecuritySchema; Set-ManualUnlock }
+    "lock" { Initialize-Schema; Set-ManualLock }
+    "unlock" { Initialize-Schema; Set-ManualUnlock }
     "change-pin" { Set-NewPin }
-    "block" { Initialize-SecuritySchema; Add-BlockedClient }
-    "unblock" { Initialize-SecuritySchema; Remove-BlockedClient }
-    "events" { Initialize-SecuritySchema; Show-Events }
+    "block" { Initialize-Schema; Add-BlockedClient }
+    "unblock" { Initialize-Schema; Remove-BlockedClient }
+    "events" { Initialize-Schema; Show-Events }
     "email" { Configure-RecoveryEmail }
-    "firebase" { Configure-FirebaseSecret; Deploy-FirebaseRules }
-    "cors" { Configure-StorageCors }
+    "r2" { Select-R2Bucket; Configure-R2Secrets }
+    "cors" { Configure-R2Cors }
     "cleanup" { Invoke-Cleanup }
     "url" { Update-PublicUrl }
   }
@@ -737,6 +799,7 @@ do {
   Write-Host ""
   Write-Host "Hopper - administración"
   Write-Host "D1: $script:DatabaseName"
+  if ($script:R2BucketName) { Write-Host "R2: $script:R2BucketName" }
   if ($script:WorkerUrl) { Write-Host "Worker: $script:WorkerUrl" }
   Write-Host "[1] Configuración inicial guiada"
   Write-Host "[2] Inicializar o actualizar esquema D1"
@@ -749,8 +812,8 @@ do {
   Write-Host "[9] Desbloquear IP o red"
   Write-Host "[10] Ver eventos de seguridad"
   Write-Host "[11] Configurar correo de recuperación"
-  Write-Host "[12] Configurar Firebase y desplegar reglas"
-  Write-Host "[13] Configurar CORS de Storage"
+  Write-Host "[12] Configurar credenciales de R2"
+  Write-Host "[13] Configurar CORS de R2"
   Write-Host "[14] Ejecutar limpieza ahora"
   Write-Host "[15] Cambiar URL pública"
   Write-Host "[0] Salir"
@@ -769,7 +832,7 @@ do {
     "9" { Invoke-Action "unblock" }
     "10" { Invoke-Action "events" }
     "11" { Invoke-Action "email" }
-    "12" { Invoke-Action "firebase" }
+    "12" { Invoke-Action "r2" }
     "13" { Invoke-Action "cors" }
     "14" { Invoke-Action "cleanup" }
     "15" { Invoke-Action "url" }

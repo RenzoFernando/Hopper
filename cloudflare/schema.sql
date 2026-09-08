@@ -90,3 +90,27 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires_at
 ON rate_limits (expires_at);
+
+CREATE TABLE IF NOT EXISTS drop_items (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('text', 'file')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready')),
+  content TEXT,
+  name TEXT,
+  size INTEGER NOT NULL DEFAULT 0 CHECK (size >= 0),
+  mime_type TEXT,
+  storage_key TEXT UNIQUE,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  ttl_minutes INTEGER NOT NULL CHECK (ttl_minutes IN (15, 30, 60, 360)),
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_drop_items_status_expires_at
+ON drop_items (status, expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_drop_items_status_created_at
+ON drop_items (status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_drop_items_expires_at
+ON drop_items (expires_at);

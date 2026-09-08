@@ -50,15 +50,6 @@ export function bytesToHex(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function pemToArrayBuffer(pem) {
-  const base64 = String(pem)
-    .replace("-----BEGIN PRIVATE KEY-----", "")
-    .replace("-----END PRIVATE KEY-----", "")
-    .replace(/\s+/g, "");
-  const binary = atob(base64);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0)).buffer;
-}
-
 export function rfc3986Encode(value) {
   return encodeURIComponent(String(value)).replace(/[!'()*]/g, (character) => (
     `%${character.charCodeAt(0).toString(16).toUpperCase()}`

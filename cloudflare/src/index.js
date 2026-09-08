@@ -1,5 +1,4 @@
 import { MAX_FAILED_ATTEMPTS, SESSION_TTL_SECONDS } from "./constants.js";
-import { updateStorageCors } from "./google.js";
 import {
   cancelFileUpload,
   cleanupExpiredItems,
@@ -244,16 +243,6 @@ async function handleAdminChangePin(request, env, origin) {
   return jsonResponse({ ok: true, status: "updated" }, 200, origin);
 }
 
-async function handleAdminStorageCors(request, env, origin) {
-  const client = await requireAdmin(request, env);
-  const body = await readJson(request);
-  const result = await updateStorageCors(env, body?.origins);
-  await logSecurityEvent(env.DB, "admin-storage-cors", client, {
-    origins: Array.isArray(body?.origins) ? body.origins : []
-  });
-  return jsonResponse({ ok: true, cors: result?.cors || [] }, 200, origin);
-}
-
 async function handleAdminCleanup(request, env, origin) {
   const client = await requireAdmin(request, env);
   await readJson(request);
@@ -271,8 +260,9 @@ async function routeRequest(request, env, origin) {
       ok: true,
       service: "hopper-api",
       configured: {
-        firebaseProject: Boolean(env.FIREBASE_PROJECT_ID),
-        storageBucket: Boolean(env.FIREBASE_STORAGE_BUCKET),
+        d1: Boolean(env.DB),
+        r2Bucket: Boolean(env.FILES && env.R2_BUCKET_NAME),
+        r2Signing: Boolean(env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY),
         recoveryEmail: Boolean(env.RECOVERY_EMAIL)
       }
     }, 200, origin);
@@ -336,10 +326,6 @@ async function routeRequest(request, env, origin) {
 
   if (request.method === "POST" && pathname === "/admin/change-pin") {
     return handleAdminChangePin(request, env, origin);
-  }
-
-  if (request.method === "POST" && pathname === "/admin/storage-cors") {
-    return handleAdminStorageCors(request, env, origin);
   }
 
   if (request.method === "POST" && pathname === "/admin/cleanup") {

@@ -1,15 +1,28 @@
 # Despliegue de Hopper
 
-Hopper separa el frontend estático del backend de seguridad. El navegador solo habla con el Cloudflare Worker; Firestore permanece cerrado al cliente y los archivos se suben directamente a Firebase Storage mediante URLs firmadas de corta duración.
+Hopper separa el frontend estático del backend. El navegador usa el Cloudflare Worker para autenticarse y gestionar la bandeja; D1 almacena seguridad, textos y metadatos, mientras los archivos binarios viajan directamente entre el navegador y un bucket privado de R2 mediante URLs firmadas de corta duración.
 
 ## Requisitos
 
 - Node.js con `npx` disponible.
-- Una cuenta de Cloudflare con Workers y D1.
-- Un proyecto Firebase con Firestore y Storage habilitados.
-- Una cuenta de servicio JSON del mismo proyecto Firebase.
+- Una cuenta de Cloudflare con Workers, D1 y R2 disponibles.
+- Un bucket privado de R2 para Hopper.
+- Credenciales S3 de R2 con permiso **Object Read & Write** limitado al bucket de Hopper.
 - Una API key de Resend y un correo de recuperación.
-- La URL desde la que se publicará el frontend.
+- La URL pública desde la que se servirá el frontend.
+
+Hopper está planteado para funcionar dentro de niveles gratuitos. El administrador no activa planes de pago ni configura facturación. Si alguna plataforma exige habilitar cobros para continuar, detén la configuración antes de aceptarlos.
+
+## R2 y credenciales S3
+
+En Cloudflare, abre **Storage & databases → R2** y crea o selecciona el bucket de Hopper. El bucket debe permanecer privado.
+
+Después abre la administración de API Tokens de R2 y crea credenciales con:
+
+- permiso **Object Read & Write**;
+- acceso únicamente al bucket de Hopper.
+
+Conserva el **Access Key ID** y el **Secret Access Key**. El secreto se muestra una sola vez y nunca debe guardarse en el repositorio.
 
 ## Configuración inicial guiada
 
@@ -23,26 +36,20 @@ Selecciona **1 — Configuración inicial guiada**.
 
 El administrador realiza, en orden:
 
-1. Selección o creación de `hopper-security-db` en D1.
-2. Registro del nombre del Worker, URL pública, proyecto Firebase, bucket de Storage y límite de tamaño por archivo.
-3. Aplicación de `cloudflare/schema.sql` en D1.
-4. Despliegue del Worker y programación de la limpieza cada minuto.
-5. Generación y carga de `SESSION_SECRET`.
-6. Carga del JSON de cuenta de servicio de Firebase como secret del Worker.
-7. Configuración de Resend y del correo de recuperación.
-8. Creación del PIN de cuatro dígitos sin guardarlo en el repositorio.
-9. Configuración de CORS en el bucket para el origen público y el entorno local.
-10. Despliegue de las reglas cerradas de Firestore y Storage.
+1. Selección o creación de la base `hopper-db` en D1.
+2. Registro o creación del bucket privado de R2.
+3. Registro del nombre del Worker, URL pública, Account ID de Cloudflare y límite de tamaño por archivo.
+4. Aplicación de `cloudflare/schema.sql` en D1.
+5. Despliegue del Worker con bindings para D1 y R2 y limpieza programada cada minuto.
+6. Generación y carga de `SESSION_SECRET`.
+7. Carga del Access Key ID y Secret Access Key de R2 como secrets del Worker.
+8. Configuración de Resend y del correo de recuperación.
+9. Creación del PIN de cuatro dígitos sin guardarlo en el repositorio.
+10. Configuración de CORS del bucket para GitHub Pages y el entorno local.
 11. Escritura de la URL real del Worker en `js/config.js`.
-12. Comprobación del estado de D1 y del endpoint `/health`.
+12. Comprobación de D1, R2 y del endpoint `/health`.
 
-Los archivos `.hopper-admin.json` y `.hopper-wrangler.json` están excluidos de Git. El primero conserva únicamente datos operativos no secretos; el segundo solo existe durante el despliegue.
-
-## Cuenta de servicio de Firebase
-
-En Firebase Console, abre la configuración del proyecto y genera una clave privada desde la sección de cuentas de servicio. Conserva ese JSON fuera del repositorio. El administrador verifica que `project_id` coincida con el proyecto configurado antes de enviarlo a Cloudflare como secret.
-
-Firestore y Storage usan reglas `deny all`. El Worker accede con la cuenta de servicio y emite URLs firmadas únicamente después de validar una sesión de Hopper.
+Los archivos `.hopper-admin.json`, `.hopper-wrangler.json` y `.hopper-r2-cors.json` están excluidos de Git. La configuración persistente guarda únicamente datos operativos no secretos; las credenciales se envían directamente a Cloudflare como secrets.
 
 ## Frontend
 
@@ -54,9 +61,17 @@ Para probar localmente:
 npx --yes http-server . -p 5500 -c-1
 ```
 
-El Worker permite `http://localhost` y `http://127.0.0.1` durante desarrollo. Storage queda configurado para los puertos `5500` utilizados por la guía.
+El Worker permite `http://localhost` y `http://127.0.0.1` durante desarrollo. El administrador también incluye esos orígenes en CORS de R2.
 
-Si cambia la URL pública, ejecuta el administrador y selecciona **15 — Cambiar URL pública**. Esa acción vuelve a desplegar el Worker, actualiza `PUBLIC_APP_URL`, ajusta el origen permitido y vuelve a configurar CORS de Storage.
+Si cambia la URL pública, ejecuta el administrador y selecciona **15 — Cambiar URL pública**. Esa acción vuelve a desplegar el Worker, actualiza `PUBLIC_APP_URL`, ajusta el origen permitido y vuelve a configurar CORS de R2.
+
+## Archivos
+
+El Worker no recibe el cuerpo binario de los archivos. Después de validar la sesión crea una URL firmada para un objeto concreto de R2. El navegador sube directamente al bucket y luego confirma la operación con el Worker.
+
+Para descargas y vistas previas ocurre lo mismo: el Worker valida que el elemento siga activo y emite una URL firmada que nunca dura más que el tiempo restante del elemento.
+
+El bucket no necesita ser público.
 
 ## Recuperación
 
@@ -66,9 +81,9 @@ El menú administrativo permite reenviar la configuración de correo, cambiar el
 
 ## Expiración y limpieza
 
-Cada elemento tiene su propio `expiresAt`. El frontend lo oculta al llegar a cero y bloquea las acciones de interfaz; el Worker vuelve a comprobar la expiración antes de emitir URLs de descarga o vista previa y antes de extender el tiempo. Las URLs firmadas de archivos tampoco pueden durar más que el tiempo restante del elemento.
+Cada elemento tiene su propio `expiresAt`. El frontend lo oculta al llegar a cero y bloquea las acciones de interfaz; el Worker vuelve a comprobar la expiración antes de emitir URLs de descarga o vista previa y antes de extender el tiempo.
 
-Un Cron Trigger ejecuta la limpieza cada minuto. Los archivos se eliminan primero de Storage y después se elimina su documento de Firestore. Las subidas iniciadas que no se completan también vencen y son retiradas automáticamente.
+Un Cron Trigger ejecuta la limpieza cada minuto. Los archivos expirados se eliminan primero de R2 y después se retiran sus metadatos de D1. Las subidas iniciadas que no se completan también vencen y se limpian automáticamente.
 
 ## Verificación final
 

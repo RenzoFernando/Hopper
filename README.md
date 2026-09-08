@@ -6,6 +6,12 @@
 
 <img src="assets/favicon.png" alt="Icono de Hopper" width="120" align="center">
 
+<p>
+  <a href="https://renzofernando.github.io/Hopper/">
+    <img src="https://img.shields.io/badge/VER%20APLICACI%C3%93N%20WEB-202123?style=for-the-badge" alt="Ver aplicación web">
+  </a>
+</p>
+
 <strong>Transferencia temporal de texto y archivos.</strong>
 
 </div>
@@ -32,8 +38,9 @@
 - HTML5
 - CSS3
 - JavaScript ES Modules
-- Cloudflare Workers y D1
-- Firebase Firestore y Storage
+- Cloudflare Workers
+- Cloudflare D1
+- Cloudflare R2
 - Resend
 
 ## Uso

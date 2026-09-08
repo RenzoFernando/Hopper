@@ -115,11 +115,11 @@ async function request(path, {
   return payload;
 }
 
-function uploadToSignedUrl(file, uploadUrl, onProgress) {
+function uploadToSignedUrl(file, uploadUrl, onProgress, contentType = "") {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", uploadUrl, true);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("Content-Type", contentType || file.type || "application/octet-stream");
 
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable && typeof onProgress === "function") {
@@ -134,14 +134,14 @@ function uploadToSignedUrl(file, uploadUrl, onProgress) {
         return;
       }
 
-      reject(new ApiError(`Storage rechazó la subida (${xhr.status}).`, {
+      reject(new ApiError(`R2 rechazó la subida (${xhr.status}).`, {
         status: xhr.status,
         code: "storage-upload-error"
       }));
     });
 
     xhr.addEventListener("error", () => {
-      reject(new ApiError("La subida a Storage se interrumpió.", { code: "storage-upload-error" }));
+      reject(new ApiError("La subida a R2 se interrumpió.", { code: "storage-upload-error" }));
     });
 
     xhr.addEventListener("abort", () => {

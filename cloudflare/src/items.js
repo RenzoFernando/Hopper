@@ -1,51 +1,20 @@
 import {
   DEFAULT_MAX_FILE_BYTES,
-  MAX_FIRESTORE_SCAN,
+  DOWNLOAD_URL_TTL_SECONDS,
+  MAX_CLEANUP_ITEMS,
   MAX_LIST_ITEMS,
   MAX_TEXT_CHARACTERS,
   PENDING_UPLOAD_TTL_SECONDS,
   TTL_OPTIONS,
-  UPLOAD_URL_TTL_SECONDS,
-  DOWNLOAD_URL_TTL_SECONDS
+  UPLOAD_URL_TTL_SECONDS
 } from "./constants.js";
 import { rfc3986Encode } from "./crypto.js";
-import {
-  createSignedStorageUrl,
-  deleteStorageObject,
-  firestoreRequest,
-  getStorageObjectMetadata,
-  requireGoogleOk
-} from "./google.js";
 import { HttpError, normalizeText } from "./http.js";
-
-function firestoreString(value) {
-  return { stringValue: String(value) };
-}
-
-function firestoreInteger(value) {
-  return { integerValue: String(Math.trunc(Number(value))) };
-}
-
-function firestoreTimestamp(value) {
-  return { timestampValue: new Date(value).toISOString() };
-}
-
-function documentId(document) {
-  const name = String(document?.name || "");
-  return name.split("/").pop() || "";
-}
-
-function fieldString(fields, name) {
-  return String(fields?.[name]?.stringValue || "");
-}
-
-function fieldInteger(fields, name) {
-  return Number(fields?.[name]?.integerValue || 0);
-}
-
-function fieldTimestamp(fields, name) {
-  return String(fields?.[name]?.timestampValue || "");
-}
+import {
+  createSignedR2Url,
+  deleteR2Object,
+  getR2ObjectMetadata
+} from "./r2.js";
 
 export function normalizeTtlMinutes(value) {
   const minutes = Number(value);
@@ -109,112 +78,69 @@ function validateItemId(value) {
   return id;
 }
 
-function dropItemPath(id) {
-  return `/dropItems/${encodeURIComponent(validateItemId(id))}`;
-}
-
-async function createDropItem(env, id, fields) {
-  const query = new URLSearchParams({ documentId: id });
-  const response = await firestoreRequest(env, `/dropItems?${query.toString()}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fields })
-  });
-
-  return requireGoogleOk(response, "Firestore no pudo crear el elemento temporal.");
-}
-
-async function updateDropItem(env, id, fields) {
-  const query = new URLSearchParams();
-
-  for (const field of Object.keys(fields)) {
-    query.append("updateMask.fieldPaths", field);
-  }
-
-  query.set("currentDocument.exists", "true");
-  const response = await firestoreRequest(env, `${dropItemPath(id)}?${query.toString()}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fields })
-  });
-
-  return requireGoogleOk(response, "Firestore no pudo actualizar el elemento temporal.");
-}
-
-async function deleteDropItemDocument(env, id) {
-  const response = await firestoreRequest(
-    env,
-    `${dropItemPath(id)}?currentDocument.exists=true`,
-    { method: "DELETE" }
-  );
-
-  if (response.status === 404) {
-    return;
-  }
-
-  await requireGoogleOk(response, "Firestore no pudo eliminar el elemento temporal.");
-}
-
-export async function getDropItem(env, id) {
-  const response = await firestoreRequest(env, dropItemPath(id), { method: "GET" });
-
-  if (response.status === 404) {
+function rowToDropItem(row) {
+  if (!row) {
     return null;
   }
 
-  const document = await requireGoogleOk(response, "Firestore no pudo leer el elemento temporal.");
-  return parseDropItem(document);
-}
-
-export function parseDropItem(document) {
-  const fields = document?.fields || {};
-  const type = fieldString(fields, "type");
   const item = {
-    id: documentId(document),
-    type,
-    status: fieldString(fields, "status"),
-    createdAt: fieldTimestamp(fields, "createdAt"),
-    expiresAt: fieldTimestamp(fields, "expiresAt"),
-    ttlMinutes: fieldInteger(fields, "ttlMinutes")
+    id: String(row.id || ""),
+    type: String(row.type || ""),
+    status: String(row.status || ""),
+    createdAt: String(row.created_at || ""),
+    expiresAt: String(row.expires_at || ""),
+    ttlMinutes: Number(row.ttl_minutes || 0)
   };
 
-  if (type === "text") {
-    item.content = fieldString(fields, "content");
+  if (item.type === "text") {
+    item.content = String(row.content ?? "");
   }
 
-  if (type === "file") {
-    item.name = fieldString(fields, "name");
-    item.size = fieldInteger(fields, "size");
-    item.mimeType = fieldString(fields, "mimeType") || "application/octet-stream";
-    item.storagePath = fieldString(fields, "storagePath");
+  if (item.type === "file") {
+    item.name = String(row.name || "archivo");
+    item.size = Number(row.size || 0);
+    item.mimeType = String(row.mime_type || "application/octet-stream");
+    item.storageKey = String(row.storage_key || "");
   }
 
   return item;
 }
 
-async function listDropDocuments(env, maxDocuments = MAX_FIRESTORE_SCAN) {
-  const documents = [];
-  let pageToken = "";
-
-  while (documents.length < maxDocuments) {
-    const query = new URLSearchParams({ pageSize: "100" });
-
-    if (pageToken) {
-      query.set("pageToken", pageToken);
-    }
-
-    const response = await firestoreRequest(env, `/dropItems?${query.toString()}`, { method: "GET" });
-    const payload = await requireGoogleOk(response, "Firestore no pudo listar los elementos temporales.");
-    const page = Array.isArray(payload?.documents) ? payload.documents : [];
-    documents.push(...page);
-    pageToken = String(payload?.nextPageToken || "");
-
-    if (!pageToken || page.length === 0) {
-      break;
-    }
+function publicItem(item) {
+  if (!item || item.type !== "file") {
+    return item;
   }
 
-  return documents.slice(0, maxDocuments);
+  const { storageKey: _storageKey, ...visible } = item;
+  return { ...visible, previewable: isPreviewableImage(item) };
+}
+
+async function deleteDropItemRow(env, id) {
+  await env.DB.prepare(`DELETE FROM drop_items WHERE id = ?1`)
+    .bind(validateItemId(id))
+    .run();
+}
+
+export async function getDropItem(env, id) {
+  const row = await env.DB.prepare(`
+    SELECT
+      id,
+      type,
+      status,
+      content,
+      name,
+      size,
+      mime_type,
+      storage_key,
+      created_at,
+      expires_at,
+      ttl_minutes
+    FROM drop_items
+    WHERE id = ?1
+    LIMIT 1
+  `).bind(validateItemId(id)).first();
+
+  return rowToDropItem(row);
 }
 
 export function isExpired(item, now = Date.now()) {
@@ -233,19 +159,27 @@ export function isPreviewableImage(item) {
 }
 
 export async function listActiveItems(env) {
-  const now = Date.now();
-  const documents = await listDropDocuments(env);
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(`
+    SELECT
+      id,
+      type,
+      status,
+      content,
+      name,
+      size,
+      mime_type,
+      storage_key,
+      created_at,
+      expires_at,
+      ttl_minutes
+    FROM drop_items
+    WHERE status = 'ready' AND expires_at > ?1
+    ORDER BY created_at DESC
+    LIMIT ?2
+  `).bind(now, MAX_LIST_ITEMS).all();
 
-  return documents
-    .map(parseDropItem)
-    .filter((item) => item.status === "ready" && !isExpired(item, now))
-    .sort((first, second) => Date.parse(second.createdAt) - Date.parse(first.createdAt))
-    .slice(0, MAX_LIST_ITEMS)
-    .map((item) => ({
-      ...item,
-      previewable: isPreviewableImage(item),
-      ...(item.type === "file" ? { storagePath: undefined } : {})
-    }));
+  return (result.results || []).map(rowToDropItem).map(publicItem);
 }
 
 export async function createTextItem(env, payload) {
@@ -263,42 +197,64 @@ export async function createTextItem(env, payload) {
   const id = crypto.randomUUID();
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + ttlMinutes * 60_000);
-  const document = await createDropItem(env, id, {
-    type: firestoreString("text"),
-    status: firestoreString("ready"),
-    content: firestoreString(content),
-    createdAt: firestoreTimestamp(createdAt),
-    expiresAt: firestoreTimestamp(expiresAt),
-    ttlMinutes: firestoreInteger(ttlMinutes)
-  });
+  const now = createdAt.toISOString();
 
-  return parseDropItem(document);
+  await env.DB.prepare(`
+    INSERT INTO drop_items (
+      id,
+      type,
+      status,
+      content,
+      size,
+      created_at,
+      expires_at,
+      ttl_minutes,
+      updated_at
+    ) VALUES (?1, 'text', 'ready', ?2, 0, ?3, ?4, ?5, ?3)
+  `).bind(id, content, now, expiresAt.toISOString(), ttlMinutes).run();
+
+  return getDropItem(env, id);
 }
 
 export async function initializeFileUpload(env, payload) {
   const file = validateFileMetadata(env, payload);
   const id = crypto.randomUUID();
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + PENDING_UPLOAD_TTL_SECONDS * 1000);
-  const storagePath = `drop/${id}/${file.name}`;
+  const pendingExpiresAt = new Date(createdAt.getTime() + PENDING_UPLOAD_TTL_SECONDS * 1000);
+  const storageKey = `drop/${id}/${file.name}`;
+  const now = createdAt.toISOString();
 
-  await createDropItem(env, id, {
-    type: firestoreString("file"),
-    status: firestoreString("pending"),
-    name: firestoreString(file.name),
-    size: firestoreInteger(file.size),
-    mimeType: firestoreString(file.mimeType),
-    storagePath: firestoreString(storagePath),
-    createdAt: firestoreTimestamp(createdAt),
-    expiresAt: firestoreTimestamp(expiresAt),
-    ttlMinutes: firestoreInteger(file.ttlMinutes)
-  });
+  await env.DB.prepare(`
+    INSERT INTO drop_items (
+      id,
+      type,
+      status,
+      name,
+      size,
+      mime_type,
+      storage_key,
+      created_at,
+      expires_at,
+      ttl_minutes,
+      updated_at
+    ) VALUES (?1, 'file', 'pending', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6)
+  `).bind(
+    id,
+    file.name,
+    file.size,
+    file.mimeType,
+    storageKey,
+    now,
+    pendingExpiresAt.toISOString(),
+    file.ttlMinutes
+  ).run();
 
   try {
-    const uploadUrl = await createSignedStorageUrl(env, {
+    const uploadUrl = await createSignedR2Url(env, {
       method: "PUT",
-      objectName: storagePath,
-      expiresSeconds: UPLOAD_URL_TTL_SECONDS
+      objectName: storageKey,
+      expiresSeconds: UPLOAD_URL_TTL_SECONDS,
+      contentType: file.mimeType
     });
 
     return {
@@ -309,7 +265,7 @@ export async function initializeFileUpload(env, payload) {
       mimeType: file.mimeType
     };
   } catch (error) {
-    await deleteDropItemDocument(env, id).catch(() => {});
+    await deleteDropItemRow(env, id).catch(() => {});
     throw error;
   }
 }
@@ -322,44 +278,51 @@ export async function completeFileUpload(env, id) {
   }
 
   if (item.status === "ready" && !isExpired(item)) {
-    return { ...item, storagePath: undefined, previewable: isPreviewableImage(item) };
+    return publicItem(item);
   }
 
   if (item.status !== "pending" || isExpired(item)) {
     throw new HttpError(410, "upload-expired", "La ventana de subida de este archivo ya venció.");
   }
 
-  const metadata = await getStorageObjectMetadata(env, item.storagePath);
+  const metadata = await getR2ObjectMetadata(env, item.storageKey);
 
   if (!metadata) {
-    throw new HttpError(409, "upload-not-found", "Storage todavía no confirma la subida del archivo.");
+    throw new HttpError(409, "upload-not-found", "R2 todavía no confirma la subida del archivo.");
   }
 
   const actualSize = Number(metadata.size || 0);
 
   if (actualSize !== item.size) {
-    await deleteStorageObject(env, item.storagePath).catch(() => {});
-    await deleteDropItemDocument(env, item.id).catch(() => {});
+    await deleteR2Object(env, item.storageKey).catch(() => {});
+    await deleteDropItemRow(env, item.id).catch(() => {});
     throw new HttpError(409, "upload-size-mismatch", "La subida quedó incompleta y fue descartada.");
   }
 
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + item.ttlMinutes * 60_000);
-  const mimeType = normalizeMimeType(metadata.contentType || item.mimeType);
-  const document = await updateDropItem(env, item.id, {
-    status: firestoreString("ready"),
-    createdAt: firestoreTimestamp(createdAt),
-    expiresAt: firestoreTimestamp(expiresAt),
-    mimeType: firestoreString(mimeType),
-    size: firestoreInteger(actualSize)
-  });
-  const readyItem = parseDropItem(document);
+  const mimeType = normalizeMimeType(metadata.httpMetadata?.contentType || item.mimeType);
+  const now = createdAt.toISOString();
 
-  return {
-    ...readyItem,
-    storagePath: undefined,
-    previewable: isPreviewableImage(readyItem)
-  };
+  await env.DB.prepare(`
+    UPDATE drop_items
+    SET
+      status = 'ready',
+      size = ?2,
+      mime_type = ?3,
+      created_at = ?4,
+      expires_at = ?5,
+      updated_at = ?4
+    WHERE id = ?1 AND status = 'pending'
+  `).bind(item.id, actualSize, mimeType, now, expiresAt.toISOString()).run();
+
+  const readyItem = await getDropItem(env, item.id);
+
+  if (!readyItem || readyItem.status !== "ready") {
+    throw new HttpError(409, "upload-state-conflict", "No fue posible confirmar el archivo temporal.");
+  }
+
+  return publicItem(readyItem);
 }
 
 export async function cancelFileUpload(env, id) {
@@ -369,11 +332,11 @@ export async function cancelFileUpload(env, id) {
     return;
   }
 
-  if (item.type === "file" && item.storagePath) {
-    await deleteStorageObject(env, item.storagePath);
+  if (item.type === "file" && item.storageKey) {
+    await deleteR2Object(env, item.storageKey);
   }
 
-  await deleteDropItemDocument(env, item.id);
+  await deleteDropItemRow(env, item.id);
 }
 
 function downloadDisposition(name) {
@@ -404,9 +367,9 @@ export async function createItemDownloadUrl(env, id, mode = "download") {
     1,
     Math.floor((Date.parse(item.expiresAt) - Date.now()) / 1000)
   );
-  const url = await createSignedStorageUrl(env, {
+  const url = await createSignedR2Url(env, {
     method: "GET",
-    objectName: item.storagePath,
+    objectName: item.storageKey,
     expiresSeconds: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds),
     responseDisposition: mode === "download" ? downloadDisposition(item.name) : ""
   });
@@ -422,20 +385,16 @@ export async function resetItemTtl(env, id, ttlValue) {
   }
 
   const ttlMinutes = normalizeTtlMinutes(ttlValue);
-  const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
-  const document = await updateDropItem(env, item.id, {
-    expiresAt: firestoreTimestamp(expiresAt),
-    ttlMinutes: firestoreInteger(ttlMinutes)
-  });
-  const updatedItem = parseDropItem(document);
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+  const updatedAt = new Date().toISOString();
 
-  return {
-    ...updatedItem,
-    ...(updatedItem.type === "file" ? {
-      storagePath: undefined,
-      previewable: isPreviewableImage(updatedItem)
-    } : {})
-  };
+  await env.DB.prepare(`
+    UPDATE drop_items
+    SET expires_at = ?2, ttl_minutes = ?3, updated_at = ?4
+    WHERE id = ?1 AND status = 'ready'
+  `).bind(item.id, expiresAt, ttlMinutes, updatedAt).run();
+
+  return publicItem(await getDropItem(env, item.id));
 }
 
 export async function deleteItem(env, id) {
@@ -445,11 +404,11 @@ export async function deleteItem(env, id) {
     return;
   }
 
-  if (item.type === "file" && item.storagePath) {
-    await deleteStorageObject(env, item.storagePath);
+  if (item.type === "file" && item.storageKey) {
+    await deleteR2Object(env, item.storageKey);
   }
 
-  await deleteDropItemDocument(env, item.id);
+  await deleteDropItemRow(env, item.id);
 }
 
 async function runWithConcurrency(values, limit, worker) {
@@ -466,21 +425,36 @@ async function runWithConcurrency(values, limit, worker) {
 }
 
 export async function cleanupExpiredItems(env) {
-  const now = Date.now();
-  const documents = await listDropDocuments(env, MAX_FIRESTORE_SCAN);
-  const expired = documents
-    .map(parseDropItem)
-    .filter((item) => isExpired(item, now));
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(`
+    SELECT
+      id,
+      type,
+      status,
+      content,
+      name,
+      size,
+      mime_type,
+      storage_key,
+      created_at,
+      expires_at,
+      ttl_minutes
+    FROM drop_items
+    WHERE expires_at <= ?1
+    ORDER BY expires_at ASC
+    LIMIT ?2
+  `).bind(now, MAX_CLEANUP_ITEMS).all();
+  const expired = (result.results || []).map(rowToDropItem);
   let deleted = 0;
   let failed = 0;
 
   await runWithConcurrency(expired, 5, async (item) => {
     try {
-      if (item.type === "file" && item.storagePath) {
-        await deleteStorageObject(env, item.storagePath);
+      if (item.type === "file" && item.storageKey) {
+        await deleteR2Object(env, item.storageKey);
       }
 
-      await deleteDropItemDocument(env, item.id);
+      await deleteDropItemRow(env, item.id);
       deleted += 1;
     } catch (error) {
       failed += 1;
@@ -488,5 +462,5 @@ export async function cleanupExpiredItems(env) {
     }
   });
 
-  return { scanned: documents.length, expired: expired.length, deleted, failed };
+  return { scanned: expired.length, expired: expired.length, deleted, failed };
 }

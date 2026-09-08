@@ -24,12 +24,12 @@ Esta matriz cubre la validación funcional, de seguridad, expiración, concurren
 | Reinicio a 30 min | `expiresAt` se recalcula desde el momento del cambio. |
 | Reinicio a 1 h o 6 h | El contador comienza de nuevo con el nuevo intervalo. |
 | Descarga después de expirar | El Worker la rechaza aunque exista una URL antigua de la aplicación. |
-| Eliminación manual | Se retira de Storage/Firestore y deja de aparecer en otros dispositivos. |
+| Eliminación manual | Se retira de R2/D1 y deja de aparecer en otros dispositivos. |
 | Dos dispositivos simultáneos | Los cambios aparecen mediante sincronización periódica sin salas ni cuentas. |
 | Conexión lenta | La interfaz muestra progreso y conserva los archivos fallidos para reintento. |
 | Corte después de subir pero antes de confirmar | La subida pendiente termina siendo limpiada automáticamente. |
-| Firestore no disponible | La interfaz muestra error y no inventa un estado de éxito. |
-| Storage no disponible | La subida/descarga falla de forma visible y el documento pendiente se limpia. |
+| D1 no disponible | La interfaz muestra error y no inventa un estado de éxito. |
+| R2 no disponible | La subida/descarga falla de forma visible y el elemento pendiente se limpia. |
 | Worker no disponible | La interfaz informa que no puede conectar y conserva el contenido local del compositor. |
 | Sesión vencida | Se limpia la sesión del navegador y vuelve a solicitar PIN. |
 | Origen no autorizado | El Worker responde con rechazo CORS/403. |
@@ -48,4 +48,4 @@ Esta matriz cubre la validación funcional, de seguridad, expiración, concurren
 - normalización de tiempos de expiración;
 - saneamiento de nombres de archivo;
 - detección de expiración y de imágenes previsualizables;
-- codificación canónica usada en URLs firmadas de Storage.
+- codificación y firma canónica usada en URLs prefirmadas de R2.

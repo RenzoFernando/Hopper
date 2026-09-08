@@ -306,6 +306,7 @@ async function uploadEntry(entry, ttlMinutes) {
     const initialized = await hopperApi.initializeUpload(entry.file, ttlMinutes);
     uploadId = initialized?.upload?.id || "";
     const uploadUrl = initialized?.upload?.uploadUrl || "";
+    const uploadMimeType = initialized?.upload?.mimeType || entry.file.type || "application/octet-stream";
 
     if (!uploadId || !uploadUrl) {
       throw new ApiError("Hopper no devolvió una URL de subida válida.", { code: "invalid-upload-url" });
@@ -314,7 +315,7 @@ async function uploadEntry(entry, ttlMinutes) {
     updateSelectedFile(entry.key, { status: "subiendo" });
     await hopperApi.uploadToSignedUrl(entry.file, uploadUrl, (progress) => {
       updateSelectedFile(entry.key, { progress });
-    });
+    }, uploadMimeType);
     updateSelectedFile(entry.key, { status: "confirmando", progress: 100 });
     await completeUploadWithRetry(uploadId);
     updateSelectedFile(entry.key, { status: "listo", progress: 100 });
