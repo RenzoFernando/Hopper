@@ -884,7 +884,17 @@ function Invoke-Cleanup {
   Use-TemporaryAdminToken {
     param($adminToken)
     $result = Invoke-AdminRequest "/admin/cleanup" @{} $adminToken
-    Write-Host "Revisados: $($result.scanned) | expirados: $($result.expired) | eliminados: $($result.deleted) | fallos: $($result.failed)"
+
+    $roomScanned = [int]$result.rooms.scanned
+    $roomClosed = [int]$result.rooms.closed
+    $roomDeleted = [int]$result.rooms.deleted
+    $itemScanned = [int]$result.items.scanned
+    $itemExpired = [int]$result.items.expired
+    $itemDeleted = [int]$result.items.deleted
+    $failed = [int]$result.failed
+
+    Write-Host "Salas revisadas: $roomScanned | cerradas: $roomClosed | elementos de salas eliminados: $roomDeleted"
+    Write-Host "Elementos revisados: $itemScanned | expirados: $itemExpired | eliminados: $itemDeleted | fallos: $failed"
   }
 }
 

@@ -1,4 +1,4 @@
-const appConfig = Object.freeze({
+﻿const appConfig = Object.freeze({
   workerBaseUrl: "https://hopper-api.renzofernando.workers.dev",
   publicAppUrl: "https://renzofernando.github.io/Hopper/",
   defaultTtlMinutes: 5,
