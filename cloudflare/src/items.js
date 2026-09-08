@@ -5,6 +5,8 @@ import {
   MAX_LIST_ITEMS,
   MAX_TEXT_CHARACTERS,
   PENDING_UPLOAD_TTL_SECONDS,
+  STORAGE_INTERNAL_LIMIT_BYTES,
+  STORAGE_WARNING_BYTES,
   TTL_OPTIONS,
   UPLOAD_URL_TTL_SECONDS
 } from "./constants.js";
@@ -14,11 +16,46 @@ import {
   deleteB2Object,
   getB2ObjectMetadata
 } from "./b2.js";
+import {
+  recordCleanupFailure,
+  recordDeletion,
+  recordTransfer,
+  recordUploadFailure
+} from "./usage.js";
 
-export function normalizeTtlMinutes(value) {
+function personalContext() {
+  return {
+    spaceType: "personal",
+    roomId: null,
+    roomExpiresAt: null,
+    maxFileBytes: null,
+    maxBytes: null,
+    maxItems: null,
+    ttlOptions: TTL_OPTIONS
+  };
+}
+
+function normalizeContext(context) {
+  if (context?.spaceType === "room" && /^[0-9a-f-]{36}$/i.test(String(context.roomId || ""))) {
+    return {
+      spaceType: "room",
+      roomId: String(context.roomId),
+      roomExpiresAt: context.roomExpiresAt || null,
+      maxFileBytes: Number(context.maxFileBytes) || null,
+      maxBytes: Number(context.maxBytes) || null,
+      maxItems: Number(context.maxItems) || null,
+      ttlOptions: Array.isArray(context.ttlOptions) ? context.ttlOptions : TTL_OPTIONS
+    };
+  }
+
+  return personalContext();
+}
+
+export function normalizeTtlMinutes(value, options = TTL_OPTIONS) {
   const minutes = Number(value);
+  const allowed = Array.isArray(options) ? options.map(Number) : TTL_OPTIONS;
 
-  if (!TTL_OPTIONS.includes(minutes)) {
+  if (!allowed.includes(minutes)) {
     throw new HttpError(400, "invalid-ttl", "El tiempo de expiración seleccionado no es válido.");
   }
 
@@ -43,24 +80,32 @@ function normalizeMimeType(value) {
   return mimeType || "application/octet-stream";
 }
 
-function maxFileBytes(env) {
+function personalMaxFileBytes(env) {
   const configured = Number(env.MAX_FILE_BYTES);
   return Number.isFinite(configured) && configured > 0
     ? Math.floor(configured)
     : DEFAULT_MAX_FILE_BYTES;
 }
 
-function validateFileMetadata(env, payload) {
+function maxFileBytes(env, context) {
+  const scope = normalizeContext(context);
+  return scope.spaceType === "room" && scope.maxFileBytes
+    ? scope.maxFileBytes
+    : personalMaxFileBytes(env);
+}
+
+function validateFileMetadata(env, payload, context) {
+  const scope = normalizeContext(context);
   const name = sanitizeFilename(payload?.name);
   const size = Number(payload?.size);
   const mimeType = normalizeMimeType(payload?.mimeType);
-  const ttlMinutes = normalizeTtlMinutes(payload?.ttlMinutes);
+  const ttlMinutes = normalizeTtlMinutes(payload?.ttlMinutes, scope.ttlOptions);
 
   if (!Number.isInteger(size) || size < 0) {
     throw new HttpError(400, "invalid-file-size", "El tamaño del archivo no es válido.");
   }
 
-  if (size > maxFileBytes(env)) {
+  if (size > maxFileBytes(env, scope)) {
     throw new HttpError(413, "file-too-large", "El archivo supera el tamaño máximo configurado en Hopper.");
   }
 
@@ -88,7 +133,10 @@ function rowToDropItem(row) {
     status: String(row.status || ""),
     createdAt: String(row.created_at || ""),
     expiresAt: String(row.expires_at || ""),
-    ttlMinutes: Number(row.ttl_minutes || 0)
+    ttlMinutes: Number(row.ttl_minutes || 0),
+    spaceType: String(row.space_type || "personal"),
+    roomId: row.room_id ? String(row.room_id) : null,
+    etag: row.etag ? String(row.etag) : null
   };
 
   if (item.type === "text") {
@@ -106,12 +154,33 @@ function rowToDropItem(row) {
 }
 
 function publicItem(item) {
-  if (!item || item.type !== "file") {
+  if (!item) {
     return item;
   }
 
-  const { storageKey: _storageKey, ...visible } = item;
-  return { ...visible, previewable: isPreviewableImage(item) };
+  const visible = { ...item };
+  delete visible.storageKey;
+  delete visible.etag;
+  delete visible.spaceType;
+  delete visible.roomId;
+
+  if (item.type === "file") {
+    visible.previewable = isPreviewableImage(item);
+    visible.audio = isAudio(item);
+  }
+
+  return visible;
+}
+
+function assertScope(item, context) {
+  const scope = normalizeContext(context);
+  const matches = scope.spaceType === "room"
+    ? item?.spaceType === "room" && item?.roomId === scope.roomId
+    : item?.spaceType !== "room";
+
+  if (!matches) {
+    throw new HttpError(404, "item-not-found", "El elemento temporal no existe.");
+  }
 }
 
 async function deleteDropItemRow(env, id) {
@@ -133,7 +202,10 @@ export async function getDropItem(env, id) {
       storage_key,
       created_at,
       expires_at,
-      ttl_minutes
+      ttl_minutes,
+      space_type,
+      room_id,
+      etag
     FROM drop_items
     WHERE id = ?1
     LIMIT 1
@@ -157,8 +229,30 @@ export function isPreviewableImage(item) {
   ].includes(String(item?.mimeType || "").toLowerCase());
 }
 
-export async function listActiveItems(env) {
+export function isAudio(item) {
+  return item?.type === "file" && String(item?.mimeType || "").toLowerCase().startsWith("audio/");
+}
+
+function scopeFilter(context, alias = "") {
+  const scope = normalizeContext(context);
+  const prefix = alias ? `${alias}.` : "";
+
+  if (scope.spaceType === "room") {
+    return {
+      sql: `${prefix}space_type = 'room' AND ${prefix}room_id = ?`,
+      values: [scope.roomId]
+    };
+  }
+
+  return {
+    sql: `${prefix}space_type = 'personal' AND ${prefix}room_id IS NULL`,
+    values: []
+  };
+}
+
+export async function listActiveItems(env, context = personalContext()) {
   const now = new Date().toISOString();
+  const filter = scopeFilter(context);
   const result = await env.DB.prepare(`
     SELECT
       id,
@@ -171,19 +265,101 @@ export async function listActiveItems(env) {
       storage_key,
       created_at,
       expires_at,
-      ttl_minutes
+      ttl_minutes,
+      space_type,
+      room_id,
+      etag
     FROM drop_items
-    WHERE status = 'ready' AND expires_at > ?1
+    WHERE status = 'ready' AND expires_at > ?1 AND ${filter.sql}
     ORDER BY created_at DESC
-    LIMIT ?2
-  `).bind(now, MAX_LIST_ITEMS).all();
+    LIMIT ?${filter.values.length + 2}
+  `).bind(now, ...filter.values, MAX_LIST_ITEMS).all();
 
   return (result.results || []).map(rowToDropItem).map(publicItem);
 }
 
-export async function createTextItem(env, payload) {
+function effectiveExpiry(ttlMinutes, context, base = Date.now()) {
+  const requested = base + ttlMinutes * 60_000;
+  const scope = normalizeContext(context);
+  const roomExpiry = Date.parse(scope.roomExpiresAt || "");
+
+  return new Date(
+    scope.spaceType === "room" && Number.isFinite(roomExpiry)
+      ? Math.min(requested, roomExpiry)
+      : requested
+  );
+}
+
+async function enforceRoomItemLimit(env, context) {
+  const scope = normalizeContext(context);
+
+  if (scope.spaceType !== "room" || !scope.maxItems) {
+    return;
+  }
+
+  const row = await env.DB.prepare(`
+    SELECT COUNT(*) AS count
+    FROM drop_items
+    WHERE room_id = ?1 AND space_type = 'room' AND status IN ('pending', 'ready')
+  `).bind(scope.roomId).first();
+
+  if (Number(row?.count || 0) >= scope.maxItems) {
+    throw new HttpError(409, "room-item-limit", "La sala alcanzó el máximo de elementos permitidos.");
+  }
+}
+
+export async function getEstimatedStorageUsage(env) {
+  const row = await env.DB.prepare(`
+    SELECT COALESCE(SUM(size), 0) AS bytes
+    FROM drop_items
+    WHERE type = 'file' AND status IN ('pending', 'ready')
+  `).first();
+  const maintenance = await env.DB.prepare(`
+    SELECT orphan_bytes AS orphanBytes
+    FROM maintenance_state
+    WHERE id = 1
+  `).first();
+  const activeBytes = Number(row?.bytes || 0);
+  const orphanBytes = Number(maintenance?.orphanBytes || 0);
+
+  return {
+    activeBytes,
+    orphanBytes,
+    estimatedBytes: Math.max(0, activeBytes + orphanBytes),
+    warning: activeBytes + orphanBytes >= STORAGE_WARNING_BYTES,
+    blocked: activeBytes + orphanBytes >= STORAGE_INTERNAL_LIMIT_BYTES
+  };
+}
+
+async function enforceStorageGuardrail(env, additionalBytes, context) {
+  const scope = normalizeContext(context);
+  const globalUsage = await getEstimatedStorageUsage(env);
+
+  if (globalUsage.estimatedBytes + additionalBytes > STORAGE_INTERNAL_LIMIT_BYTES) {
+    throw new HttpError(
+      507,
+      "storage-limit",
+      "Hopper ha alcanzado su límite interno de almacenamiento. Espera a que el contenido temporal expire o elimina elementos."
+    );
+  }
+
+  if (scope.spaceType === "room" && scope.maxBytes) {
+    const row = await env.DB.prepare(`
+      SELECT COALESCE(SUM(size), 0) AS bytes
+      FROM drop_items
+      WHERE room_id = ?1 AND space_type = 'room' AND status IN ('pending', 'ready')
+    `).bind(scope.roomId).first();
+
+    if (Number(row?.bytes || 0) + additionalBytes > scope.maxBytes) {
+      throw new HttpError(507, "room-storage-limit", "La sala alcanzó su límite temporal de almacenamiento.");
+    }
+  }
+}
+
+export async function createTextItem(env, payload, context = personalContext()) {
+  const scope = normalizeContext(context);
   const content = String(payload?.content ?? "");
-  const ttlMinutes = normalizeTtlMinutes(payload?.ttlMinutes);
+  const ttlMinutes = normalizeTtlMinutes(payload?.ttlMinutes, scope.ttlOptions);
 
   if (!content.trim()) {
     throw new HttpError(400, "empty-text", "Escribe o pega contenido antes de enviarlo.");
@@ -193,9 +369,10 @@ export async function createTextItem(env, payload) {
     throw new HttpError(413, "text-too-large", "El texto supera el tamaño máximo permitido.");
   }
 
+  await enforceRoomItemLimit(env, scope);
   const id = crypto.randomUUID();
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + ttlMinutes * 60_000);
+  const expiresAt = effectiveExpiry(ttlMinutes, scope, createdAt.getTime());
   const now = createdAt.toISOString();
 
   await env.DB.prepare(`
@@ -208,19 +385,35 @@ export async function createTextItem(env, payload) {
       created_at,
       expires_at,
       ttl_minutes,
-      updated_at
-    ) VALUES (?1, 'text', 'ready', ?2, 0, ?3, ?4, ?5, ?3)
-  `).bind(id, content, now, expiresAt.toISOString(), ttlMinutes).run();
+      updated_at,
+      space_type,
+      room_id
+    ) VALUES (?1, 'text', 'ready', ?2, 0, ?3, ?4, ?5, ?3, ?6, ?7)
+  `).bind(
+    id,
+    content,
+    now,
+    expiresAt.toISOString(),
+    ttlMinutes,
+    scope.spaceType,
+    scope.roomId
+  ).run();
 
-  return getDropItem(env, id);
+  await recordTransfer(env.DB, { type: "text", bytes: 0, spaceType: scope.spaceType });
+  return publicItem(await getDropItem(env, id));
 }
 
-export async function initializeFileUpload(env, payload) {
-  const file = validateFileMetadata(env, payload);
+export async function initializeFileUpload(env, payload, context = personalContext()) {
+  const scope = normalizeContext(context);
+  const file = validateFileMetadata(env, payload, scope);
+  await enforceRoomItemLimit(env, scope);
+  await enforceStorageGuardrail(env, file.size, scope);
   const id = crypto.randomUUID();
   const createdAt = new Date();
   const pendingExpiresAt = new Date(createdAt.getTime() + PENDING_UPLOAD_TTL_SECONDS * 1000);
-  const storageKey = `drop/${id}/${file.name}`;
+  const storageKey = scope.spaceType === "room"
+    ? `drop/rooms/${scope.roomId}/${id}/${file.name}`
+    : `drop/personal/${id}/${file.name}`;
   const now = createdAt.toISOString();
 
   await env.DB.prepare(`
@@ -235,8 +428,10 @@ export async function initializeFileUpload(env, payload) {
       created_at,
       expires_at,
       ttl_minutes,
-      updated_at
-    ) VALUES (?1, 'file', 'pending', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6)
+      updated_at,
+      space_type,
+      room_id
+    ) VALUES (?1, 'file', 'pending', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6, ?9, ?10)
   `).bind(
     id,
     file.name,
@@ -245,7 +440,9 @@ export async function initializeFileUpload(env, payload) {
     storageKey,
     now,
     pendingExpiresAt.toISOString(),
-    file.ttlMinutes
+    file.ttlMinutes,
+    scope.spaceType,
+    scope.roomId
   ).run();
 
   try {
@@ -265,16 +462,20 @@ export async function initializeFileUpload(env, payload) {
     };
   } catch (error) {
     await deleteDropItemRow(env, id).catch(() => {});
+    await recordUploadFailure(env.DB).catch(() => {});
     throw error;
   }
 }
 
-export async function completeFileUpload(env, id) {
+export async function completeFileUpload(env, id, context = personalContext()) {
+  const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item || item.type !== "file") {
     throw new HttpError(404, "item-not-found", "El archivo temporal no existe.");
   }
+
+  assertScope(item, scope);
 
   if (item.status === "ready" && !isExpired(item)) {
     return publicItem(item);
@@ -295,11 +496,12 @@ export async function completeFileUpload(env, id) {
   if (actualSize !== item.size) {
     await deleteB2Object(env, item.storageKey).catch(() => {});
     await deleteDropItemRow(env, item.id).catch(() => {});
+    await recordUploadFailure(env.DB).catch(() => {});
     throw new HttpError(409, "upload-size-mismatch", "La subida quedó incompleta y fue descartada.");
   }
 
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + item.ttlMinutes * 60_000);
+  const expiresAt = effectiveExpiry(item.ttlMinutes, scope, createdAt.getTime());
   const mimeType = normalizeMimeType(metadata.contentType || item.mimeType);
   const now = createdAt.toISOString();
 
@@ -311,9 +513,17 @@ export async function completeFileUpload(env, id) {
       mime_type = ?3,
       created_at = ?4,
       expires_at = ?5,
-      updated_at = ?4
+      updated_at = ?4,
+      etag = ?6
     WHERE id = ?1 AND status = 'pending'
-  `).bind(item.id, actualSize, mimeType, now, expiresAt.toISOString()).run();
+  `).bind(
+    item.id,
+    actualSize,
+    mimeType,
+    now,
+    expiresAt.toISOString(),
+    metadata.etag || metadata.versionId || null
+  ).run();
 
   const readyItem = await getDropItem(env, item.id);
 
@@ -321,15 +531,18 @@ export async function completeFileUpload(env, id) {
     throw new HttpError(409, "upload-state-conflict", "No fue posible confirmar el archivo temporal.");
   }
 
+  await recordTransfer(env.DB, { type: "file", bytes: actualSize, spaceType: scope.spaceType });
   return publicItem(readyItem);
 }
 
-export async function cancelFileUpload(env, id) {
+export async function cancelFileUpload(env, id, context = personalContext()) {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item) {
     return;
   }
+
+  assertScope(item, context);
 
   if (item.type === "file" && item.storageKey) {
     await deleteB2Object(env, item.storageKey);
@@ -338,12 +551,14 @@ export async function cancelFileUpload(env, id) {
   await deleteDropItemRow(env, item.id);
 }
 
-export async function createItemDownloadUrl(env, id, mode = "download") {
+export async function createItemDownloadUrl(env, id, mode = "download", context = personalContext()) {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item || item.type !== "file" || item.status !== "ready") {
     throw new HttpError(404, "item-not-found", "El archivo temporal no existe.");
   }
+
+  assertScope(item, context);
 
   if (isExpired(item)) {
     throw new HttpError(410, "item-expired", "El archivo ya expiró.");
@@ -351,6 +566,10 @@ export async function createItemDownloadUrl(env, id, mode = "download") {
 
   if (mode === "preview" && !isPreviewableImage(item)) {
     throw new HttpError(400, "preview-not-supported", "Este tipo de archivo no tiene vista previa.");
+  }
+
+  if (mode === "stream" && !isAudio(item)) {
+    throw new HttpError(400, "stream-not-supported", "Este tipo de archivo no admite reproducción de audio.");
   }
 
   const remainingSeconds = Math.max(
@@ -366,18 +585,25 @@ export async function createItemDownloadUrl(env, id, mode = "download") {
       : {}
   });
 
-  return { url, name: item.name, mimeType: item.mimeType };
+  return {
+    url,
+    name: item.name,
+    mimeType: item.mimeType,
+    expiresIn: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds)
+  };
 }
 
-export async function resetItemTtl(env, id, ttlValue) {
+export async function resetItemTtl(env, id, ttlValue, context = personalContext()) {
+  const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item || item.status !== "ready" || isExpired(item)) {
     throw new HttpError(404, "item-not-found", "El elemento temporal ya no está disponible.");
   }
 
-  const ttlMinutes = normalizeTtlMinutes(ttlValue);
-  const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+  assertScope(item, scope);
+  const ttlMinutes = normalizeTtlMinutes(ttlValue, scope.ttlOptions);
+  const expiresAt = effectiveExpiry(ttlMinutes, scope).toISOString();
   const updatedAt = new Date().toISOString();
 
   await env.DB.prepare(`
@@ -389,18 +615,27 @@ export async function resetItemTtl(env, id, ttlValue) {
   return publicItem(await getDropItem(env, item.id));
 }
 
-export async function deleteItem(env, id) {
+async function deleteItemRecord(env, item, { countDeletion = true } = {}) {
+  if (item.type === "file" && item.storageKey) {
+    await deleteB2Object(env, item.storageKey);
+  }
+
+  await deleteDropItemRow(env, item.id);
+
+  if (countDeletion && item.status === "ready") {
+    await recordDeletion(env.DB, item.type === "file" ? item.size : 0);
+  }
+}
+
+export async function deleteItem(env, id, context = personalContext()) {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item) {
     return;
   }
 
-  if (item.type === "file" && item.storageKey) {
-    await deleteB2Object(env, item.storageKey);
-  }
-
-  await deleteDropItemRow(env, item.id);
+  assertScope(item, context);
+  await deleteItemRecord(env, item);
 }
 
 async function runWithConcurrency(values, limit, worker) {
@@ -430,7 +665,10 @@ export async function cleanupExpiredItems(env) {
       storage_key,
       created_at,
       expires_at,
-      ttl_minutes
+      ttl_minutes,
+      space_type,
+      room_id,
+      etag
     FROM drop_items
     WHERE expires_at <= ?1
     ORDER BY expires_at ASC
@@ -442,11 +680,7 @@ export async function cleanupExpiredItems(env) {
 
   await runWithConcurrency(expired, 5, async (item) => {
     try {
-      if (item.type === "file" && item.storageKey) {
-        await deleteB2Object(env, item.storageKey);
-      }
-
-      await deleteDropItemRow(env, item.id);
+      await deleteItemRecord(env, item);
       deleted += 1;
     } catch (error) {
       failed += 1;
@@ -454,5 +688,47 @@ export async function cleanupExpiredItems(env) {
     }
   });
 
+  if (failed > 0) {
+    await recordCleanupFailure(env.DB, failed).catch(() => {});
+  }
+
   return { scanned: expired.length, expired: expired.length, deleted, failed };
+}
+
+export async function deleteItemsForRoom(env, roomId) {
+  const result = await env.DB.prepare(`
+    SELECT
+      id,
+      type,
+      status,
+      content,
+      name,
+      size,
+      mime_type,
+      storage_key,
+      created_at,
+      expires_at,
+      ttl_minutes,
+      space_type,
+      room_id,
+      etag
+    FROM drop_items
+    WHERE space_type = 'room' AND room_id = ?1
+    ORDER BY created_at ASC
+  `).bind(String(roomId || "")).all();
+  const items = (result.results || []).map(rowToDropItem);
+  let deleted = 0;
+  let failed = 0;
+
+  await runWithConcurrency(items, 4, async (item) => {
+    try {
+      await deleteItemRecord(env, item);
+      deleted += 1;
+    } catch (error) {
+      failed += 1;
+      console.error("No fue posible limpiar un elemento de sala.", item.id, error);
+    }
+  });
+
+  return { scanned: items.length, deleted, failed };
 }

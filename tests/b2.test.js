@@ -71,8 +71,8 @@ test("interpreta versiones y marcadores de borrado de Backblaze B2", () => {
 
   assert.deepEqual(parsed, {
     entries: [
-      { key: "drop/a&b.txt", versionId: "v-1", deleteMarker: false, isLatest: true, size: 75700 },
-      { key: "drop/a&b.txt", versionId: "v-2", deleteMarker: true, isLatest: false, size: 0 }
+      { key: "drop/a&b.txt", versionId: "v-1", deleteMarker: false, isLatest: true, size: 75700, lastModified: null, etag: null },
+      { key: "drop/a&b.txt", versionId: "v-2", deleteMarker: true, isLatest: false, size: 0, lastModified: null, etag: null }
     ],
     truncated: true,
     nextKeyMarker: "drop/a&b.txt",

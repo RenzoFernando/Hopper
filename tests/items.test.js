@@ -8,6 +8,7 @@ import {
 } from "../cloudflare/src/items.js";
 
 test("normaliza únicamente los TTL disponibles", () => {
+  assert.equal(normalizeTtlMinutes("5"), 5);
   assert.equal(normalizeTtlMinutes("15"), 15);
   assert.equal(normalizeTtlMinutes(30), 30);
   assert.throws(() => normalizeTtlMinutes(10));

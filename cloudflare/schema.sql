@@ -91,6 +91,23 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 CREATE INDEX IF NOT EXISTS idx_rate_limits_expires_at
 ON rate_limits (expires_at);
 
+CREATE TABLE IF NOT EXISTS rooms (
+  id TEXT PRIMARY KEY,
+  code_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK (status IN ('active', 'closed')),
+  version INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  closed_at TEXT,
+  max_bytes INTEGER NOT NULL CHECK (max_bytes > 0),
+  max_file_bytes INTEGER NOT NULL CHECK (max_file_bytes > 0),
+  max_items INTEGER NOT NULL CHECK (max_items > 0),
+  created_client_hash TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_rooms_status_expires_at
+ON rooms (status, expires_at);
+
 CREATE TABLE IF NOT EXISTS drop_items (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL CHECK (type IN ('text', 'file')),
@@ -102,8 +119,16 @@ CREATE TABLE IF NOT EXISTS drop_items (
   storage_key TEXT UNIQUE,
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL,
-  ttl_minutes INTEGER NOT NULL CHECK (ttl_minutes IN (15, 30, 60, 360)),
-  updated_at TEXT NOT NULL
+  ttl_minutes INTEGER NOT NULL CHECK (ttl_minutes IN (5, 15, 30, 60, 360)),
+  updated_at TEXT NOT NULL,
+  space_type TEXT NOT NULL DEFAULT 'personal' CHECK (space_type IN ('personal', 'room')),
+  room_id TEXT,
+  etag TEXT,
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  CHECK (
+    (space_type = 'personal' AND room_id IS NULL)
+    OR (space_type = 'room' AND room_id IS NOT NULL)
+  )
 );
 
 CREATE INDEX IF NOT EXISTS idx_drop_items_status_expires_at
@@ -114,3 +139,41 @@ ON drop_items (status, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_drop_items_expires_at
 ON drop_items (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_drop_items_space_room_status_created
+ON drop_items (space_type, room_id, status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS usage_daily (
+  date TEXT PRIMARY KEY,
+  uploads_count INTEGER NOT NULL DEFAULT 0 CHECK (uploads_count >= 0),
+  upload_bytes INTEGER NOT NULL DEFAULT 0 CHECK (upload_bytes >= 0),
+  deleted_count INTEGER NOT NULL DEFAULT 0 CHECK (deleted_count >= 0),
+  deleted_bytes INTEGER NOT NULL DEFAULT 0 CHECK (deleted_bytes >= 0),
+  text_count INTEGER NOT NULL DEFAULT 0 CHECK (text_count >= 0),
+  file_count INTEGER NOT NULL DEFAULT 0 CHECK (file_count >= 0),
+  room_uploads_count INTEGER NOT NULL DEFAULT 0 CHECK (room_uploads_count >= 0),
+  room_upload_bytes INTEGER NOT NULL DEFAULT 0 CHECK (room_upload_bytes >= 0),
+  failed_uploads INTEGER NOT NULL DEFAULT 0 CHECK (failed_uploads >= 0),
+  recovered_failures INTEGER NOT NULL DEFAULT 0 CHECK (recovered_failures >= 0),
+  cleanup_failures INTEGER NOT NULL DEFAULT 0 CHECK (cleanup_failures >= 0),
+  rooms_created INTEGER NOT NULL DEFAULT 0 CHECK (rooms_created >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS maintenance_state (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  last_cleanup_at TEXT,
+  last_cleanup_failed INTEGER NOT NULL DEFAULT 0 CHECK (last_cleanup_failed >= 0),
+  last_reconcile_at TEXT,
+  orphan_count INTEGER NOT NULL DEFAULT 0 CHECK (orphan_count >= 0),
+  orphan_bytes INTEGER NOT NULL DEFAULT 0 CHECK (orphan_bytes >= 0),
+  missing_count INTEGER NOT NULL DEFAULT 0 CHECK (missing_count >= 0),
+  updated_at TEXT NOT NULL
+);
+
+INSERT OR IGNORE INTO maintenance_state (
+  id,
+  updated_at
+) VALUES (
+  1,
+  datetime('now')
+);

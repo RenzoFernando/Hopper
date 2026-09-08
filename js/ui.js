@@ -1,4 +1,4 @@
-import { appConfig } from "./config.js?v=20260908-2";
+import { appConfig } from "./config.js?v=20260908-3";
 
 const elements = {
   authScreen: document.querySelector("#auth-screen"),

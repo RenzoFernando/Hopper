@@ -222,7 +222,9 @@ export function parseB2VersionList(xml) {
         versionId,
         deleteMarker,
         isLatest: tagValue(match[2], "IsLatest").toLowerCase() === "true",
-        size: deleteMarker || !Number.isFinite(size) ? 0 : size
+        size: deleteMarker || !Number.isFinite(size) ? 0 : size,
+        lastModified: tagValue(match[2], "LastModified") || null,
+        etag: tagValue(match[2], "ETag").replace(/^"|"$/g, "") || null
       });
     }
   }
@@ -265,7 +267,9 @@ export async function getB2ObjectMetadata(env, objectName) {
   return {
     size: Number(latest.size || 0),
     contentType: "",
-    versionId: latest.versionId
+    versionId: latest.versionId,
+    etag: latest.etag || null,
+    lastModified: latest.lastModified || null
   };
 }
 
@@ -289,7 +293,7 @@ async function listB2ObjectVersions(env, objectName) {
   };
 }
 
-async function deleteB2Version(env, objectName, versionId) {
+export async function deleteB2Version(env, objectName, versionId) {
   const url = await createSignedB2Url(env, {
     method: "DELETE",
     objectName,
@@ -303,6 +307,47 @@ async function deleteB2Version(env, objectName, versionId) {
   }
 
   await requireB2Ok(response, "Backblaze B2 no pudo eliminar una versión del archivo.", "storage-error");
+}
+
+
+export async function listB2VersionsByPrefix(env, prefix = "drop/", maxPages = 20) {
+  const entries = [];
+  let keyMarker = "";
+  let versionIdMarker = "";
+  let truncated = false;
+  let pages = 0;
+
+  do {
+    const queryParameters = {
+      versions: "",
+      prefix: String(prefix || ""),
+      "max-keys": "1000"
+    };
+
+    if (keyMarker) {
+      queryParameters["key-marker"] = keyMarker;
+    }
+
+    if (versionIdMarker) {
+      queryParameters["version-id-marker"] = versionIdMarker;
+    }
+
+    const url = await createSignedB2Url(env, {
+      method: "GET",
+      expiresSeconds: 60,
+      queryParameters
+    });
+    const response = await fetch(url, { method: "GET" });
+    await requireB2Ok(response, "Backblaze B2 no pudo enumerar el almacenamiento de Hopper.", "storage-error");
+    const parsed = parseB2VersionList(await response.text());
+    entries.push(...parsed.entries);
+    truncated = parsed.truncated;
+    keyMarker = parsed.nextKeyMarker;
+    versionIdMarker = parsed.nextVersionIdMarker;
+    pages += 1;
+  } while (truncated && keyMarker && pages < Math.max(1, Math.floor(Number(maxPages) || 20)));
+
+  return { entries, truncated, pages };
 }
 
 export async function deleteB2Object(env, objectName) {

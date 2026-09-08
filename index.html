@@ -2,15 +2,17 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Hopper permite transferir temporalmente texto y archivos entre dispositivos mediante un PIN.">
     <meta name="referrer" content="no-referrer">
+    <meta name="theme-color" content="#202123">
     <title>Hopper</title>
     <link rel="icon" href="assets/favicon.ico" sizes="any">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="css/styles.css?v=20260908-2">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="css/styles.css?v=20260908-3">
   </head>
-  <body>
+  <body class="app-page">
     <div class="app-shell">
       <header class="site-header">
         <a class="brand" href="./" aria-label="Hopper — transferencia temporal">
@@ -18,8 +20,18 @@
           <span class="brand-name">HOPPER</span>
         </a>
 
+        <nav class="public-nav" id="public-nav" aria-label="Accesos de Hopper">
+          <a class="header-link" href="room.html">Entrar a una sala</a>
+          <button class="header-link header-button" id="install-button" type="button" hidden>Instalar</button>
+          <button class="header-link header-button" id="update-button" type="button" hidden>Actualizar</button>
+        </nav>
+
         <div class="header-session" id="header-session" hidden>
           <span class="sync-state" id="sync-state" aria-live="polite">Sincronizado</span>
+          <a class="header-link" href="room.html">Salas</a>
+          <a class="header-link" href="admin.html">Uso</a>
+          <button class="header-link header-button" id="install-button-session" type="button" hidden>Instalar</button>
+          <button class="header-link header-button" id="update-button-session" type="button" hidden>Actualizar</button>
           <button class="icon-button logout-button" id="logout-button" type="button" aria-label="Salir" title="Salir">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M10 4H5.8A1.8 1.8 0 0 0 4 5.8v12.4A1.8 1.8 0 0 0 5.8 20H10M14 8l4 4-4 4M18 12H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -39,22 +51,13 @@
             <form class="pin-form" id="pin-form" novalidate>
               <label for="pin-input">PIN</label>
               <div class="pin-field">
-                <input
-                  id="pin-input"
-                  name="pin"
-                  type="password"
-                  inputmode="numeric"
-                  pattern="[0-9]{4}"
-                  maxlength="4"
-                  autocomplete="off"
-                  aria-describedby="pin-message"
-                  placeholder="••••"
-                >
+                <input id="pin-input" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" aria-describedby="pin-message" placeholder="••••">
                 <span class="pin-loader" id="pin-loader" hidden aria-hidden="true"></span>
               </div>
             </form>
 
-            <p class="form-message" id="pin-message" aria-live="polite">Todo desaparece automáticamente. 15 min por defecto.</p>
+            <p class="form-message" id="pin-message" aria-live="polite">Todo desaparece automáticamente. 5 min por defecto.</p>
+            <a class="auth-secondary-link" href="room.html">Entrar a una sala</a>
 
             <div class="lock-panel" id="lock-panel" hidden>
               <h2>Hopper está bloqueado</h2>
@@ -73,7 +76,7 @@
               </div>
 
               <label class="sr-only" for="text-input">Texto o código</label>
-              <textarea id="text-input" rows="4" maxlength="250000" placeholder="Pega tu texto aquí…"></textarea>
+              <textarea id="text-input" rows="3" maxlength="250000" placeholder="Pega tu texto aquí…"></textarea>
 
               <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Adjuntar archivos">
                 <input id="file-input" type="file" multiple hidden>
@@ -90,7 +93,8 @@
                 <label class="ttl-field" for="ttl-select">
                   <span>Expira en</span>
                   <select id="ttl-select" name="ttl">
-                    <option value="15" selected>15 min</option>
+                    <option value="5" selected>5 min</option>
+                    <option value="15">15 min</option>
                     <option value="30">30 min</option>
                     <option value="60">1 hora</option>
                     <option value="360">6 horas</option>
@@ -108,26 +112,17 @@
                   <span class="item-count" id="item-count">0</span>
                 </div>
                 <button class="icon-button refresh-button" id="refresh-button" type="button" aria-label="Actualizar" title="Actualizar">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-                  </svg>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
                 </button>
               </div>
 
               <div class="items-frame">
-                <div class="loading-state" id="loading-state" hidden>
-                  <span class="spinner" aria-hidden="true"></span>
-                  <span>Cargando contenido temporal…</span>
-                </div>
-
+                <div class="loading-state" id="loading-state" hidden><span class="spinner" aria-hidden="true"></span><span>Cargando contenido temporal…</span></div>
                 <div class="empty-state" id="empty-state">
-                  <div class="empty-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24"><path d="M4 6.5h16v11H4zM8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                  </div>
+                  <div class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v11H4zM8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
                   <h3>La bandeja está vacía</h3>
                   <p>Envía texto o archivos y aparecerán aquí en los demás dispositivos.</p>
                 </div>
-
                 <div class="item-list" id="item-list" aria-live="polite"></div>
               </div>
             </section>
@@ -136,30 +131,12 @@
       </main>
 
       <dialog class="preview-dialog" id="preview-dialog">
-        <div class="dialog-header">
-          <div>
-            <p class="eyebrow">VISTA PREVIA</p>
-            <h2 id="preview-title">Imagen</h2>
-          </div>
-          <button class="icon-button" id="preview-close" type="button" aria-label="Cerrar vista previa">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
-          </button>
-        </div>
-        <div class="preview-body">
-          <img id="preview-image" alt="">
-        </div>
+        <div class="dialog-header"><div><p class="eyebrow">VISTA PREVIA</p><h2 id="preview-title">Imagen</h2></div><button class="icon-button" id="preview-close" type="button" aria-label="Cerrar vista previa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button></div>
+        <div class="preview-body"><img id="preview-image" alt=""></div>
       </dialog>
 
       <dialog class="confirm-dialog" id="delete-dialog">
-        <form method="dialog">
-          <p class="eyebrow">ELIMINAR AHORA</p>
-          <h2>¿Eliminar este elemento?</h2>
-          <p id="delete-copy">Se eliminará inmediatamente y dejará de estar disponible en todos los dispositivos.</p>
-          <div class="dialog-actions">
-            <button class="secondary-button" value="cancel">Cancelar</button>
-            <button class="danger-button" id="delete-confirm" value="confirm">Eliminar</button>
-          </div>
-        </form>
+        <form method="dialog"><p class="eyebrow">ELIMINAR AHORA</p><h2>¿Eliminar este elemento?</h2><p id="delete-copy">Se eliminará inmediatamente y dejará de estar disponible en todos los dispositivos.</p><div class="dialog-actions"><button class="secondary-button" value="cancel">Cancelar</button><button class="danger-button" id="delete-confirm" value="confirm">Eliminar</button></div></form>
       </dialog>
 
       <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
@@ -170,6 +147,6 @@
       <p>© 2026 — Renzo Fernando Mosquera Daza</p>
     </footer>
 
-    <script type="module" src="js/app.js?v=20260908-2"></script>
+    <script type="module" src="js/app.js?v=20260908-3"></script>
   </body>
 </html>

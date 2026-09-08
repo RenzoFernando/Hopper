@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="Enviar contenido compartido a Hopper.">
+    <meta name="referrer" content="no-referrer">
+    <meta name="theme-color" content="#202123">
+    <title>Compartir — Hopper</title>
+    <link rel="icon" href="assets/favicon.ico" sizes="any">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="css/styles.css?v=20260908-3">
+  </head>
+  <body class="document-page compact-document-page">
+    <div class="document-shell">
+      <header class="site-header"><a class="brand" href="./" aria-label="Volver a Hopper"><img class="brand-mark" src="assets/favicon.svg" alt=""><span class="brand-name">HOPPER</span></a></header>
+      <main class="share-main">
+        <section class="share-card" aria-labelledby="share-title">
+          <p class="eyebrow">COMPARTIR</p><h1 id="share-title">Enviar a</h1>
+          <div class="share-summary" id="share-summary"></div>
+          <label class="field-label" for="share-destination">Destino<select id="share-destination"></select></label>
+          <label class="field-label" for="share-ttl">Expira en<select id="share-ttl"><option value="5" selected>5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hora</option><option value="360">6 horas</option></select></label>
+          <p class="share-progress" id="share-progress" aria-live="polite"></p><p class="form-message" id="share-message" aria-live="polite"></p>
+          <div class="share-actions"><button class="secondary-button" id="share-discard" type="button">Descartar</button><button class="primary-button" id="share-send" type="button">Enviar</button></div>
+        </section>
+      </main>
+    </div>
+    <footer class="project-footer"><p><a href="https://github.com/RenzoFernando/Hopper" target="_blank" rel="noopener noreferrer"><strong>Hopper</strong></a><span> — Transferencia temporal de texto y archivos</span></p><p>© 2026 — Renzo Fernando Mosquera Daza</p></footer>
+    <script type="module" src="js/share-target.js?v=20260908-3"></script>
+  </body>
+</html>
