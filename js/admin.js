@@ -1,6 +1,6 @@
-import { hopperApi } from "./api.js?v=20260908-3";
-import { renderQr } from "./qrcode.js?v=20260908-3";
-import { formatBytes, formatCountdown } from "./transfer-controller.js?v=20260908-3";
+import { hopperApi } from "./api.js?v=20260908-4";
+import { renderQr } from "./qrcode.js?v=20260908-4";
+import { formatBytes, formatCountdown } from "./transfer-controller.js?v=20260908-4";
 
 const elements = {
   usageStorage: document.querySelector("#usage-storage"),

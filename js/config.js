@@ -7,7 +7,7 @@ const appConfig = Object.freeze({
   roomMaxFileBytes: 104857600,
   pollIntervalMs: 3000,
   uploadConcurrency: 2,
-  assetVersion: "20260908-3"
+  assetVersion: "20260908-4"
 });
 
 export { appConfig };

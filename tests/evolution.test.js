@@ -130,6 +130,58 @@ test("aísla los scopes personal y sala, limita elementos y recorta expiración"
   }
 });
 
+test("aplica límites de sala de forma atómica ante operaciones concurrentes", async () => {
+  const env = {
+    DB: new TestD1(schema),
+    SESSION_SECRET: secret,
+    B2_BUCKET_NAME: "hopper-test",
+    B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com",
+    B2_KEY_ID: "004testkeyid",
+    B2_APPLICATION_KEY: "test-b2-application-key-abcdefghijklmnopqrstuvwxyz"
+  };
+
+  try {
+    const roomResult = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.30" });
+    const textContext = {
+      spaceType: "room",
+      roomId: roomResult.room.id,
+      roomExpiresAt: roomResult.room.expiresAt,
+      maxFileBytes: roomResult.room.maxFileBytes,
+      maxBytes: roomResult.room.maxBytes,
+      maxItems: 1,
+      ttlOptions: [5, 15, 30, 60]
+    };
+    const texts = await Promise.allSettled([
+      createTextItem(env, { content: "uno", ttlMinutes: 5 }, textContext),
+      createTextItem(env, { content: "dos", ttlMinutes: 5 }, textContext)
+    ]);
+    assert.equal(texts.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(texts.filter((result) => result.status === "rejected")[0].reason?.code, "room-item-limit");
+
+    await env.DB.prepare("DELETE FROM drop_items WHERE room_id = ?1").bind(roomResult.room.id).run();
+    const fileContext = {
+      ...textContext,
+      maxItems: 25,
+      maxBytes: 10
+    };
+    const uploads = await Promise.allSettled([
+      initializeFileUpload(env, { name: "a.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 5 }, fileContext),
+      initializeFileUpload(env, { name: "b.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 5 }, fileContext)
+    ]);
+    assert.equal(uploads.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(uploads.filter((result) => result.status === "rejected")[0].reason?.code, "room-storage-limit");
+    const usage = await env.DB.prepare(`
+      SELECT COALESCE(SUM(size), 0) AS bytes, COUNT(*) AS count
+      FROM drop_items
+      WHERE room_id = ?1 AND status IN ('pending', 'ready')
+    `).bind(roomResult.room.id).first();
+    assert.equal(usage.bytes, 6);
+    assert.equal(usage.count, 1);
+  } finally {
+    env.DB.close();
+  }
+});
+
 test("bloquea una carga antes de firmar URL cuando supera el límite interno", async () => {
   const env = createEnv();
 
@@ -161,6 +213,48 @@ test("bloquea una carga antes de firmar URL cuando supera el límite interno", a
   }
 });
 
+test("mantiene el guardarraíl global ante reservas concurrentes", async () => {
+  const env = {
+    DB: new TestD1(schema),
+    SESSION_SECRET: secret,
+    B2_BUCKET_NAME: "hopper-test",
+    B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com",
+    B2_KEY_ID: "004testkeyid",
+    B2_APPLICATION_KEY: "test-b2-application-key-abcdefghijklmnopqrstuvwxyz"
+  };
+
+  try {
+    const now = new Date();
+    await env.DB.prepare(`
+      INSERT INTO drop_items (
+        id, type, status, name, size, mime_type, storage_key,
+        created_at, expires_at, ttl_minutes, updated_at, space_type, room_id
+      ) VALUES (?1, 'file', 'pending', 'ocupado.bin', ?2, 'application/octet-stream', ?3, ?4, ?5, 5, ?4, 'personal', NULL)
+    `).bind(
+      crypto.randomUUID(),
+      STORAGE_INTERNAL_LIMIT_BYTES - 5,
+      `drop/personal/${crypto.randomUUID()}/ocupado.bin`,
+      now.toISOString(),
+      new Date(now.getTime() + 300_000).toISOString()
+    ).run();
+
+    const results = await Promise.allSettled([
+      initializeFileUpload(env, { name: "uno.bin", size: 4, mimeType: "application/octet-stream", ttlMinutes: 5 }),
+      initializeFileUpload(env, { name: "dos.bin", size: 4, mimeType: "application/octet-stream", ttlMinutes: 5 })
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected")[0].reason?.code, "storage-limit");
+    const usage = await env.DB.prepare(`
+      SELECT COALESCE(SUM(size), 0) AS bytes
+      FROM drop_items
+      WHERE type = 'file' AND status IN ('pending', 'ready')
+    `).first();
+    assert.equal(usage.bytes, STORAGE_INTERNAL_LIMIT_BYTES - 1);
+  } finally {
+    env.DB.close();
+  }
+});
+
 test("rechaza tokens de sala alterados y expirados", async () => {
   const room = {
     id: crypto.randomUUID(),
@@ -169,7 +263,10 @@ test("rechaza tokens de sala alterados y expirados", async () => {
   };
   const token = await createRoomSessionToken(secret, room, Date.now());
   assert.ok(await verifyRoomSessionToken(token, secret));
-  const altered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
+  const [body, signature] = token.split(".");
+  const index = Math.floor(signature.length / 2);
+  const replacement = signature[index] === "A" ? "B" : "A";
+  const altered = `${body}.${signature.slice(0, index)}${replacement}${signature.slice(index + 1)}`;
   assert.equal(await verifyRoomSessionToken(altered, secret), null);
   assert.equal(await verifyRoomSessionToken(token, secret, Date.now() + 120_000), null);
 });

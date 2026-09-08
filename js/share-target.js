@@ -1,6 +1,6 @@
-import { hopperApi } from "./api.js?v=20260908-3";
-import { appConfig } from "./config.js?v=20260908-3";
-import { formatBytes } from "./transfer-controller.js?v=20260908-3";
+import { hopperApi } from "./api.js?v=20260908-4";
+import { appConfig } from "./config.js?v=20260908-4";
+import { formatBytes } from "./transfer-controller.js?v=20260908-4";
 
 const SHARE_DB = "hopper-share-target-v1";
 const elements = {
@@ -66,6 +66,32 @@ function roomLabel() {
   return hopperApi.getRememberedRoomCodes()?.[session.roomId]?.code || "Sala activa";
 }
 
+
+function configureTtlOptions() {
+  const current = Number(elements.ttl.value) || appConfig.defaultTtlMinutes;
+  const values = elements.destination.value === "room"
+    ? [5, 15, 30, 60]
+    : [5, 15, 30, 60, 360];
+  const labels = new Map([
+    [5, "5 min"],
+    [15, "15 min"],
+    [30, "30 min"],
+    [60, "1 hora"],
+    [360, "6 horas"]
+  ]);
+
+  elements.ttl.replaceChildren();
+
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = labels.get(value);
+    elements.ttl.append(option);
+  }
+
+  elements.ttl.value = String(values.includes(current) ? current : 5);
+}
+
 function configureDestinations() {
   elements.destination.replaceChildren();
 
@@ -86,7 +112,10 @@ function configureDestinations() {
   if (elements.destination.options.length === 0) {
     elements.send.disabled = true;
     setMessage("Abre Hopper e inicia sesión en Mi espacio o en una sala antes de volver a compartir.", "error");
+    return;
   }
+
+  configureTtlOptions();
 }
 
 function renderSummary() {
@@ -272,6 +301,7 @@ async function initialize() {
   }
 
   renderSummary();
+  elements.destination.addEventListener("change", configureTtlOptions);
   elements.send.addEventListener("click", sendPayload);
   elements.discard.addEventListener("click", discardPayload);
 }

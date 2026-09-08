@@ -1,6 +1,7 @@
 {
   "name": "Hopper",
   "short_name": "Hopper",
+  "lang": "es",
   "description": "Transferencia temporal de texto y archivos entre dispositivos.",
   "id": "./",
   "start_url": "./",

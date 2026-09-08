@@ -369,13 +369,11 @@ export async function createTextItem(env, payload, context = personalContext()) 
     throw new HttpError(413, "text-too-large", "El texto supera el tamaño máximo permitido.");
   }
 
-  await enforceRoomItemLimit(env, scope);
   const id = crypto.randomUUID();
   const createdAt = new Date();
   const expiresAt = effectiveExpiry(ttlMinutes, scope, createdAt.getTime());
   const now = createdAt.toISOString();
-
-  await env.DB.prepare(`
+  const inserted = await env.DB.prepare(`
     INSERT INTO drop_items (
       id,
       type,
@@ -388,7 +386,15 @@ export async function createTextItem(env, payload, context = personalContext()) 
       updated_at,
       space_type,
       room_id
-    ) VALUES (?1, 'text', 'ready', ?2, 0, ?3, ?4, ?5, ?3, ?6, ?7)
+    )
+    SELECT ?1, 'text', 'ready', ?2, 0, ?3, ?4, ?5, ?3, ?6, ?7
+    WHERE
+      ?6 <> 'room'
+      OR (
+        SELECT COUNT(*)
+        FROM drop_items
+        WHERE room_id = ?7 AND space_type = 'room' AND status IN ('pending', 'ready')
+      ) < ?8
   `).bind(
     id,
     content,
@@ -396,8 +402,14 @@ export async function createTextItem(env, payload, context = personalContext()) 
     expiresAt.toISOString(),
     ttlMinutes,
     scope.spaceType,
-    scope.roomId
+    scope.roomId,
+    scope.maxItems || 2147483647
   ).run();
+
+  if (Number(inserted.meta?.changes || 0) !== 1) {
+    await enforceRoomItemLimit(env, scope);
+    throw new HttpError(409, "room-item-limit", "La sala alcanzó el máximo de elementos permitidos.");
+  }
 
   await recordTransfer(env.DB, { type: "text", bytes: 0, spaceType: scope.spaceType });
   return publicItem(await getDropItem(env, id));
@@ -406,8 +418,6 @@ export async function createTextItem(env, payload, context = personalContext()) 
 export async function initializeFileUpload(env, payload, context = personalContext()) {
   const scope = normalizeContext(context);
   const file = validateFileMetadata(env, payload, scope);
-  await enforceRoomItemLimit(env, scope);
-  await enforceStorageGuardrail(env, file.size, scope);
   const id = crypto.randomUUID();
   const createdAt = new Date();
   const pendingExpiresAt = new Date(createdAt.getTime() + PENDING_UPLOAD_TTL_SECONDS * 1000);
@@ -415,8 +425,7 @@ export async function initializeFileUpload(env, payload, context = personalConte
     ? `drop/rooms/${scope.roomId}/${id}/${file.name}`
     : `drop/personal/${id}/${file.name}`;
   const now = createdAt.toISOString();
-
-  await env.DB.prepare(`
+  const inserted = await env.DB.prepare(`
     INSERT INTO drop_items (
       id,
       type,
@@ -431,7 +440,33 @@ export async function initializeFileUpload(env, payload, context = personalConte
       updated_at,
       space_type,
       room_id
-    ) VALUES (?1, 'file', 'pending', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6, ?9, ?10)
+    )
+    SELECT ?1, 'file', 'pending', ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?6, ?9, ?10
+    WHERE
+      (
+        SELECT COALESCE(SUM(size), 0)
+        FROM drop_items
+        WHERE type = 'file' AND status IN ('pending', 'ready')
+      ) + COALESCE((
+        SELECT orphan_bytes
+        FROM maintenance_state
+        WHERE id = 1
+      ), 0) + ?3 <= ?11
+      AND (
+        ?9 <> 'room'
+        OR (
+          (
+            SELECT COUNT(*)
+            FROM drop_items
+            WHERE room_id = ?10 AND space_type = 'room' AND status IN ('pending', 'ready')
+          ) < ?12
+          AND (
+            SELECT COALESCE(SUM(size), 0)
+            FROM drop_items
+            WHERE room_id = ?10 AND space_type = 'room' AND status IN ('pending', 'ready')
+          ) + ?3 <= ?13
+        )
+      )
   `).bind(
     id,
     file.name,
@@ -442,8 +477,17 @@ export async function initializeFileUpload(env, payload, context = personalConte
     pendingExpiresAt.toISOString(),
     file.ttlMinutes,
     scope.spaceType,
-    scope.roomId
+    scope.roomId,
+    STORAGE_INTERNAL_LIMIT_BYTES,
+    scope.maxItems || 2147483647,
+    scope.maxBytes || STORAGE_INTERNAL_LIMIT_BYTES
   ).run();
+
+  if (Number(inserted.meta?.changes || 0) !== 1) {
+    await enforceRoomItemLimit(env, scope);
+    await enforceStorageGuardrail(env, file.size, scope);
+    throw new HttpError(409, "upload-limit-conflict", "No fue posible reservar espacio para la subida. Intenta de nuevo.");
+  }
 
   try {
     const uploadUrl = await createSignedB2Url(env, {

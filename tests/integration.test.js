@@ -143,8 +143,46 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     const revoked = await json(revokedResponse);
     assert.equal(revoked.code, "invalid-room-session");
 
+    const usageResponse = await worker.fetch(request("/api/admin/usage", { token: personalToken }), env);
+    assert.equal(usageResponse.status, 200);
+    const usage = await json(usageResponse);
+    assert.equal(usage.today.uploadsCount, 2);
+    assert.equal(usage.today.roomUploadsCount, 2);
+    assert.equal(usage.today.uploadBytes, 4);
+    assert.equal(usage.today.deletedCount, 2);
+    assert.equal(usage.today.deletedBytes, 4);
+
     const remaining = await db.prepare("SELECT COUNT(*) AS count FROM drop_items WHERE room_id = ?1").bind(created.room.id).first();
     assert.equal(remaining.count, 0);
+
+    const expiringResponse = await worker.fetch(request("/api/rooms", {
+      method: "POST",
+      token: personalToken,
+      body: { ttlMinutes: 5 }
+    }), env);
+    const expiring = await json(expiringResponse);
+    const expiringText = await worker.fetch(request("/api/room/items/text", {
+      method: "POST",
+      token: expiring.token,
+      body: { content: "expira", ttlMinutes: 5 }
+    }), env);
+    assert.equal(expiringText.status, 201);
+    const past = new Date(Date.now() - 60_000).toISOString();
+    await db.prepare("UPDATE rooms SET expires_at = ?2 WHERE id = ?1").bind(expiring.room.id, past).run();
+
+    const cleanupResponse = await worker.fetch(request("/api/admin/cleanup", {
+      method: "POST",
+      token: personalToken,
+      body: {}
+    }), env);
+    assert.equal(cleanupResponse.status, 200);
+    const cleanup = await json(cleanupResponse);
+    assert.equal(cleanup.rooms.closed, 1);
+    assert.equal(cleanup.rooms.failed, 0);
+    const expiredRoom = await db.prepare("SELECT status FROM rooms WHERE id = ?1").bind(expiring.room.id).first();
+    assert.equal(expiredRoom.status, "closed");
+    const expiredItems = await db.prepare("SELECT COUNT(*) AS count FROM drop_items WHERE room_id = ?1").bind(expiring.room.id).first();
+    assert.equal(expiredItems.count, 0);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();

@@ -1,4 +1,4 @@
-﻿param(
+param(
   [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url")]
   [string]$Action = "menu"
 )
@@ -20,6 +20,12 @@ $script:WorkerUrl = ""
 $script:PublicAppUrl = ""
 $script:AllowedOrigin = ""
 $script:MaxFileBytes = [long](512MB)
+$script:RoomMaxFileBytes = [long](100MB)
+$script:DefaultTtlMinutes = 5
+$script:RoomDefaultTtlMinutes = 5
+$script:PollIntervalMs = 3000
+$script:UploadConcurrency = 2
+$script:AssetVersion = "20260908-4"
 $script:SessionSecretConfigured = $false
 $script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
@@ -411,9 +417,14 @@ function Write-FrontendConfig {
   $content = @"
 const appConfig = Object.freeze({
   workerBaseUrl: "$($script:WorkerUrl.TrimEnd('/'))",
-  defaultTtlMinutes: 15,
+  publicAppUrl: "$($script:PublicAppUrl)",
+  defaultTtlMinutes: $script:DefaultTtlMinutes,
+  roomDefaultTtlMinutes: $script:RoomDefaultTtlMinutes,
   maxFileBytes: $script:MaxFileBytes,
-  pollIntervalMs: 3000
+  roomMaxFileBytes: $script:RoomMaxFileBytes,
+  pollIntervalMs: $script:PollIntervalMs,
+  uploadConcurrency: $script:UploadConcurrency,
+  assetVersion: "$script:AssetVersion"
 });
 
 export { appConfig };
@@ -989,4 +1000,3 @@ do {
     default { Write-Host "Opción inválida." }
   }
 } while ($true)
-

@@ -15,32 +15,34 @@
   </a>
 </p>
 
-<strong>Transferencia temporal de texto y archivos.</strong>
+<strong>Transferencia temporal de texto, archivos y audio.</strong>
 
 </div>
 
 <br>
 
 <p>
-  Hopper es una aplicación web para pasar contenido entre dispositivos mediante un único espacio temporal protegido con PIN. Permite pegar texto, subir archivos, copiarlos o descargarlos desde otro equipo y definir cuánto tiempo permanecen disponibles antes de desaparecer automáticamente.
+  Hopper es una aplicación web instalable para mover contenido temporalmente entre dispositivos. Incluye un espacio personal protegido con PIN y hasta dos salas invitadas aisladas mediante códigos temporales, con expiración automática, almacenamiento privado y herramientas de uso y mantenimiento.
 </p>
 
 ## Características
 
-- Transferir texto, código, imágenes, documentos, ZIPs y otros archivos.
-- Proteger el acceso mediante un PIN de cuatro dígitos.
-- Mostrar una cuenta regresiva independiente por elemento.
-- Reiniciar la expiración a 15 minutos, 30 minutos, 1 hora o 6 horas.
-- Copiar texto y descargar archivos con pocos clics.
-- Previsualizar imágenes compatibles.
-- Eliminar contenido manualmente o mediante expiración automática.
-- Recuperar el acceso mediante un enlace temporal de un solo uso.
+- Transferir texto, código, imágenes, documentos, ZIPs, audio y otros archivos.
+- Proteger el espacio personal mediante un PIN de cuatro dígitos y recuperación por correo.
+- Crear hasta dos salas invitadas simultáneas con código temporal, QR local y enlace para compartir.
+- Utilizar 5 minutos como expiración predeterminada y reiniciar el TTL según el tipo de espacio.
+- Subir hasta dos archivos simultáneamente con cola, progreso, cancelación y reintentos seguros.
+- Previsualizar imágenes y reproducir audio bajo demanda mediante URLs firmadas temporales.
+- Instalar Hopper como PWA y recibir contenido mediante Web Share Target en navegadores compatibles.
+- Consultar almacenamiento estimado, métricas agregadas, salud, límites, salas y mantenimiento desde Uso.
+- Eliminar contenido manualmente o mediante expiración y limpieza automática.
 
 ## Tecnologías
 
 - HTML5
 - CSS3
 - JavaScript ES Modules
+- Progressive Web App
 - Cloudflare Workers
 - Cloudflare D1
 - Backblaze B2

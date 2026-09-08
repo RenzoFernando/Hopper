@@ -1,6 +1,6 @@
-import { hopperApi } from "./api.js?v=20260908-3";
-import { appConfig } from "./config.js?v=20260908-3";
-import { createTransferController } from "./transfer-controller.js?v=20260908-3";
+import { hopperApi } from "./api.js?v=20260908-4";
+import { appConfig } from "./config.js?v=20260908-4";
+import { createTransferController } from "./transfer-controller.js?v=20260908-4";
 
 const elements = {
   joinScreen: document.querySelector("#room-join-screen"),

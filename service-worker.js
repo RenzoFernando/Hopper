@@ -1,4 +1,4 @@
-const CACHE_NAME = "hopper-shell-20260908-3";
+const CACHE_NAME = "hopper-shell-20260908-4";
 const SHARE_DB = "hopper-share-target-v1";
 const SHELL = [
   "./",
@@ -12,16 +12,16 @@ const SHELL = [
   "./assets/icons/hopper.svg",
   "./assets/icons/hopper-192.png",
   "./assets/icons/hopper-512.png",
-  "./css/styles.css?v=20260908-3",
-  "./js/config.js?v=20260908-3",
-  "./js/api.js?v=20260908-3",
-  "./js/transfer-controller.js?v=20260908-3",
-  "./js/app.js?v=20260908-3",
-  "./js/room.js?v=20260908-3",
-  "./js/admin.js?v=20260908-3",
-  "./js/qrcode.js?v=20260908-3",
-  "./js/share-target.js?v=20260908-3",
-  "./js/recover.js?v=20260908-3"
+  "./css/styles.css?v=20260908-4",
+  "./js/config.js?v=20260908-4",
+  "./js/api.js?v=20260908-4",
+  "./js/transfer-controller.js?v=20260908-4",
+  "./js/app.js?v=20260908-4",
+  "./js/room.js?v=20260908-4",
+  "./js/admin.js?v=20260908-4",
+  "./js/qrcode.js?v=20260908-4",
+  "./js/share-target.js?v=20260908-4",
+  "./js/recover.js?v=20260908-4"
 ];
 
 function openShareDb() {
