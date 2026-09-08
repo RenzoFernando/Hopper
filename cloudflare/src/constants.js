@@ -1,0 +1,18 @@
+export const MAX_FAILED_ATTEMPTS = 5;
+export const SESSION_TTL_SECONDS = 30 * 60;
+export const RECOVERY_TTL_SECONDS = 15 * 60;
+export const RECOVERY_COOLDOWN_SECONDS = 15 * 60;
+export const UPLOAD_URL_TTL_SECONDS = 15 * 60;
+export const DOWNLOAD_URL_TTL_SECONDS = 5 * 60;
+export const PENDING_UPLOAD_TTL_SECONDS = 20 * 60;
+export const DEFAULT_TTL_MINUTES = 15;
+export const TTL_OPTIONS = Object.freeze([15, 30, 60, 360]);
+export const MAX_TEXT_CHARACTERS = 250_000;
+export const DEFAULT_MAX_FILE_BYTES = 512 * 1024 * 1024;
+export const MAX_LIST_ITEMS = 100;
+export const MAX_FIRESTORE_SCAN = 500;
+export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+export const GOOGLE_SCOPES = [
+  "https://www.googleapis.com/auth/datastore",
+  "https://www.googleapis.com/auth/devstorage.read_write"
+].join(" ");
