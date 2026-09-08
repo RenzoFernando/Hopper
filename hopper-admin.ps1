@@ -1,4 +1,4 @@
-param(
+﻿param(
   [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url")]
   [string]$Action = "menu"
 )
@@ -661,7 +661,7 @@ function Configure-B2Cors {
       corsRuleName = "hopperDirectTransfer"
       allowedOrigins = @($origins)
       allowedHeaders = @("content-type")
-      allowedOperations = @("S3_put", "S3_get", "S3_head")
+      allowedOperations = @("s3_put", "s3_get", "s3_head")
       exposeHeaders = @("etag", "content-length", "content-type", "x-amz-version-id")
       maxAgeSeconds = 3600
     }
@@ -701,7 +701,7 @@ function Test-B2WorkerAccess {
       throw "El Worker no confirmó el acceso de lectura/escritura/eliminación a Backblaze B2."
     }
 
-    Write-Host "Backblaze B2: $($result.bucket) — acceso operativo OK"
+    Write-Host "Backblaze B2: $($result.bucket) - acceso operativo OK"
   }
 }
 
@@ -718,7 +718,34 @@ function Invoke-AdminRequest {
 
   $headers = @{ Authorization = "Bearer $AdminToken" }
   $json = $Body | ConvertTo-Json -Depth 6 -Compress
-  return Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))$Path" -Method Post -Headers $headers -ContentType "application/json" -Body $json
+  $uri = "$($script:WorkerUrl.TrimEnd('/'))$Path"
+  $maxAttempts = 15
+
+  for ($attempt = 1; $attempt -le $maxAttempts; $attempt += 1) {
+    try {
+      return Invoke-RestMethod `
+        -Uri $uri `
+        -Method Post `
+        -Headers $headers `
+        -ContentType "application/json" `
+        -Body $json
+    } catch {
+      $statusCode = $null
+
+      if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+      }
+
+      $retryable = $statusCode -in @(401, 404)
+
+      if (-not $retryable -or $attempt -ge $maxAttempts) {
+        throw
+      }
+
+      Write-Host "Esperando propagación del token administrativo... ($attempt/$maxAttempts)"
+      Start-Sleep -Seconds 2
+    }
+  }
 }
 
 function Use-TemporaryAdminToken {
@@ -726,6 +753,9 @@ function Use-TemporaryAdminToken {
 
   $adminToken = New-RandomToken 32
   Set-WorkerSecretsBulk ([ordered]@{ ADMIN_CLI_TOKEN = $adminToken })
+
+  # Da tiempo a Cloudflare para propagar la nueva versión con el secret temporal.
+  Start-Sleep -Seconds 5
 
   try {
     & $Operation $adminToken
@@ -776,7 +806,7 @@ function Show-Status {
   if ($script:WorkerUrl) {
     try {
       $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get
-      Write-Host "Worker: $($health.service) — OK"
+      Write-Host "Worker: $($health.service) - OK"
       Write-Host "B2: $($health.configured.b2Bucket) | firma: $($health.configured.b2Signing) | correo: $($health.configured.recoveryEmail)"
     } catch {
       Write-Warning "El Worker no respondió al health check."
@@ -959,3 +989,4 @@ do {
     default { Write-Host "Opción inválida." }
   }
 } while ($true)
+

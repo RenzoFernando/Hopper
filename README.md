@@ -43,10 +43,6 @@
 - Backblaze B2
 - Resend
 
-## Uso
-
-La configuración y el despliegue de una instancia propia están documentados en [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
-
 ## Autor y licencia
 
 [Renzo Fernando Mosquera Daza](https://github.com/RenzoFernando)
