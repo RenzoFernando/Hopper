@@ -7,7 +7,7 @@
   roomMaxFileBytes: 104857600,
   pollIntervalMs: 3000,
   uploadConcurrency: 2,
-  assetVersion: "20260908-4"
+  assetVersion: "20260908-5"
 });
 
 export { appConfig };

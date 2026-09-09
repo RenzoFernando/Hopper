@@ -10,7 +10,7 @@ const read = (path) => readFileSync(resolve(root, path), "utf8");
 test("mantiene una única versión interna de assets y TTL predeterminado de 5 minutos", () => {
   const config = read("js/config.js");
   const version = config.match(/assetVersion:\s*"([^"]+)"/)?.[1];
-  assert.equal(version, "20260908-4");
+  assert.equal(version, "20260908-5");
   assert.match(config, /defaultTtlMinutes:\s*5/);
   assert.match(config, /roomDefaultTtlMinutes:\s*5/);
 
@@ -79,33 +79,64 @@ test("el manifest PWA y el shell solo referencian recursos locales existentes", 
   }
 });
 
-test("Share Target no ofrece 6 horas cuando el destino es una sala", () => {
+test("la portada separa el PIN privado de las salas públicas", () => {
+  const index = read("index.html");
+  assert.doesNotMatch(index, /<nav[^>]*>[\s\S]*href="room\.html">Entrar a una sala<\/a>/);
+  assert.doesNotMatch(index, /Todo desaparece automáticamente/);
+  assert.match(index, /id="room-capacity">— \/ 2/);
+  assert.match(index, /id="public-create-room"/);
+  assert.match(index, /id="public-room-form"/);
+  assert.match(index, /href="admin\.html">Administración<\/a>/);
+  assert.match(index, /Código de la sala/);
+  assert.match(index, /id="room-created-enter"[^>]*>Entrar a la sala/);
+});
+
+test("las salas públicas usan TTL fijo y no muestran controles para cambiarlo", () => {
+  const roomHtml = read("room.html");
+  const roomJs = read("js/room.js");
+  const constants = read("cloudflare/src/constants.js");
+  assert.doesNotMatch(roomHtml, /id="ttl-select"/);
+  assert.match(roomJs, /defaultTtlMinutes:\s*5/);
+  assert.match(roomJs, /ttlOptions:\s*\[5\]/);
+  assert.match(roomJs, /allowTtlReset:\s*false/);
+  assert.match(constants, /ROOM_TTL_OPTIONS = Object\.freeze\(\[5\]\)/);
+  assert.match(constants, /ROOM_INACTIVITY_SECONDS = 5 \* 60/);
+});
+
+test("Share Target fija 5 minutos cuando el destino es una sala", () => {
   const source = read("js/share-target.js");
-  assert.match(source, /elements\.destination\.value === "room"[\s\S]*?\[5, 15, 30, 60\]/);
-  assert.match(source, /\[5, 15, 30, 60, 360\]/);
-  assert.match(source, /elements\.destination\.addEventListener\("change", configureTtlOptions\)/);
+  assert.match(source, /roomDestination \? \[5\] : \[5, 15, 30, 60, 360\]/);
+  assert.match(source, /elements\.ttlField\.hidden = roomDestination/);
+});
+
+test("la cola no muestra cero por ciento antes de enviar y usa cancelación compacta", () => {
+  const source = read("js/transfer-controller.js");
+  assert.doesNotMatch(source, /0% · Listo para enviar/);
+  assert.match(source, /label: "Listo para enviar"/);
+  assert.match(source, /className = "remove-file-button is-cancel"/);
+  assert.match(source, /progress\.hidden = !activeProgress/);
+  assert.match(source, /composerCard\?\.classList\.toggle\("is-sending", sending\)/);
+});
+
+test("Administración observa y abre salas pero no las crea", () => {
+  const admin = read("admin.html");
+  const adminJs = read("js/admin.js");
+  const api = read("js/api.js");
+  assert.match(admin, /<h1>Administración<\/h1>/);
+  assert.doesNotMatch(admin, /id="new-room-button"/);
+  assert.doesNotMatch(admin, /id="room-ttl"/);
+  assert.match(adminJs, /hopperApi\.adminOpenRoom\(room\.id\)/);
+  assert.match(api, /async adminOpenRoom\(roomId\)/);
+});
+
+test("la sesión de sala respeta el código del enlace y la inactividad vuelve a inicio", () => {
+  const room = read("js/room.js");
+  assert.match(room, /storedRoomSession && storedRoomCode && storedRoomCode !== normalizedHash[\s\S]*?hopperApi\.clearRoomSession\(\)/);
+  assert.match(room, /async function markRoomActivity/);
+  assert.match(room, /hopperApi\.roomActivity\(\)/);
+  assert.match(room, /function leaveToHome\(\)[\s\S]*?window\.location\.replace\("\.\/"\)/);
 });
 
 test("no conserva el módulo UI antiguo sin referencias", () => {
   assert.equal(existsSync(resolve(root, "js/ui.js")), false);
 });
-
-test("el propietario encuentra la creación de salas y el código se muestra al crear", () => {
-  const index = read("index.html");
-  const admin = read("admin.html");
-  const adminJs = read("js/admin.js");
-
-  assert.match(index, /href="admin\.html#rooms">Crear sala<\/a>/);
-  assert.match(admin, /<section class="admin-panel" id="rooms"[^>]*>/);
-  assert.match(admin, /Quien tenga la invitación puede entrar sin usar tu PIN personal\./);
-  assert.match(adminJs, /await refreshAll\(\{ includeHealth: false \}\);\s*openQr\(result\.code\);/);
-});
-
-test("un enlace de Sala A no reutiliza silenciosamente la sesión de Sala B", () => {
-  const room = read("js/room.js");
-
-  assert.match(room, /const storedRoomSession = hopperApi\.getRoomSession\(\);/);
-  assert.match(room, /storedRoomSession && storedRoomCode !== normalizedHash[\s\S]*?hopperApi\.clearRoomSession\(\)/);
-  assert.match(room, /if \(!hasInviteCode \|\| code === normalizedHash\)[\s\S]*?await enterRoom\(result\.room, code \|\| normalizedHash\)/);
-});
-

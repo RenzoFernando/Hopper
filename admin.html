@@ -3,21 +3,21 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="Uso, salud, límites y salas de Hopper.">
+    <meta name="description" content="Administración, uso y salud de Hopper.">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#202123">
-    <title>Uso — Hopper</title>
+    <title>Administración — Hopper</title>
     <link rel="icon" href="assets/favicon.ico" sizes="any">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="css/styles.css?v=20260908-4">
+    <link rel="stylesheet" href="css/styles.css?v=20260908-5">
   </head>
   <body class="document-page">
     <div class="document-shell">
       <header class="site-header"><a class="brand" href="./" aria-label="Volver a Hopper"><img class="brand-mark" src="assets/favicon.svg" alt=""><span class="brand-name">HOPPER</span></a><div class="header-session"><a class="header-link" href="./">Mi espacio</a><button class="icon-button refresh-button" id="admin-refresh-button" type="button" aria-label="Actualizar panel" title="Actualizar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></div></header>
 
       <main class="admin-main">
-        <div class="admin-heading"><div><p class="eyebrow">MI ESPACIO</p><h1>Uso</h1></div><p>Estado operativo y límites internos de Hopper.</p></div>
+        <div class="admin-heading"><div><p class="eyebrow">HOPPER</p><h1>Administración</h1></div></div>
 
         <section class="admin-grid" aria-label="Resumen de uso">
           <article class="metric-card metric-card-wide"><span>Uso estimado de Hopper en B2</span><strong id="usage-storage">—</strong><div class="storage-track" aria-hidden="true"><span id="storage-meter"></span></div><small class="usage-state" id="storage-state">Consultando…</small></article>
@@ -36,8 +36,7 @@
         </div>
 
         <section class="admin-panel" id="rooms" aria-labelledby="rooms-title">
-          <div class="panel-heading panel-heading-actions"><div><h2 id="rooms-title">Salas</h2><span class="panel-count" id="admin-room-count">0 / 2</span></div><div class="room-create-controls"><label for="room-ttl">Duración<select id="room-ttl"><option value="5" selected>5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hora</option></select></label><button class="primary-button compact-button" id="new-room-button" type="button">Nueva sala</button></div></div>
-          <p class="admin-room-note">Crea una sala invitada y comparte su código, enlace o QR. Quien tenga la invitación puede entrar sin usar tu PIN personal.</p>
+          <div class="panel-heading"><div><h2 id="rooms-title">Salas activas</h2><span class="panel-count" id="admin-room-count">0 / 2</span></div></div>
           <div class="admin-room-list" id="admin-room-list"><p class="admin-empty">No hay salas activas.</p></div>
         </section>
 
@@ -47,10 +46,9 @@
         </section>
       </main>
 
-      <dialog class="qr-dialog" id="qr-dialog"><div class="dialog-header"><div><p class="eyebrow">INVITACIÓN</p><h2>QR de sala</h2></div><button class="icon-button" id="qr-close" type="button" aria-label="Cerrar QR"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg></button></div><canvas id="qr-canvas" width="260" height="260" aria-label="Código QR de la sala"></canvas><strong class="qr-code" id="qr-code">—</strong><p>El QR se genera localmente en este navegador.</p></dialog>
       <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
     </div>
     <footer class="project-footer"><p><a href="https://github.com/RenzoFernando/Hopper" target="_blank" rel="noopener noreferrer"><strong>Hopper</strong></a><span> — Transferencia temporal de texto y archivos</span></p><p>© 2026 — Renzo Fernando Mosquera Daza</p></footer>
-    <script type="module" src="js/admin.js?v=20260908-4"></script>
+    <script type="module" src="js/admin.js?v=20260908-5"></script>
   </body>
 </html>

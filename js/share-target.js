@@ -1,12 +1,13 @@
-import { hopperApi } from "./api.js?v=20260908-4";
-import { appConfig } from "./config.js?v=20260908-4";
-import { formatBytes } from "./transfer-controller.js?v=20260908-4";
+import { hopperApi } from "./api.js?v=20260908-5";
+import { appConfig } from "./config.js?v=20260908-5";
+import { formatBytes } from "./transfer-controller.js?v=20260908-5";
 
 const SHARE_DB = "hopper-share-target-v1";
 const elements = {
   summary: document.querySelector("#share-summary"),
   destination: document.querySelector("#share-destination"),
   ttl: document.querySelector("#share-ttl"),
+  ttlField: document.querySelector("#share-ttl-field"),
   send: document.querySelector("#share-send"),
   discard: document.querySelector("#share-discard"),
   message: document.querySelector("#share-message"),
@@ -69,9 +70,9 @@ function roomLabel() {
 
 function configureTtlOptions() {
   const current = Number(elements.ttl.value) || appConfig.defaultTtlMinutes;
-  const values = elements.destination.value === "room"
-    ? [5, 15, 30, 60]
-    : [5, 15, 30, 60, 360];
+  const roomDestination = elements.destination.value === "room";
+  const values = roomDestination ? [5] : [5, 15, 30, 60, 360];
+  elements.ttlField.hidden = roomDestination;
   const labels = new Map([
     [5, "5 min"],
     [15, "15 min"],

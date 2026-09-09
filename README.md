@@ -22,20 +22,21 @@
 <br>
 
 <p>
-  Hopper es una aplicación web instalable para mover contenido temporalmente entre dispositivos. Incluye un espacio personal protegido con PIN y hasta dos salas invitadas aisladas mediante códigos temporales, con expiración automática, almacenamiento privado y herramientas de uso y mantenimiento.
+  Hopper es una aplicación web instalable para mover contenido temporalmente entre dispositivos. Incluye un espacio privado protegido con PIN y hasta dos salas públicas temporales que cualquier persona puede crear o abrir mediante un código.
 </p>
 
 ## Características
 
 - Transferir texto, código, imágenes, documentos, ZIPs, audio y otros archivos.
-- Proteger el espacio personal mediante un PIN de cuatro dígitos y recuperación por correo.
-- Crear hasta dos salas invitadas simultáneas con código temporal, QR local y enlace para compartir.
-- Utilizar 5 minutos como expiración predeterminada y reiniciar el TTL según el tipo de espacio.
+- Proteger el espacio privado mediante un PIN de cuatro dígitos y recuperación por correo.
+- Crear hasta dos salas públicas simultáneas sin usar el PIN.
+- Mantener cada sala activa mientras exista actividad y cerrarla tras 5 minutos de inactividad.
+- Expirar el contenido de las salas a los 5 minutos, sin controles de TTL para participantes.
 - Subir hasta dos archivos simultáneamente con cola, progreso, cancelación y reintentos seguros.
 - Previsualizar imágenes y reproducir audio bajo demanda mediante URLs firmadas temporales.
 - Instalar Hopper como PWA y recibir contenido mediante Web Share Target en navegadores compatibles.
-- Consultar almacenamiento estimado, métricas agregadas, salud, límites, salas y mantenimiento desde Uso.
-- Eliminar contenido manualmente o mediante expiración y limpieza automática.
+- Consultar uso, salud, límites, salas activas y mantenimiento desde Administración.
+- Abrir o cerrar cualquier sala activa desde Administración.
 
 ## Tecnologías
 
@@ -47,6 +48,12 @@
 - Cloudflare D1
 - Backblaze B2
 - Resend
+
+## Pruebas
+
+```bash
+node --test tests/*.test.js
+```
 
 ## Autor y licencia
 

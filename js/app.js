@@ -1,6 +1,7 @@
-import { hopperApi } from "./api.js?v=20260908-4";
-import { appConfig } from "./config.js?v=20260908-4";
-import { createTransferController } from "./transfer-controller.js?v=20260908-4";
+import { hopperApi } from "./api.js?v=20260908-5";
+import { appConfig } from "./config.js?v=20260908-5";
+import { renderQr } from "./qrcode.js?v=20260908-5";
+import { createTransferController } from "./transfer-controller.js?v=20260908-5";
 
 const elements = {
   authScreen: document.querySelector("#auth-screen"),
@@ -18,14 +19,29 @@ const elements = {
   installButtonSession: document.querySelector("#install-button-session"),
   updateButton: document.querySelector("#update-button"),
   updateButtonSession: document.querySelector("#update-button-session"),
-  publicNav: document.querySelector("#public-nav")
+  publicNav: document.querySelector("#public-nav"),
+  roomCapacity: document.querySelector("#room-capacity"),
+  createRoomButton: document.querySelector("#public-create-room"),
+  roomForm: document.querySelector("#public-room-form"),
+  roomCodeInput: document.querySelector("#public-room-code"),
+  roomJoinButton: document.querySelector("#public-room-join"),
+  roomMessage: document.querySelector("#public-room-message"),
+  roomDialog: document.querySelector("#room-created-dialog"),
+  roomDialogClose: document.querySelector("#room-created-close"),
+  roomQr: document.querySelector("#room-created-qr"),
+  roomCode: document.querySelector("#room-created-code"),
+  roomCopy: document.querySelector("#room-created-copy"),
+  roomEnter: document.querySelector("#room-created-enter")
 };
 
 const state = {
   pinSubmitting: false,
+  roomSubmitting: false,
+  createdRoomCode: "",
   transfer: null,
   installPrompt: null,
-  registration: null
+  registration: null,
+  capacityTimer: null
 };
 
 function normalizePinInput() {
@@ -38,9 +54,21 @@ function normalizePinInput() {
   return normalized;
 }
 
+function normalizeRoomCode(value) {
+  const compact = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  return compact.length <= 2 ? compact : `${compact.slice(0, 2)}-${compact.slice(2)}`;
+}
+
 function setPinMessage(message, type = "") {
   elements.pinMessage.textContent = message;
   elements.pinMessage.className = `form-message ${type ? `is-${type}` : ""}`.trim();
+  elements.pinMessage.hidden = !message;
+}
+
+function setRoomMessage(message, type = "") {
+  elements.roomMessage.textContent = message;
+  elements.roomMessage.className = `room-access-message ${type ? `is-${type}` : ""}`.trim();
+  elements.roomMessage.hidden = !message;
 }
 
 function setPinLoading(loading) {
@@ -53,7 +81,7 @@ function setLocked(locked) {
   elements.pinForm.hidden = locked;
 
   if (locked) {
-    setPinMessage("El acceso queda detenido hasta restablecer el PIN.", "error");
+    setPinMessage("El acceso está bloqueado.", "error");
   }
 }
 
@@ -73,13 +101,14 @@ function stopTransfer() {
   state.transfer = null;
 }
 
-function returnToLogin(message = "Ingresa el PIN para continuar.", type = "") {
+function returnToLogin(message = "", type = "") {
   stopTransfer();
   setAuthenticated(false);
   setLocked(false);
   setPinLoading(false);
   elements.pinInput.value = "";
   setPinMessage(message, type);
+  refreshRoomCapacity().catch(() => {});
 }
 
 function createPersonalTransfer() {
@@ -141,14 +170,13 @@ async function handlePinSubmit(event) {
 
   state.pinSubmitting = true;
   setPinLoading(true);
-  setPinMessage("Verificando…");
+  setPinMessage("");
 
   try {
     const result = await hopperApi.login(pin);
 
     if (result?.status === "authorized") {
       elements.pinInput.value = "";
-      setPinMessage("Acceso concedido.", "success");
       await enterWorkspace();
       return;
     }
@@ -171,10 +199,6 @@ async function handlePinSubmit(event) {
   } finally {
     state.pinSubmitting = false;
     setPinLoading(false);
-
-    if (!elements.pinForm.hidden && elements.authScreen.hidden === false) {
-      elements.pinInput.focus();
-    }
   }
 }
 
@@ -185,13 +209,121 @@ async function requestRecovery() {
 
   try {
     await hopperApi.requestRecovery();
-    elements.recoveryRequestMessage.textContent = "Enlace enviado al correo de recuperación.";
+    elements.recoveryRequestMessage.textContent = "Enlace enviado.";
     elements.recoveryRequestMessage.className = "form-message is-success";
   } catch (error) {
     elements.recoveryRequestMessage.textContent = error.message || "No fue posible enviar el enlace.";
     elements.recoveryRequestMessage.className = "form-message is-error";
   } finally {
     elements.recoveryRequestButton.disabled = false;
+  }
+}
+
+async function refreshRoomCapacity() {
+  if (elements.authScreen.hidden) {
+    return;
+  }
+
+  try {
+    const capacity = await hopperApi.roomCapacity();
+    const available = Math.max(0, Number(capacity?.available || 0));
+    const maximum = Math.max(1, Number(capacity?.maximum || 2));
+    elements.roomCapacity.textContent = `${available} / ${maximum}`;
+    elements.createRoomButton.disabled = available <= 0 || state.roomSubmitting;
+  } catch {
+    elements.roomCapacity.textContent = "— / 2";
+    elements.createRoomButton.disabled = true;
+  }
+}
+
+function roomUrl(code) {
+  const url = new URL("room.html", window.location.href);
+  url.hash = code;
+  return url.toString();
+}
+
+async function copyRoomCode() {
+  const code = state.createdRoomCode;
+
+  if (!code) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(code);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = code;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    input.select();
+    document.execCommand("copy");
+    input.remove();
+  }
+
+  elements.roomCopy.textContent = "Copiado";
+  window.setTimeout(() => {
+    elements.roomCopy.textContent = "Copiar código";
+  }, 1200);
+}
+
+function showCreatedRoom(result) {
+  state.createdRoomCode = result.code;
+  elements.roomCode.textContent = result.code;
+  renderQr(elements.roomQr, roomUrl(result.code), 260);
+  elements.roomDialog.showModal();
+}
+
+async function createPublicRoom() {
+  if (state.roomSubmitting || elements.createRoomButton.disabled) {
+    return;
+  }
+
+  state.roomSubmitting = true;
+  elements.createRoomButton.disabled = true;
+
+  try {
+    const result = await hopperApi.createRoom();
+    showCreatedRoom(result);
+    await refreshRoomCapacity();
+  } catch (error) {
+    setRoomMessage(error.message || "No fue posible crear la sala.", "error");
+    await refreshRoomCapacity();
+  } finally {
+    state.roomSubmitting = false;
+  }
+}
+
+async function joinPublicRoom(event) {
+  event?.preventDefault();
+
+  if (state.roomSubmitting) {
+    return;
+  }
+
+  const code = normalizeRoomCode(elements.roomCodeInput.value);
+  elements.roomCodeInput.value = code;
+
+  if (!/^[A-Z]{2}-\d{4}$/.test(code)) {
+    setRoomMessage("Código no válido.", "error");
+    return;
+  }
+
+  state.roomSubmitting = true;
+  elements.roomJoinButton.disabled = true;
+  elements.roomCodeInput.disabled = true;
+  setRoomMessage("");
+
+  try {
+    await hopperApi.joinRoom(code);
+    window.location.assign(roomUrl(code));
+  } catch (error) {
+    setRoomMessage(error.message || "No fue posible entrar a la sala.", "error");
+  } finally {
+    state.roomSubmitting = false;
+    elements.roomJoinButton.disabled = false;
+    elements.roomCodeInput.disabled = false;
   }
 }
 
@@ -228,7 +360,6 @@ async function registerPwa() {
 
     registration.addEventListener("updatefound", () => {
       const worker = registration.installing;
-
       worker?.addEventListener("statechange", () => {
         if (worker.state === "installed" && navigator.serviceWorker.controller) {
           showUpdateButton(registration);
@@ -236,9 +367,7 @@ async function registerPwa() {
       });
     });
 
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      window.location.reload();
-    });
+    navigator.serviceWorker.addEventListener("controllerchange", () => window.location.reload());
   } catch {
     setInstallVisible(false);
   }
@@ -299,11 +428,28 @@ function bindEvents() {
   elements.recoveryRequestButton.addEventListener("click", requestRecovery);
   elements.logoutButton.addEventListener("click", () => {
     hopperApi.clearSession();
-    returnToLogin("Sesión cerrada. Ingresa el PIN para volver a entrar.");
+    returnToLogin();
   });
-  window.addEventListener("hopper:session-expired", () => {
-    returnToLogin("La sesión venció. Ingresa el PIN de nuevo.", "error");
+  elements.createRoomButton.addEventListener("click", createPublicRoom);
+  elements.roomForm.addEventListener("submit", joinPublicRoom);
+  elements.roomCodeInput.addEventListener("input", () => {
+    elements.roomCodeInput.value = normalizeRoomCode(elements.roomCodeInput.value);
+    setRoomMessage("");
   });
+  elements.roomDialogClose.addEventListener("click", () => elements.roomDialog.close());
+  elements.roomDialog.addEventListener("click", (event) => {
+    if (event.target === elements.roomDialog) {
+      elements.roomDialog.close();
+    }
+  });
+  elements.roomCopy.addEventListener("click", copyRoomCode);
+  elements.roomEnter.addEventListener("click", () => {
+    if (state.createdRoomCode) {
+      window.location.assign(roomUrl(state.createdRoomCode));
+    }
+  });
+  window.addEventListener("hopper:session-expired", () => returnToLogin("La sesión venció. Ingresa el PIN de nuevo.", "error"));
+  window.addEventListener("focus", () => refreshRoomCapacity().catch(() => {}));
   bindPwaEvents();
 }
 
@@ -314,12 +460,13 @@ async function initialize() {
   if (!hopperApi.hasConfiguredWorker()) {
     setAuthenticated(false);
     elements.pinInput.disabled = true;
-    setPinMessage(
-      "Hopper está listo, pero falta enlazar el Worker. Ejecuta hopper-admin.ps1 para completar la configuración.",
-      "error"
-    );
+    elements.createRoomButton.disabled = true;
+    setPinMessage("Hopper todavía no está conectado al Worker.", "error");
     return;
   }
+
+  state.capacityTimer = window.setInterval(() => refreshRoomCapacity().catch(() => {}), 10_000);
+  refreshRoomCapacity().catch(() => {});
 
   try {
     const status = await hopperApi.securityStatus();
@@ -335,7 +482,7 @@ async function initialize() {
     }
 
     setAuthenticated(false);
-    setPinMessage("Todo desaparece automáticamente. 5 min por defecto.");
+    setPinMessage("");
   } catch (error) {
     setAuthenticated(false);
     setPinMessage(error.message || "No fue posible conectar con Hopper.", "error");

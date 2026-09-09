@@ -1,6 +1,5 @@
-import { hopperApi } from "./api.js?v=20260908-4";
-import { renderQr } from "./qrcode.js?v=20260908-4";
-import { formatBytes, formatCountdown } from "./transfer-controller.js?v=20260908-4";
+import { hopperApi } from "./api.js?v=20260908-5";
+import { formatBytes, formatCountdown } from "./transfer-controller.js?v=20260908-5";
 
 const elements = {
   usageStorage: document.querySelector("#usage-storage"),
@@ -17,17 +16,11 @@ const elements = {
   limitsList: document.querySelector("#limits-list"),
   roomList: document.querySelector("#admin-room-list"),
   roomCount: document.querySelector("#admin-room-count"),
-  roomTtl: document.querySelector("#room-ttl"),
-  newRoomButton: document.querySelector("#new-room-button"),
   refreshButton: document.querySelector("#admin-refresh-button"),
   cleanupButton: document.querySelector("#cleanup-button"),
   reconcileButton: document.querySelector("#reconcile-button"),
   deleteStatsButton: document.querySelector("#delete-stats-button"),
-  toastRegion: document.querySelector("#toast-region"),
-  qrDialog: document.querySelector("#qr-dialog"),
-  qrCanvas: document.querySelector("#qr-canvas"),
-  qrCode: document.querySelector("#qr-code"),
-  qrClose: document.querySelector("#qr-close")
+  toastRegion: document.querySelector("#toast-region")
 };
 
 const state = {
@@ -91,11 +84,11 @@ function renderUsage() {
     statusRow("Máximo por archivo", formatBytes(usage.limits.maxFileBytes)),
     statusRow("Límite interno", formatBytes(usage.limits.storageInternalLimitBytes)),
     statusRow("Advertencia", formatBytes(usage.limits.storageWarningBytes)),
-    statusRow("Salas", `${usage.rooms.active} / ${usage.rooms.maximum}`),
+    statusRow("Salas activas", `${usage.rooms.active} / ${usage.rooms.maximum}`),
     statusRow("Archivo por sala", formatBytes(usage.limits.roomMaxFileBytes)),
     statusRow("Almacenamiento por sala", formatBytes(usage.limits.roomMaxBytes)),
     statusRow("Elementos por sala", String(usage.limits.roomMaxItems)),
-    statusRow("TTL máximo de sala", `${usage.limits.roomMaxTtlMinutes} min`),
+    statusRow("Inactividad de sala", `${usage.limits.roomMaxTtlMinutes} min`),
     statusRow("Elementos activos", String(usage.limits.activeItems)),
     statusRow("Uploads pendientes", String(usage.limits.pendingUploads)),
     statusRow("Huérfanos", String(usage.limits.orphanItems), usage.limits.orphanItems === 0),
@@ -129,59 +122,6 @@ function renderHealth() {
   );
 }
 
-function rememberedCode(roomId) {
-  return hopperApi.getRememberedRoomCodes()?.[roomId]?.code || "";
-}
-
-function roomInviteUrl(code) {
-  const url = new URL("room.html", window.location.href);
-  url.hash = code;
-  return url.toString();
-}
-
-async function copyValue(value, message) {
-  try {
-    await navigator.clipboard.writeText(value);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = value;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.append(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
-
-  showToast(message, "success");
-}
-
-function openQr(code) {
-  const url = roomInviteUrl(code);
-  renderQr(elements.qrCanvas, url, 260);
-  elements.qrCode.textContent = code;
-  elements.qrDialog.showModal();
-}
-
-async function shareRoom(room, code) {
-  const url = roomInviteUrl(code);
-  const minutes = Math.max(1, Math.ceil((Date.parse(room.expiresAt) - Date.now()) / 60000));
-  const text = `Hopper\nSala: ${code}\nEnlace: ${url}\nExpira en: ${minutes} min`;
-
-  if (typeof navigator.share === "function") {
-    try {
-      await navigator.share({ title: "Hopper", text, url });
-      return;
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        return;
-      }
-    }
-  }
-
-  await copyValue(text, "Invitación copiada.");
-}
-
 function renderRooms() {
   elements.roomList.replaceChildren();
   elements.roomCount.textContent = `${state.rooms.length} / 2`;
@@ -194,8 +134,7 @@ function renderRooms() {
     return;
   }
 
-  for (const room of state.rooms) {
-    const code = rememberedCode(room.id);
+  state.rooms.forEach((room, index) => {
     const card = document.createElement("article");
     card.className = "admin-room";
     card.dataset.roomId = room.id;
@@ -203,43 +142,28 @@ function renderRooms() {
     const info = document.createElement("div");
     info.className = "admin-room-info";
     const title = document.createElement("strong");
-    title.textContent = code || "Sala activa";
+    title.textContent = `Sala ${index + 1}`;
     const meta = document.createElement("span");
     meta.innerHTML = `<span data-room-countdown>${formatCountdown(room.expiresAt)}</span> · ${formatBytes(room.usedBytes)} · ${room.itemCount} elemento${room.itemCount === 1 ? "" : "s"}`;
-    const codeNote = document.createElement("span");
-    codeNote.className = "admin-room-note";
-    codeNote.textContent = code ? "Código disponible en esta sesión." : "El código no se conserva; crea otra sala si necesitas una nueva invitación.";
-    info.append(title, meta, codeNote);
+    info.append(title, meta);
     const actions = document.createElement("div");
     actions.className = "admin-room-actions";
-
-    if (code) {
-      for (const [label, action] of [["QR", "qr"], ["Copiar", "copy"], ["Compartir", "share"]]) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "secondary-button compact-button";
-        button.dataset.action = action;
-        button.dataset.roomId = room.id;
-        button.textContent = label;
-        actions.append(button);
-      }
-    }
-
-    const open = document.createElement("a");
-    open.className = "secondary-button compact-button button-link";
-    open.href = code ? `room.html#${encodeURIComponent(code)}` : "room.html";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "secondary-button compact-button";
+    open.dataset.action = "open";
+    open.dataset.roomId = room.id;
     open.textContent = "Abrir";
-    actions.append(open);
     const close = document.createElement("button");
     close.type = "button";
     close.className = "danger-button compact-button";
     close.dataset.action = "close";
     close.dataset.roomId = room.id;
     close.textContent = "Cerrar";
-    actions.append(close);
+    actions.append(open, close);
     card.append(info, actions);
     elements.roomList.append(card);
-  }
+  });
 }
 
 function renderRoomCountdowns() {
@@ -285,26 +209,11 @@ async function refreshAll({ includeHealth = true } = {}) {
       return;
     }
 
-    showToast(error.message || "No fue posible actualizar Uso.", "error");
+    showToast(error.message || "No fue posible actualizar Administración.", "error");
   } finally {
     state.busy = false;
     elements.refreshButton.disabled = false;
     elements.refreshButton.classList.remove("is-spinning");
-  }
-}
-
-async function createNewRoom() {
-  elements.newRoomButton.disabled = true;
-
-  try {
-    const result = await hopperApi.createRoom(Number(elements.roomTtl.value) || 5);
-    showToast(`Sala ${result.code} creada.`, "success");
-    await refreshAll({ includeHealth: false });
-    openQr(result.code);
-  } catch (error) {
-    showToast(error.message || "No fue posible crear la sala.", "error");
-  } finally {
-    elements.newRoomButton.disabled = false;
   }
 }
 
@@ -321,20 +230,16 @@ async function handleRoomAction(event) {
     return;
   }
 
-  const code = rememberedCode(room.id);
+  if (button.dataset.action === "open") {
+    button.disabled = true;
 
-  if (button.dataset.action === "qr" && code) {
-    openQr(code);
-    return;
-  }
-
-  if (button.dataset.action === "copy" && code) {
-    await copyValue(code, "Código copiado.");
-    return;
-  }
-
-  if (button.dataset.action === "share" && code) {
-    await shareRoom(room, code);
+    try {
+      await hopperApi.adminOpenRoom(room.id);
+      window.location.assign("room.html");
+    } catch (error) {
+      showToast(error.message || "No fue posible abrir la sala.", "error");
+      button.disabled = false;
+    }
     return;
   }
 
@@ -343,7 +248,7 @@ async function handleRoomAction(event) {
 
     try {
       await hopperApi.closeRoom(room.id);
-      showToast("Sala cerrada y contenido retirado.", "success");
+      showToast("Sala cerrada.", "success");
       await refreshAll({ includeHealth: false });
     } catch (error) {
       showToast(error.message || "No fue posible cerrar la sala.", "error");
@@ -393,17 +298,10 @@ async function deleteStatistics() {
 
 function bindEvents() {
   elements.refreshButton.addEventListener("click", () => refreshAll());
-  elements.newRoomButton.addEventListener("click", createNewRoom);
   elements.roomList.addEventListener("click", (event) => handleRoomAction(event).catch((error) => showToast(error.message, "error")));
   elements.cleanupButton.addEventListener("click", () => runMaintenance("cleanup"));
   elements.reconcileButton.addEventListener("click", () => runMaintenance("reconcile"));
   elements.deleteStatsButton.addEventListener("click", deleteStatistics);
-  elements.qrClose.addEventListener("click", () => elements.qrDialog.close());
-  elements.qrDialog.addEventListener("click", (event) => {
-    if (event.target === elements.qrDialog) {
-      elements.qrDialog.close();
-    }
-  });
   window.addEventListener("hopper:session-expired", () => window.location.replace("./"));
 }
 

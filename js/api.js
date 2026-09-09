@@ -1,4 +1,4 @@
-import { appConfig } from "./config.js?v=20260908-4";
+import { appConfig } from "./config.js?v=20260908-5";
 
 const SESSION_KEY = "hopper-session-v1";
 const ROOM_SESSION_KEY = "hopper-room-session-v1";
@@ -330,11 +330,14 @@ const hopperApi = {
     });
   },
 
-  async createRoom(ttlMinutes) {
+  async roomCapacity() {
+    return request("/api/rooms/capacity");
+  },
+
+  async createRoom() {
     const result = await request("/api/rooms", {
       method: "POST",
-      auth: "personal",
-      body: { ttlMinutes }
+      body: {}
     });
 
     if (result?.room?.id && result?.code) {
@@ -385,19 +388,35 @@ const hopperApi = {
     return request("/api/room/status", { auth: "room" });
   },
 
+  async roomActivity() {
+    const result = await request("/api/room/activity", {
+      method: "POST",
+      auth: "room",
+      body: {}
+    });
+    const session = readSession(ROOM_SESSION_KEY);
+    const code = session?.roomId ? readRoomCodes()?.[session.roomId]?.code : "";
+
+    if (code && result?.room?.id) {
+      rememberRoomCode(result.room.id, code, result.room.expiresAt);
+    }
+
+    return result;
+  },
+
   async roomListItems() {
     return request("/api/room/items", { auth: "room" });
   },
 
-  async roomCreateText(content, ttlMinutes) {
+  async roomCreateText(content) {
     return request("/api/room/items/text", {
       method: "POST",
       auth: "room",
-      body: { content, ttlMinutes }
+      body: { content, ttlMinutes: 5 }
     });
   },
 
-  async roomInitializeUpload(file, ttlMinutes) {
+  async roomInitializeUpload(file) {
     return request("/api/room/uploads/init", {
       method: "POST",
       auth: "room",
@@ -405,7 +424,7 @@ const hopperApi = {
         name: file.name,
         size: file.size,
         mimeType: file.type || "application/octet-stream",
-        ttlMinutes
+        ttlMinutes: 5
       }
     });
   },
@@ -430,13 +449,6 @@ const hopperApi = {
     return request(`/api/room/items/${encodeURIComponent(id)}/url?${query.toString()}`, { auth: "room" });
   },
 
-  async roomResetTtl(id, ttlMinutes) {
-    return request(`/api/room/items/${encodeURIComponent(id)}/ttl`, {
-      method: "PATCH",
-      auth: "room",
-      body: { ttlMinutes }
-    });
-  },
 
   async roomDeleteItem(id) {
     return request(`/api/room/items/${encodeURIComponent(id)}`, {
@@ -455,6 +467,20 @@ const hopperApi = {
 
   async adminRooms() {
     return request("/api/admin/rooms", { auth: "personal" });
+  },
+
+  async adminOpenRoom(roomId) {
+    const result = await request(`/api/admin/rooms/${encodeURIComponent(roomId)}/session`, {
+      method: "POST",
+      auth: "personal",
+      body: {}
+    });
+
+    if (result?.token && result?.room?.id) {
+      setSession(ROOM_SESSION_KEY, result.token, result.expiresIn, { roomId: result.room.id });
+    }
+
+    return result;
   },
 
   async adminReconcile() {

@@ -47,9 +47,12 @@ import {
   createRoom,
   cleanupExpiredRooms,
   closeRoom,
+  getRoomCapacity,
+  issueRoomSession,
   joinRoom,
   listActiveRooms,
-  requireRoomRequest
+  requireRoomRequest,
+  touchRoomActivity
 } from "./rooms.js";
 import {
   issueRecovery,
@@ -178,12 +181,28 @@ async function authorizePersonal(request, env) {
   return client;
 }
 
-async function authorizeRoom(request, env, scope, limit = 120, windowSeconds = 60) {
+async function authorizeRoom(request, env, scope, limit = 120, windowSeconds = 60, touch = false) {
   const client = getClientInfo(request);
   await ensureClientAllowed(env.DB, client);
   await enforceRateLimit(env.DB, client, scope, limit, windowSeconds);
   const roomAuth = await requireRoomRequest(request, env);
-  return { client, ...roomAuth };
+
+  if (!touch) {
+    return { client, ...roomAuth };
+  }
+
+  const room = await touchRoomActivity(env, roomAuth.room.id);
+
+  if (!room) {
+    throw new HttpError(401, "invalid-room-session", "La sala cerró o la sesión ya no es válida.");
+  }
+
+  return {
+    client,
+    ...roomAuth,
+    room,
+    context: { ...roomAuth.context, roomExpiresAt: room.expiresAt }
+  };
 }
 
 async function handleItemsList(request, env, origin) {
@@ -241,10 +260,20 @@ async function handleItemDelete(request, env, origin, id) {
 }
 
 async function handleRoomCreate(request, env, origin) {
-  const client = await authorizePersonal(request, env);
+  const client = getClientInfo(request);
+  await ensureClientAllowed(env.DB, client);
+  await enforceRateLimit(env.DB, client, "room-create", 6, 10 * 60);
   const body = await readJson(request);
   const result = await createRoom(env, body, client);
   return jsonResponse({ ok: true, ...result }, 201, origin);
+}
+
+async function handleRoomCapacity(request, env, origin) {
+  const client = getClientInfo(request);
+  await ensureClientAllowed(env.DB, client);
+  await enforceRateLimit(env.DB, client, "room-capacity", 60, 60);
+  const capacity = await getRoomCapacity(env.DB);
+  return jsonResponse({ ok: true, ...capacity }, 200, origin);
 }
 
 async function handleRoomsList(request, env, origin) {
@@ -280,34 +309,34 @@ async function handleRoomItemsList(request, env, origin) {
 }
 
 async function handleRoomTextCreate(request, env, origin) {
-  const auth = await authorizeRoom(request, env, "room-text", 60, 60);
+  const auth = await authorizeRoom(request, env, "room-text", 60, 60, true);
   const body = await readJson(request);
-  const item = await createTextItem(env, body, auth.context);
+  const item = await createTextItem(env, { ...body, ttlMinutes: 5 }, auth.context);
   return jsonResponse({ ok: true, item }, 201, origin);
 }
 
 async function handleRoomUploadInit(request, env, origin) {
-  const auth = await authorizeRoom(request, env, "room-upload", 40, 60);
+  const auth = await authorizeRoom(request, env, "room-upload", 40, 60, true);
   const body = await readJson(request);
-  const upload = await initializeFileUpload(env, body, auth.context);
+  const upload = await initializeFileUpload(env, { ...body, ttlMinutes: 5 }, auth.context);
   return jsonResponse({ ok: true, upload }, 201, origin);
 }
 
 async function handleRoomUploadComplete(request, env, origin, id) {
-  const auth = await authorizeRoom(request, env, "room-upload-complete", 60, 60);
+  const auth = await authorizeRoom(request, env, "room-upload-complete", 60, 60, true);
   await readJson(request);
   const item = await completeFileUpload(env, id, auth.context);
   return jsonResponse({ ok: true, item }, 200, origin);
 }
 
 async function handleRoomUploadCancel(request, env, origin, id) {
-  const auth = await authorizeRoom(request, env, "room-upload-cancel", 60, 60);
+  const auth = await authorizeRoom(request, env, "room-upload-cancel", 60, 60, true);
   await cancelFileUpload(env, id, auth.context);
   return jsonResponse({ ok: true }, 200, origin);
 }
 
 async function handleRoomDownloadUrl(request, env, origin, id, url) {
-  const auth = await authorizeRoom(request, env, "room-download", 120, 60);
+  const auth = await authorizeRoom(request, env, "room-download", 120, 60, true);
   const requestedMode = url.searchParams.get("mode");
   const mode = ["preview", "stream"].includes(requestedMode) ? requestedMode : "download";
   const result = await createItemDownloadUrl(env, id, mode, auth.context);
@@ -315,14 +344,19 @@ async function handleRoomDownloadUrl(request, env, origin, id, url) {
 }
 
 async function handleRoomTtlReset(request, env, origin, id) {
-  const auth = await authorizeRoom(request, env, "room-ttl", 90, 60);
-  const body = await readJson(request);
-  const item = await resetItemTtl(env, id, body?.ttlMinutes, auth.context);
-  return jsonResponse({ ok: true, item }, 200, origin);
+  await authorizeRoom(request, env, "room-ttl", 30, 60);
+  await readJson(request);
+  throw new HttpError(403, "room-ttl-fixed", "La expiración de los elementos de sala es fija.");
+}
+
+async function handleRoomActivity(request, env, origin) {
+  const auth = await authorizeRoom(request, env, "room-activity", 20, 60, true);
+  await readJson(request);
+  return jsonResponse({ ok: true, room: auth.room, serverTime: new Date().toISOString() }, 200, origin);
 }
 
 async function handleRoomItemDelete(request, env, origin, id) {
-  const auth = await authorizeRoom(request, env, "room-delete", 90, 60);
+  const auth = await authorizeRoom(request, env, "room-delete", 90, 60, true);
   await deleteItem(env, id, auth.context);
   return jsonResponse({ ok: true }, 200, origin);
 }
@@ -343,6 +377,13 @@ async function handleAdminRooms(request, env, origin) {
   await authorizePersonal(request, env);
   const rooms = await listActiveRooms(env.DB);
   return jsonResponse({ ok: true, rooms }, 200, origin);
+}
+
+async function handleAdminRoomSession(request, env, origin, roomId) {
+  await authorizePersonal(request, env);
+  await readJson(request);
+  const result = await issueRoomSession(env, roomId, { touch: true });
+  return jsonResponse({ ok: true, ...result }, 200, origin);
 }
 
 async function handleAdminReconcile(request, env, origin) {
@@ -504,6 +545,10 @@ async function routeRequest(request, env, origin) {
     return handleRoomCreate(request, env, origin);
   }
 
+  if (request.method === "GET" && pathname === "/api/rooms/capacity") {
+    return handleRoomCapacity(request, env, origin);
+  }
+
   if (request.method === "GET" && pathname === "/api/rooms") {
     return handleRoomsList(request, env, origin);
   }
@@ -520,6 +565,10 @@ async function routeRequest(request, env, origin) {
 
   if (request.method === "GET" && pathname === "/api/room/status") {
     return handleRoomStatus(request, env, origin);
+  }
+
+  if (request.method === "POST" && pathname === "/api/room/activity") {
+    return handleRoomActivity(request, env, origin);
   }
 
   if (request.method === "GET" && pathname === "/api/room/items") {
@@ -568,6 +617,12 @@ async function routeRequest(request, env, origin) {
 
   if (request.method === "GET" && pathname === "/api/admin/rooms") {
     return handleAdminRooms(request, env, origin);
+  }
+
+  const adminRoomSessionMatch = pathname.match(/^\/api\/admin\/rooms\/([0-9a-f-]{36})\/session$/i);
+
+  if (adminRoomSessionMatch && request.method === "POST") {
+    return handleAdminRoomSession(request, env, origin, adminRoomSessionMatch[1]);
   }
 
   if (request.method === "POST" && pathname === "/api/admin/reconcile-storage") {

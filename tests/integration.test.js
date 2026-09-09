@@ -69,15 +69,22 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
       throw new Error(`Fetch inesperado en integración: ${method} ${url}`);
     };
 
+    const capacityBeforeResponse = await worker.fetch(request("/api/rooms/capacity"), env);
+    assert.equal(capacityBeforeResponse.status, 200);
+    const capacityBefore = await json(capacityBeforeResponse);
+    assert.equal(capacityBefore.available, 2);
+
     const personalToken = await createSessionToken(secret, 1);
     const createResponse = await worker.fetch(request("/api/rooms", {
       method: "POST",
-      token: personalToken,
-      body: { ttlMinutes: 5 }
+      body: { ttlMinutes: 60 }
     }), env);
     assert.equal(createResponse.status, 201);
     const created = await json(createResponse);
     assert.match(created.code, /^[A-Z]{2}-\d{4}$/);
+    assert.ok(Date.parse(created.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+    const capacityAfter = await json(await worker.fetch(request("/api/rooms/capacity"), env));
+    assert.equal(capacityAfter.available, 1);
 
     const joinResponse = await worker.fetch(request("/api/rooms/join", {
       method: "POST",
@@ -90,9 +97,25 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     const textResponse = await worker.fetch(request("/api/room/items/text", {
       method: "POST",
       token: roomToken,
-      body: { content: "hola integración", ttlMinutes: 5 }
+      body: { content: "hola integración", ttlMinutes: 60 }
     }), env);
     assert.equal(textResponse.status, 201);
+    const textCreated = await json(textResponse);
+    assert.equal(textCreated.item.ttlMinutes, 5);
+
+    const beforeActivity = await db.prepare("SELECT expires_at AS expiresAt FROM rooms WHERE id = ?1").bind(created.room.id).first();
+    await db.prepare("UPDATE rooms SET expires_at = ?2 WHERE id = ?1").bind(created.room.id, new Date(Date.now() + 20_000).toISOString()).run();
+    const activityResponse = await worker.fetch(request("/api/room/activity", { method: "POST", token: roomToken, body: {} }), env);
+    assert.equal(activityResponse.status, 200);
+    const activity = await json(activityResponse);
+    assert.ok(Date.parse(activity.room.expiresAt) > Date.now() + 4 * 60_000);
+    assert.ok(beforeActivity.expiresAt);
+
+    const ttlResetResponse = await worker.fetch(request(`/api/room/items/${textCreated.item.id}/ttl`, {
+      method: "PATCH", token: roomToken, body: { ttlMinutes: 60 }
+    }), env);
+    assert.equal(ttlResetResponse.status, 403);
+    assert.equal((await json(ttlResetResponse)).code, "room-ttl-fixed");
 
     const initResponse = await worker.fetch(request("/api/room/uploads/init", {
       method: "POST",
@@ -129,6 +152,14 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     const download = await json(downloadResponse);
     assert.ok(download.url.startsWith("https://s3.us-east-005.backblazeb2.com/"));
 
+    const adminOpenResponse = await worker.fetch(request(`/api/admin/rooms/${created.room.id}/session`, {
+      method: "POST",
+      token: personalToken,
+      body: {}
+    }), env);
+    assert.equal(adminOpenResponse.status, 200);
+    assert.ok((await json(adminOpenResponse)).token);
+
     const closeResponse = await worker.fetch(request(`/api/rooms/${created.room.id}`, {
       method: "DELETE",
       token: personalToken
@@ -157,8 +188,7 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
 
     const expiringResponse = await worker.fetch(request("/api/rooms", {
       method: "POST",
-      token: personalToken,
-      body: { ttlMinutes: 5 }
+      body: {}
     }), env);
     const expiring = await json(expiringResponse);
     const expiringText = await worker.fetch(request("/api/room/items/text", {

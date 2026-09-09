@@ -1,4 +1,4 @@
-import { ApiError } from "./api.js?v=20260908-4";
+import { ApiError } from "./api.js?v=20260908-5";
 
 function formatBytes(bytes) {
   const value = Math.max(0, Number(bytes) || 0);
@@ -93,8 +93,12 @@ function selectedStatus(entry) {
     return { label: "Error · Reintentar", error: true };
   }
 
-  if (entry.status === "preparando" || entry.status === "queued") {
-    return { label: "0% · Listo para enviar", error: false };
+  if (entry.status === "preparando") {
+    return { label: "Preparando", error: false };
+  }
+
+  if (entry.status === "queued" || !entry.status) {
+    return { label: "Listo para enviar", error: false };
   }
 
   if (entry.status === "subiendo") {
@@ -109,7 +113,7 @@ function selectedStatus(entry) {
     return { label: "100% · Listo", error: false };
   }
 
-  return { label: "0% · Listo para enviar", error: false };
+  return { label: "Listo para enviar", error: false };
 }
 
 function createTransferController({
@@ -120,11 +124,14 @@ function createTransferController({
   pollIntervalMs = 3000,
   uploadConcurrency = 2,
   maxSelectedFiles = 20,
+  allowTtlReset = true,
+  onActivity = () => {},
   onUnauthorized = () => {},
   onStateChange = () => {}
 }) {
   const elements = {
     syncState: document.querySelector("#sync-state"),
+    composerCard: document.querySelector(".composer-card"),
     textInput: document.querySelector("#text-input"),
     dropZone: document.querySelector("#drop-zone"),
     dropLimit: document.querySelector("#drop-limit"),
@@ -198,24 +205,28 @@ function createTransferController({
     countdown.textContent = formatCountdown(item.expiresAt);
     countdown.setAttribute("aria-label", "Tiempo restante");
     controls.append(countdown);
-    const select = document.createElement("select");
-    select.className = "expiry-select";
-    select.dataset.itemId = item.id;
-    select.setAttribute("aria-label", "Reiniciar tiempo de expiración");
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "Tiempo";
-    placeholder.selected = true;
-    select.append(placeholder);
 
-    for (const minutes of ttlOptions) {
-      const option = document.createElement("option");
-      option.value = String(minutes);
-      option.textContent = ttlLabel(minutes);
-      select.append(option);
+    if (allowTtlReset) {
+      const select = document.createElement("select");
+      select.className = "expiry-select";
+      select.dataset.itemId = item.id;
+      select.setAttribute("aria-label", "Reiniciar tiempo de expiración");
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Tiempo";
+      placeholder.selected = true;
+      select.append(placeholder);
+
+      for (const minutes of ttlOptions) {
+        const option = document.createElement("option");
+        option.value = String(minutes);
+        option.textContent = ttlLabel(minutes);
+        select.append(option);
+      }
+
+      controls.append(select);
     }
 
-    controls.append(select);
     return controls;
   }
 
@@ -260,6 +271,7 @@ function createTransferController({
       const audio = document.createElement("audio");
       audio.controls = true;
       audio.preload = "none";
+      audio.hidden = true;
       audio.dataset.audioItemId = item.id;
       audio.setAttribute("aria-label", `Reproductor de ${item.name || "audio"}`);
       const load = document.createElement("button");
@@ -267,8 +279,15 @@ function createTransferController({
       load.className = "audio-load-button";
       load.dataset.action = "load-audio";
       load.dataset.itemId = item.id;
-      load.textContent = "Cargar audio";
-      audioRow.append(audio, load);
+      load.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.5v9l7-4.5-7-4.5Z" fill="currentColor"></path></svg><span>Reproducir audio</span>';
+      audio.addEventListener("error", () => {
+        audio.hidden = true;
+        audio.removeAttribute("src");
+        delete audio.dataset.urlExpiresAt;
+        load.hidden = false;
+        load.disabled = false;
+      });
+      audioRow.append(load, audio);
       copy.append(audioRow);
     }
 
@@ -345,25 +364,31 @@ function createTransferController({
       copy.append(name, size, status);
       const action = document.createElement("button");
       action.type = "button";
-      action.className = "remove-file-button";
       action.dataset.fileKey = entry.key;
 
       if (["subiendo", "confirmando", "preparando"].includes(entry.status)) {
+        action.className = "remove-file-button is-cancel";
         action.dataset.action = "cancel-selected-file";
         action.setAttribute("aria-label", `Cancelar ${entry.file.name}`);
-        action.textContent = "Cancelar";
+        action.title = "Cancelar";
+        action.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
       } else if (entry.status === "error") {
+        action.className = "selected-file-retry-button";
         action.dataset.action = "retry-selected-file";
         action.setAttribute("aria-label", `Reintentar ${entry.file.name}`);
         action.textContent = "Reintentar";
       } else {
+        action.className = "remove-file-button";
         action.dataset.action = "remove-selected-file";
         action.setAttribute("aria-label", `Quitar ${entry.file.name}`);
+        action.title = "Quitar";
         action.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
       }
 
+      const activeProgress = ["preparando", "subiendo", "confirmando"].includes(entry.status);
       const progress = document.createElement("div");
       progress.className = "file-progress";
+      progress.hidden = !activeProgress;
       const bar = document.createElement("span");
       bar.style.width = `${Math.max(0, Math.min(100, Number(entry.progress) || 0))}%`;
       progress.append(bar);
@@ -374,6 +399,9 @@ function createTransferController({
 
   function setSending(sending) {
     state.sending = sending;
+    elements.composerCard?.classList.toggle("is-sending", sending);
+    elements.dropZone?.classList.toggle("is-disabled", sending);
+    elements.dropZone?.setAttribute("aria-disabled", String(sending));
 
     if (elements.sendButton) {
       elements.sendButton.disabled = sending;
@@ -434,6 +462,7 @@ function createTransferController({
       });
     }
 
+    onActivity();
     renderSelectedFiles();
   }
 
@@ -472,7 +501,10 @@ function createTransferController({
         await api.uploadToSignedUrl(
           entry.file,
           uploadUrl,
-          (progress) => updateSelected(entry.key, { progress }),
+          (progress) => {
+            updateSelected(entry.key, { progress });
+            onActivity();
+          },
           mimeType,
           entry.controller.signal
         );
@@ -600,6 +632,7 @@ function createTransferController({
     }
 
     const ttlMinutes = Number(elements.ttlSelect?.value) || defaultTtlMinutes;
+    onActivity();
     setSending(true);
     renderSelectedFiles();
     const failures = [];
@@ -713,7 +746,9 @@ function createTransferController({
       const result = await api.getFileUrl(item.id, "stream");
       audio.src = result.url;
       audio.dataset.urlExpiresAt = String(Date.now() + Math.max(1, Number(result.expiresIn) || 300) * 1000);
+      audio.hidden = false;
       button.hidden = true;
+      onActivity();
       await audio.play().catch(() => {});
     } catch (error) {
       button.disabled = false;
@@ -938,12 +973,12 @@ function createTransferController({
         const button = card?.querySelector('[data-action="load-audio"]');
         audio.removeAttribute("src");
         audio.load();
+        audio.hidden = true;
         delete audio.dataset.urlExpiresAt;
 
         if (button) {
           button.hidden = false;
           button.disabled = false;
-          button.textContent = "Renovar audio";
         }
       }
     }

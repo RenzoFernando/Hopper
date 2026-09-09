@@ -4,6 +4,8 @@ import {
   DEFAULT_ROOM_MAX_ITEMS,
   MAX_ACTIVE_ROOMS,
   ROOM_DEFAULT_TTL_MINUTES,
+  ROOM_INACTIVITY_SECONDS,
+  ROOM_SESSION_TTL_SECONDS,
   ROOM_TTL_OPTIONS
 } from "./constants.js";
 import {
@@ -17,16 +19,6 @@ import {
 import { bearerToken, HttpError, normalizeText } from "./http.js";
 import { deleteItemsForRoom } from "./items.js";
 import { incrementUsage, recordCleanupFailure } from "./usage.js";
-
-function normalizeRoomTtl(value) {
-  const minutes = Number(value ?? ROOM_DEFAULT_TTL_MINUTES);
-
-  if (!ROOM_TTL_OPTIONS.includes(minutes)) {
-    throw new HttpError(400, "invalid-room-ttl", "La duración de la sala no es válida.");
-  }
-
-  return minutes;
-}
 
 function normalizeRoomCode(value) {
   const code = normalizeText(value).toUpperCase();
@@ -83,14 +75,13 @@ async function signRoomTokenBody(body, secret) {
 }
 
 export async function createRoomSessionToken(secret, room, now = Date.now()) {
-  const roomExpiry = Date.parse(room?.expiresAt || room?.expires_at || "");
-  const expiresAt = Number.isFinite(roomExpiry) ? roomExpiry : now + 60 * 60 * 1000;
+  const issuedAt = Math.floor(now / 1000);
   const payload = {
     typ: "room",
     rid: String(room.id),
     ver: Number(room.version),
-    iat: Math.floor(now / 1000),
-    exp: Math.floor(Math.min(expiresAt, now + 60 * 60 * 1000) / 1000),
+    iat: issuedAt,
+    exp: issuedAt + ROOM_SESSION_TTL_SECONDS,
     nonce: base64UrlEncodeBytes(randomBytes(12))
   };
   const body = base64UrlEncodeText(JSON.stringify(payload));
@@ -134,8 +125,11 @@ export async function verifyRoomSessionToken(token, secret, now = Date.now()) {
     payload?.typ !== "room"
     || !/^[0-9a-f-]{36}$/i.test(String(payload?.rid || ""))
     || !Number.isInteger(payload?.ver)
-    || !Number.isFinite(payload?.exp)
+    || !Number.isInteger(payload?.iat)
+    || !Number.isInteger(payload?.exp)
     || payload.exp <= nowSeconds
+    || payload.iat > nowSeconds + 60
+    || payload.exp - payload.iat > ROOM_SESSION_TTL_SECONDS + 5
   ) {
     return null;
   }
@@ -167,6 +161,11 @@ async function clientHash(client) {
   const digest = await sha256Bytes(client?.ip || "unknown");
   return base64UrlEncodeBytes(digest).slice(0, 32);
 }
+
+function roomExpiryFrom(now = Date.now()) {
+  return new Date(now + ROOM_INACTIVITY_SECONDS * 1000).toISOString();
+}
+
 
 export async function getRoomById(db, id) {
   const row = await db.prepare(`
@@ -202,16 +201,41 @@ export async function listActiveRooms(db) {
   return (result.results || []).map(mapRoom);
 }
 
-export async function createRoom(env, payload, client) {
-  const ttlMinutes = normalizeRoomTtl(payload?.ttlMinutes);
-  const now = new Date();
-  const nowIso = now.toISOString();
-  await env.DB.prepare(`
-    UPDATE rooms
-    SET status = 'closed', closed_at = COALESCE(closed_at, ?1), version = version + 1
-    WHERE status = 'active' AND expires_at <= ?1
-  `).bind(nowIso).run();
+export async function getRoomCapacity(db) {
+  const now = new Date().toISOString();
+  const row = await db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM rooms
+    WHERE status = 'active' AND expires_at > ?1
+  `).bind(now).first();
+  const active = Math.min(MAX_ACTIVE_ROOMS, Math.max(0, Number(row?.count || 0)));
 
+  return {
+    active,
+    maximum: MAX_ACTIVE_ROOMS,
+    available: Math.max(0, MAX_ACTIVE_ROOMS - active)
+  };
+}
+
+export async function touchRoomActivity(env, roomId, now = Date.now()) {
+  const nowIso = new Date(now).toISOString();
+  const expiresAt = roomExpiryFrom(now);
+  const updated = await env.DB.prepare(`
+    UPDATE rooms
+    SET expires_at = ?2
+    WHERE id = ?1 AND status = 'active' AND expires_at > ?3
+  `).bind(String(roomId || ""), expiresAt, nowIso).run();
+
+  if (Number(updated.meta?.changes || 0) !== 1) {
+    return null;
+  }
+
+  return getRoomById(env.DB, roomId);
+}
+
+export async function createRoom(env, _payload, client) {
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
   const countRow = await env.DB.prepare(`
     SELECT COUNT(*) AS count
     FROM rooms
@@ -219,7 +243,7 @@ export async function createRoom(env, payload, client) {
   `).bind(nowIso).first();
 
   if (Number(countRow?.count || 0) >= MAX_ACTIVE_ROOMS) {
-    throw new HttpError(409, "room-limit", "Ya tienes dos salas activas. Cierra una para crear otra.");
+    throw new HttpError(409, "room-limit", "No hay salas disponibles en este momento.");
   }
 
   let code = "";
@@ -242,7 +266,7 @@ export async function createRoom(env, payload, client) {
   }
 
   const id = crypto.randomUUID();
-  const expiresAt = new Date(now.getTime() + ttlMinutes * 60_000).toISOString();
+  const expiresAt = roomExpiryFrom(now);
   const creatorHash = await clientHash(client);
 
   const inserted = await env.DB.prepare(`
@@ -269,7 +293,7 @@ export async function createRoom(env, payload, client) {
   ).run();
 
   if (Number(inserted.meta?.changes || 0) !== 1) {
-    throw new HttpError(409, "room-limit", "Ya tienes dos salas activas. Cierra una para crear otra.");
+    throw new HttpError(409, "room-limit", "No hay salas disponibles en este momento.");
   }
 
   await incrementUsage(env.DB, { rooms_created: 1 });
@@ -280,7 +304,7 @@ export async function createRoom(env, payload, client) {
     room,
     code,
     token,
-    expiresIn: Math.max(1, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000))
+    expiresIn: ROOM_SESSION_TTL_SECONDS
   };
 }
 
@@ -289,7 +313,7 @@ export async function joinRoom(env, code) {
   const codeHash = await hashRoomCode(normalized, env.SESSION_SECRET);
   const now = new Date().toISOString();
   const row = await env.DB.prepare(`
-    SELECT *
+    SELECT id
     FROM rooms
     WHERE code_hash = ?1 AND status = 'active' AND expires_at > ?2
     LIMIT 1
@@ -299,13 +323,40 @@ export async function joinRoom(env, code) {
     throw new HttpError(404, "room-not-available", "La sala no está disponible o el código no es válido.");
   }
 
-  const room = mapRoom(row);
+  const room = await touchRoomActivity(env, row.id);
+
+  if (!room) {
+    throw new HttpError(404, "room-not-available", "La sala no está disponible o el código no es válido.");
+  }
+
   const token = await createRoomSessionToken(env.SESSION_SECRET, room);
 
   return {
     room,
     token,
-    expiresIn: Math.max(1, Math.floor((Date.parse(room.expiresAt) - Date.now()) / 1000))
+    expiresIn: ROOM_SESSION_TTL_SECONDS
+  };
+}
+
+export async function issueRoomSession(env, roomId, { touch = true } = {}) {
+  let room = await getRoomById(env.DB, roomId);
+
+  if (!room || room.status !== "active" || Date.parse(room.expiresAt) <= Date.now()) {
+    throw new HttpError(404, "room-not-available", "La sala ya no está disponible.");
+  }
+
+  if (touch) {
+    room = await touchRoomActivity(env, room.id);
+  }
+
+  if (!room) {
+    throw new HttpError(404, "room-not-available", "La sala ya no está disponible.");
+  }
+
+  return {
+    room,
+    token: await createRoomSessionToken(env.SESSION_SECRET, room),
+    expiresIn: ROOM_SESSION_TTL_SECONDS
   };
 }
 

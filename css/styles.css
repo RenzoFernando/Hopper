@@ -1963,3 +1963,288 @@ summary:focus-visible {
     flex: 1 1 0;
   }
 }
+.auth-layout {
+  width: min(100%, 980px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  align-items: center;
+  gap: clamp(48px, 8vw, 96px);
+}
+
+.auth-layout .auth-content {
+  justify-self: start;
+}
+
+.room-access-panel {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+}
+
+.room-access-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 0 2px 4px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.room-access-heading strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-access-card {
+  width: 100%;
+  min-height: 92px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.room-create-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, opacity 140ms ease;
+}
+
+.room-create-card:hover:not(:disabled),
+.room-create-card:focus-visible:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.room-create-card:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.room-access-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.room-access-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.room-join-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+}
+
+.room-access-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.room-inline-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.room-inline-form input {
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.room-inline-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(47 111 94 / 0.1);
+  outline: none;
+}
+
+.room-access-message {
+  margin: -2px 0 0;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+}
+
+.room-access-message.is-error {
+  color: var(--danger);
+}
+
+.room-created-dialog .qr-code {
+  display: block;
+  margin-top: 12px;
+}
+
+.room-created-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.composer-card.is-sending #text-input,
+.composer-card.is-sending .ttl-field {
+  opacity: 0.48;
+}
+
+.drop-zone.is-disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+#text-input:disabled {
+  background: #f6f6f6;
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+.send-button:disabled {
+  opacity: 1;
+  background: #cfd1d0;
+  color: #ffffff;
+}
+
+.remove-file-button.is-cancel {
+  border: 1px solid #e7caca;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.remove-file-button.is-cancel:hover:not(:disabled) {
+  border-color: #d8aaaa;
+  background: #f4dfdf;
+  color: var(--danger-hover);
+}
+
+.selected-file-retry-button {
+  position: relative;
+  z-index: 1;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.selected-file-retry-button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.audio-row {
+  margin-top: 10px;
+  display: block;
+}
+
+.audio-row audio {
+  width: min(100%, 420px);
+  height: 36px;
+}
+
+.audio-load-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+}
+
+.audio-load-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.room-composer-actions {
+  justify-content: flex-end;
+}
+
+.panel-heading > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+@media (max-width: 760px) {
+  .auth-screen {
+    align-items: start;
+    padding: 22px 16px;
+  }
+
+  .auth-layout {
+    width: min(100%, 470px);
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  .auth-layout .auth-content {
+    justify-self: stretch;
+    width: 100%;
+  }
+
+  .room-access-panel {
+    padding-bottom: 8px;
+  }
+
+  .room-access-card {
+    min-height: 78px;
+  }
+
+  .room-created-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .audio-row audio {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .auth-screen {
+    padding: 18px 14px;
+  }
+
+  .auth-logo {
+    margin-bottom: 14px;
+  }
+
+  .pin-form {
+    margin-top: 22px;
+  }
+
+  .room-inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .room-inline-form .primary-button {
+    width: 100%;
+  }
+}

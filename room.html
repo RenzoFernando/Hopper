@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="description" content="Sala temporal de Hopper para compartir texto y archivos mediante un código invitado.">
+    <meta name="description" content="Sala temporal de Hopper para compartir texto y archivos mediante un código.">
     <meta name="referrer" content="no-referrer">
     <meta name="theme-color" content="#202123">
     <title>Sala — Hopper</title>
     <link rel="icon" href="assets/favicon.ico" sizes="any">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="css/styles.css?v=20260908-4">
+    <link rel="stylesheet" href="css/styles.css?v=20260908-5">
   </head>
   <body class="app-page">
     <div class="app-shell">
@@ -28,23 +28,22 @@
         <section class="auth-screen screen" id="room-join-screen" aria-labelledby="room-join-title">
           <div class="auth-content room-join-content">
             <img class="auth-logo" src="assets/favicon.svg" alt="">
-            <p class="eyebrow">SALA INVITADA</p>
+            <p class="eyebrow">SALA</p>
             <h1 id="room-join-title">Entrar a una sala</h1>
-            <p class="auth-copy">El código es temporal y solo permite acceder a esa sala.</p>
             <form class="pin-form room-code-form" id="room-form" novalidate>
               <label for="room-code-input">Código</label>
               <div class="pin-field"><input id="room-code-input" name="room-code" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="RX-4821"><span class="pin-loader" id="room-loader" hidden aria-hidden="true"></span></div>
               <button class="primary-button" type="submit">Entrar</button>
             </form>
-            <p class="form-message" id="room-message" aria-live="polite">Ingresa el código de la sala.</p>
-            <a class="auth-secondary-link" href="./">Volver a Mi espacio</a>
+            <p class="form-message" id="room-message" aria-live="polite" hidden></p>
+            <a class="auth-secondary-link" href="./">Volver</a>
           </div>
         </section>
 
         <section class="workspace-screen screen" id="workspace-screen" hidden aria-labelledby="workspace-title">
           <div class="workspace-inner">
             <section class="composer-card" aria-labelledby="workspace-title">
-              <div class="composer-heading"><h1 id="workspace-title">Enviar a la sala</h1></div>
+              <div class="composer-heading"><h1 id="workspace-title">Enviar</h1></div>
               <label class="sr-only" for="text-input">Texto o código</label>
               <textarea id="text-input" rows="3" maxlength="250000" placeholder="Pega tu texto aquí…"></textarea>
               <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Adjuntar archivos">
@@ -53,8 +52,7 @@
                 <span class="drop-limit" id="drop-limit">Hasta 100 MB por archivo</span>
               </div>
               <div class="selected-files" id="selected-files" hidden aria-label="Archivos seleccionados"></div>
-              <div class="composer-actions">
-                <label class="ttl-field" for="ttl-select"><span>Expira en</span><select id="ttl-select" name="ttl"><option value="5" selected>5 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hora</option></select></label>
+              <div class="composer-actions room-composer-actions">
                 <button class="primary-button send-button" id="send-button" type="button">Enviar</button>
               </div>
             </section>
@@ -63,7 +61,7 @@
               <div class="recent-header"><div class="recent-heading-line"><h2 id="recent-title">Recientes</h2><span class="item-count" id="item-count">0</span></div><div class="recent-tools"><span class="sync-state" id="sync-state" aria-live="polite">Sincronizado</span><button class="icon-button refresh-button" id="refresh-button" type="button" aria-label="Actualizar" title="Actualizar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></button></div></div>
               <div class="items-frame">
                 <div class="loading-state" id="loading-state" hidden><span class="spinner" aria-hidden="true"></span><span>Cargando contenido temporal…</span></div>
-                <div class="empty-state" id="empty-state"><div class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v11H4zM8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><h3>La sala está vacía</h3><p>Envía texto o archivos y aparecerán aquí para todos los participantes.</p></div>
+                <div class="empty-state" id="empty-state"><div class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 6.5h16v11H4zM8 10h8M8 14h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></div><h3>La sala está vacía</h3><p>Envía texto o archivos y aparecerán aquí.</p></div>
                 <div class="item-list" id="item-list" aria-live="polite"></div>
               </div>
             </section>
@@ -77,6 +75,6 @@
     </div>
 
     <footer class="project-footer"><p><a href="https://github.com/RenzoFernando/Hopper" target="_blank" rel="noopener noreferrer"><strong>Hopper</strong></a><span> — Transferencia temporal de texto y archivos</span></p><p>© 2026 — Renzo Fernando Mosquera Daza</p></footer>
-    <script type="module" src="js/room.js?v=20260908-4"></script>
+    <script type="module" src="js/room.js?v=20260908-5"></script>
   </body>
 </html>

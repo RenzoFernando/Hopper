@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
+  ROOM_SESSION_TTL_SECONDS,
   STORAGE_INTERNAL_LIMIT_BYTES
 } from "../cloudflare/src/constants.js";
 import {
@@ -16,6 +17,7 @@ import {
   hashRoomCode,
   joinRoom,
   requireRoomRequest,
+  touchRoomActivity,
   verifyRoomSessionToken
 } from "../cloudflare/src/rooms.js";
 import { getTodayUsage } from "../cloudflare/src/usage.js";
@@ -55,7 +57,8 @@ test("limita a dos salas y revoca de inmediato los tokens al cerrar", async () =
 
   try {
     const first = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" });
-    await createRoom(env, { ttlMinutes: 15 }, { ip: "198.51.100.11" });
+    const second = await createRoom(env, { ttlMinutes: 15 }, { ip: "198.51.100.11" });
+    assert.ok(Date.parse(second.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
     await assert.rejects(
       () => createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" }),
       (error) => error?.code === "room-limit"
@@ -109,9 +112,9 @@ test("aísla los scopes personal y sala, limita elementos y recorta expiración"
       maxFileBytes: roomResult.room.maxFileBytes,
       maxBytes: roomResult.room.maxBytes,
       maxItems: 1,
-      ttlOptions: [5, 15, 30, 60]
+      ttlOptions: [5]
     };
-    const roomItem = await createTextItem(env, { content: "sala", ttlMinutes: 60 }, roomContext);
+    const roomItem = await createTextItem(env, { content: "sala", ttlMinutes: 5 }, roomContext);
     assert.ok(Date.parse(roomItem.expiresAt) <= Date.parse(roomContext.roomExpiresAt));
     const personalItems = await listActiveItems(env);
     const roomItems = await listActiveItems(env, roomContext);
@@ -149,7 +152,7 @@ test("aplica límites de sala de forma atómica ante operaciones concurrentes", 
       maxFileBytes: roomResult.room.maxFileBytes,
       maxBytes: roomResult.room.maxBytes,
       maxItems: 1,
-      ttlOptions: [5, 15, 30, 60]
+      ttlOptions: [5]
     };
     const texts = await Promise.allSettled([
       createTextItem(env, { content: "uno", ttlMinutes: 5 }, textContext),
@@ -255,6 +258,21 @@ test("mantiene el guardarraíl global ante reservas concurrentes", async () => {
   }
 });
 
+test("renueva la sala con actividad sin alterar el TTL fijo de sus elementos", async () => {
+  const env = createEnv();
+
+  try {
+    const created = await createRoom(env, {}, { ip: "198.51.100.40" });
+    const nearExpiry = new Date(Date.now() + 20_000).toISOString();
+    await env.DB.prepare("UPDATE rooms SET expires_at = ?2 WHERE id = ?1").bind(created.room.id, nearExpiry).run();
+    const touched = await touchRoomActivity(env, created.room.id);
+    assert.ok(Date.parse(touched.expiresAt) > Date.parse(nearExpiry));
+    assert.ok(Date.parse(touched.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+  } finally {
+    env.DB.close();
+  }
+});
+
 test("rechaza tokens de sala alterados y expirados", async () => {
   const room = {
     id: crypto.randomUUID(),
@@ -268,5 +286,5 @@ test("rechaza tokens de sala alterados y expirados", async () => {
   const replacement = signature[index] === "A" ? "B" : "A";
   const altered = `${body}.${signature.slice(0, index)}${replacement}${signature.slice(index + 1)}`;
   assert.equal(await verifyRoomSessionToken(altered, secret), null);
-  assert.equal(await verifyRoomSessionToken(token, secret, Date.now() + 120_000), null);
+  assert.equal(await verifyRoomSessionToken(token, secret, Date.now() + (ROOM_SESSION_TTL_SECONDS + 10) * 1000), null);
 });

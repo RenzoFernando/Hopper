@@ -1,6 +1,6 @@
-import { hopperApi } from "./api.js?v=20260908-4";
-import { appConfig } from "./config.js?v=20260908-4";
-import { createTransferController } from "./transfer-controller.js?v=20260908-4";
+import { hopperApi } from "./api.js?v=20260908-5";
+import { appConfig } from "./config.js?v=20260908-5";
+import { createTransferController } from "./transfer-controller.js?v=20260908-5";
 
 const elements = {
   joinScreen: document.querySelector("#room-join-screen"),
@@ -22,7 +22,9 @@ const state = {
   room: null,
   code: "",
   transfer: null,
-  roomTimer: null
+  roomTimer: null,
+  lastActivitySentAt: 0,
+  activityPromise: null
 };
 
 function showToast(message, type = "") {
@@ -46,14 +48,14 @@ function normalizeCode(value) {
 function setMessage(message, type = "") {
   elements.roomMessage.textContent = message;
   elements.roomMessage.className = `form-message ${type ? `is-${type}` : ""}`.trim();
+  elements.roomMessage.hidden = !message;
 }
 
 function setJoining(joining) {
   state.joining = joining;
   elements.roomCodeInput.disabled = joining;
   elements.roomLoader.hidden = !joining;
-  const button = elements.roomForm.querySelector("button[type='submit']");
-  button.disabled = joining;
+  elements.roomForm.querySelector("button[type='submit']").disabled = joining;
 }
 
 function rememberedCode(roomId) {
@@ -77,36 +79,66 @@ function stopTransfer() {
   state.roomTimer = null;
 }
 
-function returnToJoin(message = "Ingresa el código de la sala.", type = "") {
+function leaveToHome() {
   stopTransfer();
   hopperApi.clearRoomSession();
-  state.room = null;
-  state.code = "";
-  setWorkspace(false);
-  setJoining(false);
-  setMessage(message, type);
+  window.location.replace("./");
+}
+
+async function markRoomActivity({ force = false } = {}) {
+  if (!state.room || state.activityPromise) {
+    return state.activityPromise;
+  }
+
+  const now = Date.now();
+
+  if (!force && now - state.lastActivitySentAt < 30_000) {
+    return null;
+  }
+
+  state.lastActivitySentAt = now;
+  state.activityPromise = hopperApi.roomActivity()
+    .then((result) => {
+      if (result?.room) {
+        state.room = result.room;
+        updateRoomCountdown();
+      }
+      return result;
+    })
+    .catch((error) => {
+      if (error?.status === 401 || error?.code === "invalid-room-session") {
+        leaveToHome();
+      }
+      return null;
+    })
+    .finally(() => {
+      state.activityPromise = null;
+    });
+
+  return state.activityPromise;
 }
 
 function createRoomTransfer(room) {
   return createTransferController({
     api: {
       listItems: () => hopperApi.roomListItems(),
-      createText: (content, ttl) => hopperApi.roomCreateText(content, ttl),
-      initializeUpload: (file, ttl) => hopperApi.roomInitializeUpload(file, ttl),
+      createText: (content) => hopperApi.roomCreateText(content),
+      initializeUpload: (file) => hopperApi.roomInitializeUpload(file),
       uploadToSignedUrl: (...args) => hopperApi.uploadToSignedUrl(...args),
       completeUpload: (id) => hopperApi.roomCompleteUpload(id),
       cancelUpload: (id) => hopperApi.roomCancelUpload(id),
       getFileUrl: (id, mode) => hopperApi.roomGetFileUrl(id, mode),
-      resetTtl: (id, ttl) => hopperApi.roomResetTtl(id, ttl),
       deleteItem: (id) => hopperApi.roomDeleteItem(id)
     },
     maxFileBytes: Number(room.maxFileBytes) || appConfig.roomMaxFileBytes,
-    defaultTtlMinutes: appConfig.roomDefaultTtlMinutes,
-    ttlOptions: [5, 15, 30, 60],
+    defaultTtlMinutes: 5,
+    ttlOptions: [5],
+    allowTtlReset: false,
     pollIntervalMs: appConfig.pollIntervalMs,
     uploadConcurrency: appConfig.uploadConcurrency,
     maxSelectedFiles: Math.min(20, Number(room.maxItems) || 20),
-    onUnauthorized: () => returnToJoin("La sala cerró o la sesión venció.", "error")
+    onActivity: () => markRoomActivity(),
+    onUnauthorized: leaveToHome
   });
 }
 
@@ -122,19 +154,18 @@ function updateRoomCountdown() {
   elements.roomExpiry.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
 
   if (remaining <= 0) {
-    returnToJoin("La sala expiró.", "error");
+    leaveToHome();
   }
 }
 
 async function enterRoom(room, code = "") {
-  state.room = room;
-  state.code = code || rememberedCode(room.id);
-  elements.roomName.textContent = state.code || "SALA";
-  elements.shareButton.hidden = !state.code;
-  setWorkspace(true);
   stopTransfer();
   state.room = room;
   state.code = code || rememberedCode(room.id);
+  state.lastActivitySentAt = Date.now();
+  elements.roomName.textContent = state.code || "SALA";
+  elements.shareButton.hidden = !state.code;
+  setWorkspace(true);
   state.transfer = createRoomTransfer(room);
   state.roomTimer = window.setInterval(updateRoomCountdown, 1000);
   updateRoomCountdown();
@@ -142,8 +173,8 @@ async function enterRoom(room, code = "") {
   try {
     await state.transfer.start();
   } catch (error) {
-    if (error?.status === 401) {
-      returnToJoin("La sala cerró o la sesión venció.", "error");
+    if (error?.status === 401 || error?.code === "invalid-room-session") {
+      leaveToHome();
       return;
     }
 
@@ -162,12 +193,12 @@ async function joinRoom(event) {
   elements.roomCodeInput.value = code;
 
   if (!/^[A-Z]{2}-\d{4}$/.test(code)) {
-    setMessage("El código debe tener el formato RX-4821.", "error");
+    setMessage("Código no válido.", "error");
     return;
   }
 
   setJoining(true);
-  setMessage("Verificando sala…");
+  setMessage("");
 
   try {
     const result = await hopperApi.joinRoom(code);
@@ -186,8 +217,7 @@ async function shareRoom() {
 
   const url = new URL(window.location.href);
   url.hash = state.code;
-  const minutes = Math.max(1, Math.ceil((Date.parse(state.room.expiresAt) - Date.now()) / 60000));
-  const text = `Hopper\nSala: ${state.code}\nEnlace: ${url.toString()}\nExpira en: ${minutes} min`;
+  const text = `Hopper\nSala: ${state.code}\n${url.toString()}`;
 
   if (typeof navigator.share === "function") {
     try {
@@ -202,23 +232,29 @@ async function shareRoom() {
 
   try {
     await navigator.clipboard.writeText(text);
-    showToast("Invitación copiada.", "success");
+    showToast("Sala copiada.", "success");
   } catch {
-    showToast("No fue posible compartir la invitación.", "error");
+    showToast("No fue posible compartir la sala.", "error");
   }
 }
 
 function bindEvents() {
   elements.roomForm.addEventListener("submit", joinRoom);
   elements.roomCodeInput.addEventListener("input", () => {
-    const cursor = elements.roomCodeInput.selectionStart;
     const normalized = normalizeCode(elements.roomCodeInput.value);
     elements.roomCodeInput.value = normalized;
-    elements.roomCodeInput.setSelectionRange(Math.min(cursor + (normalized.length === 3 ? 1 : 0), normalized.length), Math.min(cursor + (normalized.length === 3 ? 1 : 0), normalized.length));
   });
-  elements.leaveButton.addEventListener("click", () => returnToJoin("Saliste de la sala."));
+  elements.leaveButton.addEventListener("click", leaveToHome);
   elements.shareButton.addEventListener("click", shareRoom);
-  window.addEventListener("hopper:room-session-expired", () => returnToJoin("La sala cerró o la sesión venció.", "error"));
+  window.addEventListener("hopper:room-session-expired", leaveToHome);
+
+  for (const eventName of ["pointerdown", "keydown", "input", "touchstart"]) {
+    document.addEventListener(eventName, () => {
+      if (!elements.workspaceScreen.hidden) {
+        markRoomActivity();
+      }
+    }, { passive: true, capture: true });
+  }
 }
 
 async function registerPwa() {
@@ -230,18 +266,15 @@ async function registerPwa() {
 async function initialize() {
   bindEvents();
   registerPwa();
-  const hashCode = decodeURIComponent(window.location.hash.slice(1));
-  const normalizedHash = normalizeCode(hashCode);
-
+  const normalizedHash = normalizeCode(decodeURIComponent(window.location.hash.slice(1)));
   const hasInviteCode = /^[A-Z]{2}-\d{4}$/.test(normalizedHash);
 
   if (hasInviteCode) {
     elements.roomCodeInput.value = normalizedHash;
-    setMessage(`Sala ${normalizedHash}. Confirma para entrar.`);
     const storedRoomSession = hopperApi.getRoomSession();
     const storedRoomCode = storedRoomSession?.roomId ? rememberedCode(storedRoomSession.roomId) : "";
 
-    if (storedRoomSession && storedRoomCode !== normalizedHash) {
+    if (storedRoomSession && storedRoomCode && storedRoomCode !== normalizedHash) {
       hopperApi.clearRoomSession();
     }
   }
@@ -251,7 +284,7 @@ async function initialize() {
       const result = await hopperApi.roomStatus();
       const code = rememberedCode(result.room.id);
 
-      if (!hasInviteCode || code === normalizedHash) {
+      if (!hasInviteCode || !code || code === normalizedHash) {
         await enterRoom(result.room, code || normalizedHash);
         return;
       }
@@ -262,7 +295,14 @@ async function initialize() {
     }
   }
 
+  if (hasInviteCode) {
+    elements.roomCodeInput.value = normalizedHash;
+    await joinRoom();
+    return;
+  }
+
   setWorkspace(false);
+  setMessage("");
 }
 
 initialize();
