@@ -29,6 +29,8 @@ const elements = {
 
 let payload = null;
 let authBusy = false;
+let sendBusy = false;
+let pendingDelivery = null;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -53,6 +55,17 @@ async function readPayload() {
   });
   db.close();
   return value;
+}
+
+async function writePayload(value) {
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const transaction = db.transaction("payloads", "readwrite");
+    transaction.objectStore("payloads").put(value, "pending");
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+  db.close();
 }
 
 async function clearPayload() {
@@ -161,7 +174,7 @@ function configureDestinations(preferred = "") {
   elements.authCopy.textContent = hasDestination
     ? "Puedes añadir otro destino antes de enviar."
     : "Accede a Mi espacio o entra a una sala para elegir el destino.";
-  elements.send.disabled = !hasDestination || !payloadHasContent();
+  elements.send.disabled = sendBusy || !hasDestination || !payloadHasContent();
 
   if (hasDestination) {
     configureTtlOptions();
@@ -220,6 +233,10 @@ async function handlePinSubmit(event) {
     if (result?.status === "authorized") {
       elements.pinInput.value = "";
       configureDestinations("personal");
+      elements.auth.hidden = true;
+      elements.destinationField.hidden = true;
+      elements.ttlField.hidden = true;
+      await sendPayload("personal");
       return;
     }
 
@@ -269,6 +286,10 @@ async function handleRoomSubmit(event) {
   try {
     await hopperApi.joinRoom(code);
     configureDestinations("room");
+    elements.auth.hidden = true;
+    elements.destinationField.hidden = true;
+    elements.ttlField.hidden = true;
+    await sendPayload("room");
   } catch (error) {
     setAuthMessage(elements.roomMessage, error.message || "No fue posible entrar a la sala.", "error");
   } finally {
@@ -278,23 +299,68 @@ async function handleRoomSubmit(event) {
   }
 }
 
-function selectedApi() {
-  if (elements.destination.value === "room") {
+function restorePendingDelivery() {
+  const saved = payload?.delivery;
+
+  if (!saved || !["personal", "room"].includes(saved.destination)) {
+    pendingDelivery = null;
+    return;
+  }
+
+  const fileIds = new Map();
+
+  for (const [index, id] of Object.entries(saved.fileIds || {})) {
+    const numericIndex = Number(index);
+    const itemId = String(id || "");
+
+    if (Number.isInteger(numericIndex) && numericIndex >= 0 && itemId) {
+      fileIds.set(numericIndex, itemId);
+    }
+  }
+
+  pendingDelivery = {
+    destination: saved.destination,
+    textId: String(saved.textId || ""),
+    fileIds
+  };
+}
+
+async function persistPendingDelivery() {
+  if (!payload || !pendingDelivery) {
+    return;
+  }
+
+  payload.delivery = {
+    destination: pendingDelivery.destination,
+    textId: pendingDelivery.textId,
+    fileIds: Object.fromEntries(
+      [...pendingDelivery.fileIds.entries()].map(([index, id]) => [String(index), id])
+    )
+  };
+  await writePayload(payload);
+}
+
+function selectedApi(destination = elements.destination.value) {
+  if (destination === "room") {
     return {
+      destination: "room",
       createText: (content, ttl) => hopperApi.roomCreateText(content, ttl),
       initializeUpload: (file, ttl) => hopperApi.roomInitializeUpload(file, ttl),
       completeUpload: (id) => hopperApi.roomCompleteUpload(id),
       cancelUpload: (id) => hopperApi.roomCancelUpload(id),
+      listItems: () => hopperApi.roomListItems(),
       maxFileBytes: appConfig.roomMaxFileBytes,
       target: "room.html"
     };
   }
 
   return {
+    destination: "personal",
     createText: (content, ttl) => hopperApi.createText(content, ttl),
     initializeUpload: (file, ttl) => hopperApi.initializeUpload(file, ttl),
     completeUpload: (id) => hopperApi.completeUpload(id),
     cancelUpload: (id) => hopperApi.cancelUpload(id),
+    listItems: () => hopperApi.listItems(),
     maxFileBytes: appConfig.maxFileBytes,
     target: "./"
   };
@@ -369,7 +435,14 @@ async function uploadFile(api, file, ttl, index, total) {
       initialized?.upload?.mimeType || file.type || "application/octet-stream"
     );
     elements.progress.textContent = `${index + 1}/${total} · 100% · Confirmando`;
-    await confirmWithRetry(api, uploadId);
+    const confirmed = await confirmWithRetry(api, uploadId);
+    const confirmedId = String(confirmed?.item?.id || "");
+
+    if (!confirmedId || confirmedId !== uploadId) {
+      throw new Error("Hopper no confirmó correctamente el archivo compartido.");
+    }
+
+    return confirmedId;
   } catch (error) {
     if (uploadId) {
       api.cancelUpload(uploadId).catch(() => {});
@@ -380,44 +453,185 @@ async function uploadFile(api, file, ttl, index, total) {
 }
 
 async function runWithConcurrency(values, limit, worker) {
+  const results = new Array(values.length);
+  const errors = new Array(values.length);
   let index = 0;
-  const runners = Array.from({ length: Math.min(limit, values.length) }, async () => {
+  const runners = Array.from({ length: Math.min(Math.max(1, Number(limit) || 1), values.length) }, async () => {
     while (index < values.length) {
       const currentIndex = index;
       index += 1;
-      await worker(values[currentIndex], currentIndex);
+
+      try {
+        results[currentIndex] = await worker(values[currentIndex], currentIndex);
+      } catch (error) {
+        errors[currentIndex] = error;
+      }
     }
   });
   await Promise.all(runners);
-}
+  const failure = errors.find(Boolean);
 
-async function sendPayload() {
-  if (!payload || elements.send.disabled) {
-    return;
+  if (failure) {
+    throw failure;
   }
 
-  const api = selectedApi();
-  const ttl = Number(elements.ttl.value) || 5;
-  const text = [payload.title, payload.text, payload.url].filter(Boolean).join("\n").trim();
-  const files = Array.from(payload.files || []);
-  elements.send.disabled = true;
-  elements.discard.disabled = true;
-  setMessage("Enviando…");
+  return results;
+}
 
-  try {
-    if (text) {
-      await api.createText(text, ttl);
+async function verifyDelivered(api, itemIds) {
+  const expected = new Set(itemIds.filter(Boolean));
+
+  if (expected.size === 0) {
+    throw new Error("Hopper no devolvió elementos para verificar.");
+  }
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await api.listItems();
+      const visible = new Set(Array.from(result?.items || []).map((item) => String(item?.id || "")));
+
+      if ([...expected].every((id) => visible.has(id))) {
+        return;
+      }
+
+      lastError = new Error("El contenido todavía no aparece en el destino.");
+    } catch (error) {
+      lastError = error;
     }
 
-    await runWithConcurrency(files, appConfig.uploadConcurrency, (file, index) => uploadFile(api, file, ttl, index, files.length));
+    if (attempt < 4) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+    }
+  }
+
+  throw lastError || new Error("No fue posible comprobar el contenido enviado.");
+}
+
+function canUseDestination(destination) {
+  if (destination === "room") {
+    return hopperApi.hasRoomSession();
+  }
+
+  return destination === "personal" && hopperApi.hasSession();
+}
+
+async function sendPayload(destinationOverride = "") {
+  if (!payload || sendBusy || !payloadHasContent()) {
+    return false;
+  }
+
+  const destination = typeof destinationOverride === "string" && destinationOverride
+    ? destinationOverride
+    : elements.destination.value;
+
+  if (!canUseDestination(destination)) {
+    configureDestinations();
+    setMessage("Primero inicia sesión en el destino.", "error");
+    return false;
+  }
+
+  if (pendingDelivery && pendingDelivery.destination !== destination) {
+    setMessage(
+      pendingDelivery.destination === "room"
+        ? "Este contenido ya comenzó a enviarse a la sala. Termina ese envío antes de cambiar de destino."
+        : "Este contenido ya comenzó a enviarse a Mi espacio. Termina ese envío antes de cambiar de destino.",
+      "error"
+    );
+    configureDestinations(pendingDelivery.destination);
+    return false;
+  }
+
+  const api = selectedApi(destination);
+  const ttl = destination === "room" ? 5 : Number(elements.ttl.value) || 5;
+  const text = [payload.title, payload.text, payload.url].filter(Boolean).join("\n").trim();
+  const files = Array.from(payload.files || []);
+  const previousSendText = elements.send.textContent;
+  sendBusy = true;
+  elements.send.disabled = true;
+  elements.send.textContent = "Enviando…";
+  elements.discard.disabled = true;
+  elements.pinInput.disabled = true;
+  elements.pinSubmit.disabled = true;
+  elements.roomCodeInput.disabled = true;
+  elements.roomSubmit.disabled = true;
+  setMessage("Enviando…");
+  let transferCompleted = false;
+
+  try {
+    if (!pendingDelivery) {
+      pendingDelivery = {
+        destination,
+        textId: "",
+        fileIds: new Map()
+      };
+    }
+
+    if (text && !pendingDelivery.textId) {
+      const created = await api.createText(text, ttl);
+      const textId = String(created?.item?.id || "");
+
+      if (!textId) {
+        throw new Error("Hopper no confirmó correctamente el texto compartido.");
+      }
+
+      pendingDelivery.textId = textId;
+      await persistPendingDelivery();
+    }
+
+    const pendingFiles = files
+      .map((file, index) => ({ file, index }))
+      .filter(({ index }) => !pendingDelivery.fileIds.has(index));
+
+    try {
+      await runWithConcurrency(
+        pendingFiles,
+        appConfig.uploadConcurrency,
+        async ({ file, index }) => {
+          const id = await uploadFile(api, file, ttl, index, files.length);
+          pendingDelivery.fileIds.set(index, id);
+          return id;
+        }
+      );
+    } finally {
+      await persistPendingDelivery();
+    }
+
+    if (pendingDelivery.fileIds.size !== files.length) {
+      throw new Error("No todos los archivos compartidos quedaron confirmados.");
+    }
+
+    const itemIds = [
+      ...(pendingDelivery.textId ? [pendingDelivery.textId] : []),
+      ...[...pendingDelivery.fileIds.values()]
+    ];
+
+    elements.progress.textContent = "Comprobando el destino…";
+    await verifyDelivered(api, itemIds);
     await clearPayload();
-    setMessage("Contenido enviado.", "success");
+    transferCompleted = true;
+    payload = null;
+    pendingDelivery = null;
+    elements.progress.textContent = "";
+    elements.send.textContent = "Enviado";
+    setMessage("Contenido enviado y confirmado.", "success");
     window.setTimeout(() => window.location.replace(api.target), 350);
+    return true;
   } catch (error) {
     setMessage(error.message || "No fue posible enviar el contenido compartido.", "error");
-    elements.send.disabled = !payloadHasContent() || elements.destination.options.length === 0;
-    elements.discard.disabled = false;
-    configureDestinations(elements.destination.value);
+    return false;
+  } finally {
+    if (!transferCompleted) {
+      sendBusy = false;
+      elements.send.textContent = previousSendText;
+      elements.discard.disabled = false;
+      elements.pinInput.disabled = authBusy;
+      elements.pinSubmit.disabled = authBusy;
+      elements.roomCodeInput.disabled = authBusy;
+      elements.roomSubmit.disabled = authBusy;
+      configureDestinations(pendingDelivery?.destination || destination);
+    }
   }
 }
 
@@ -435,6 +649,7 @@ async function initialize() {
     payload = null;
   }
 
+  restorePendingDelivery();
   renderSummary();
   configureDestinations();
   elements.pinInput.addEventListener("input", () => {
@@ -445,7 +660,7 @@ async function initialize() {
   elements.roomForm.addEventListener("submit", handleRoomSubmit);
   bindRoomCodeInput(elements.roomCodeInput, () => setAuthMessage(elements.roomMessage, ""));
   elements.destination.addEventListener("change", configureTtlOptions);
-  elements.send.addEventListener("click", sendPayload);
+  elements.send.addEventListener("click", () => sendPayload());
   elements.discard.addEventListener("click", discardPayload);
   window.addEventListener("hopper:session-expired", () => configureDestinations());
   window.addEventListener("hopper:room-session-expired", () => configureDestinations());
