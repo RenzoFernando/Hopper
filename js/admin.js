@@ -1,5 +1,5 @@
-import { hopperApi } from "./api.js?v=20260908-5";
-import { formatBytes, formatCountdown } from "./transfer-controller.js?v=20260908-5";
+import { hopperApi } from "./api.js";
+import { formatBytes, formatCountdown } from "./transfer-controller.js";
 
 const elements = {
   usageStorage: document.querySelector("#usage-storage"),

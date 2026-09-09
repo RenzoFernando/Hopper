@@ -1,4 +1,4 @@
-const CACHE_NAME = "hopper-shell-20260908-5-r1";
+const CACHE_NAME = "hopper-shell";
 const SHARE_DB = "hopper-share-target-v1";
 const SHELL = [
   "./",
@@ -12,16 +12,17 @@ const SHELL = [
   "./assets/icons/hopper.svg",
   "./assets/icons/hopper-192.png",
   "./assets/icons/hopper-512.png",
-  "./css/styles.css?v=20260908-5",
-  "./js/config.js?v=20260908-5",
-  "./js/api.js?v=20260908-5",
-  "./js/transfer-controller.js?v=20260908-5",
-  "./js/app.js?v=20260908-5",
-  "./js/room.js?v=20260908-5",
-  "./js/admin.js?v=20260908-5",
-  "./js/qrcode.js?v=20260908-5",
-  "./js/share-target.js?v=20260908-5",
-  "./js/recover.js?v=20260908-5"
+  "./css/styles.css",
+  "./js/config.js",
+  "./js/api.js",
+  "./js/transfer-controller.js",
+  "./js/app.js",
+  "./js/room.js",
+  "./js/admin.js",
+  "./js/qrcode.js",
+  "./js/room-code.js",
+  "./js/share-target.js",
+  "./js/recover.js"
 ];
 
 function openShareDb() {
@@ -68,7 +69,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("hopper-shell-") && key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => key.startsWith("hopper-shell") && key !== CACHE_NAME).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -112,19 +113,17 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(event.request);
+      try {
+        const response = await fetch(event.request, { cache: "no-cache" });
 
-      if (cached) {
-        return cached;
+        if (response.ok) {
+          cache.put(event.request, response.clone());
+        }
+
+        return response;
+      } catch {
+        return cache.match(event.request);
       }
-
-      const response = await fetch(event.request);
-
-      if (response.ok) {
-        cache.put(event.request, response.clone());
-      }
-
-      return response;
     })
   );
 });

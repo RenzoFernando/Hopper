@@ -10,7 +10,7 @@
     <link rel="icon" href="assets/favicon.ico" sizes="any">
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <link rel="manifest" href="manifest.webmanifest">
-    <link rel="stylesheet" href="css/styles.css?v=20260908-5">
+    <link rel="stylesheet" href="css/styles.css">
   </head>
   <body class="app-page">
     <div class="app-shell">
@@ -32,7 +32,7 @@
             <h1 id="room-join-title">Entrar a una sala</h1>
             <form class="pin-form room-code-form" id="room-form" novalidate>
               <label for="room-code-input">Código</label>
-              <div class="pin-field"><input id="room-code-input" name="room-code" type="text" inputmode="text" maxlength="7" autocomplete="off" spellcheck="false" placeholder="RX-4821"><span class="pin-loader" id="room-loader" hidden aria-hidden="true"></span></div>
+              <div class="pin-field"><input id="room-code-input" name="room-code" type="text" inputmode="text" maxlength="7" pattern="[A-Za-z]{2}-[0-9]{4}" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" placeholder="XX-####"><span class="pin-loader" id="room-loader" hidden aria-hidden="true"></span></div>
               <button class="primary-button" type="submit">Entrar</button>
             </form>
             <p class="form-message" id="room-message" aria-live="polite" hidden></p>
@@ -75,6 +75,6 @@
     </div>
 
     <footer class="project-footer"><p><a href="https://github.com/RenzoFernando/Hopper" target="_blank" rel="noopener noreferrer"><strong>Hopper</strong></a><span> — Transferencia temporal de texto y archivos</span></p><p>© 2026 — Renzo Fernando Mosquera Daza</p></footer>
-    <script type="module" src="js/room.js?v=20260908-5"></script>
+    <script type="module" src="js/room.js"></script>
   </body>
 </html>

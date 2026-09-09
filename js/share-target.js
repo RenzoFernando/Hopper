@@ -1,6 +1,6 @@
-import { hopperApi } from "./api.js?v=20260908-5";
-import { appConfig } from "./config.js?v=20260908-5";
-import { formatBytes } from "./transfer-controller.js?v=20260908-5";
+import { hopperApi } from "./api.js";
+import { appConfig } from "./config.js";
+import { formatBytes } from "./transfer-controller.js";
 
 const SHARE_DB = "hopper-share-target-v1";
 const elements = {

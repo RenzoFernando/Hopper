@@ -25,7 +25,6 @@ $script:DefaultTtlMinutes = 5
 $script:RoomDefaultTtlMinutes = 5
 $script:PollIntervalMs = 3000
 $script:UploadConcurrency = 2
-$script:AssetVersion = "20260908-5"
 $script:SessionSecretConfigured = $false
 $script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
@@ -423,8 +422,7 @@ const appConfig = Object.freeze({
   maxFileBytes: $script:MaxFileBytes,
   roomMaxFileBytes: $script:RoomMaxFileBytes,
   pollIntervalMs: $script:PollIntervalMs,
-  uploadConcurrency: $script:UploadConcurrency,
-  assetVersion: "$script:AssetVersion"
+  uploadConcurrency: $script:UploadConcurrency
 });
 
 export { appConfig };

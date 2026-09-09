@@ -49,11 +49,6 @@
 - Backblaze B2
 - Resend
 
-## Pruebas
-
-```bash
-node --test tests/*.test.js
-```
 
 ## Autor y licencia
 

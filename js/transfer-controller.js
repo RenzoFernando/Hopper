@@ -1,4 +1,4 @@
-import { ApiError } from "./api.js?v=20260908-5";
+import { ApiError } from "./api.js";
 
 function formatBytes(bytes) {
   const value = Math.max(0, Number(bytes) || 0);

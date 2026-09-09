@@ -1,6 +1,7 @@
-import { hopperApi } from "./api.js?v=20260908-5";
-import { appConfig } from "./config.js?v=20260908-5";
-import { createTransferController } from "./transfer-controller.js?v=20260908-5";
+import { hopperApi } from "./api.js";
+import { appConfig } from "./config.js";
+import { bindRoomCodeInput, isCompleteRoomCode, normalizeRoomCode } from "./room-code.js";
+import { createTransferController } from "./transfer-controller.js";
 
 const elements = {
   joinScreen: document.querySelector("#room-join-screen"),
@@ -33,16 +34,6 @@ function showToast(message, type = "") {
   toast.textContent = message;
   elements.toastRegion.append(toast);
   window.setTimeout(() => toast.remove(), 3600);
-}
-
-function normalizeCode(value) {
-  const compact = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-
-  if (compact.length <= 2) {
-    return compact;
-  }
-
-  return `${compact.slice(0, 2)}-${compact.slice(2)}`;
 }
 
 function setMessage(message, type = "") {
@@ -189,10 +180,10 @@ async function joinRoom(event) {
     return;
   }
 
-  const code = normalizeCode(elements.roomCodeInput.value);
+  const code = normalizeRoomCode(elements.roomCodeInput.value);
   elements.roomCodeInput.value = code;
 
-  if (!/^[A-Z]{2}-\d{4}$/.test(code)) {
+  if (!isCompleteRoomCode(code)) {
     setMessage("Código no válido.", "error");
     return;
   }
@@ -240,10 +231,7 @@ async function shareRoom() {
 
 function bindEvents() {
   elements.roomForm.addEventListener("submit", joinRoom);
-  elements.roomCodeInput.addEventListener("input", () => {
-    const normalized = normalizeCode(elements.roomCodeInput.value);
-    elements.roomCodeInput.value = normalized;
-  });
+  bindRoomCodeInput(elements.roomCodeInput);
   elements.leaveButton.addEventListener("click", leaveToHome);
   elements.shareButton.addEventListener("click", shareRoom);
   window.addEventListener("hopper:room-session-expired", leaveToHome);
@@ -266,8 +254,8 @@ async function registerPwa() {
 async function initialize() {
   bindEvents();
   registerPwa();
-  const normalizedHash = normalizeCode(decodeURIComponent(window.location.hash.slice(1)));
-  const hasInviteCode = /^[A-Z]{2}-\d{4}$/.test(normalizedHash);
+  const normalizedHash = normalizeRoomCode(decodeURIComponent(window.location.hash.slice(1)));
+  const hasInviteCode = isCompleteRoomCode(normalizedHash);
 
   if (hasInviteCode) {
     elements.roomCodeInput.value = normalizedHash;

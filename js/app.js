@@ -1,7 +1,8 @@
-import { hopperApi } from "./api.js?v=20260908-5";
-import { appConfig } from "./config.js?v=20260908-5";
-import { renderQr } from "./qrcode.js?v=20260908-5";
-import { createTransferController } from "./transfer-controller.js?v=20260908-5";
+import { hopperApi } from "./api.js";
+import { appConfig } from "./config.js";
+import { renderQr } from "./qrcode.js";
+import { bindRoomCodeInput, isCompleteRoomCode, normalizeRoomCode } from "./room-code.js";
+import { createTransferController } from "./transfer-controller.js";
 
 const elements = {
   authScreen: document.querySelector("#auth-screen"),
@@ -52,11 +53,6 @@ function normalizePinInput() {
   }
 
   return normalized;
-}
-
-function normalizeRoomCode(value) {
-  const compact = String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
-  return compact.length <= 2 ? compact : `${compact.slice(0, 2)}-${compact.slice(2)}`;
 }
 
 function setPinMessage(message, type = "") {
@@ -305,7 +301,7 @@ async function joinPublicRoom(event) {
   const code = normalizeRoomCode(elements.roomCodeInput.value);
   elements.roomCodeInput.value = code;
 
-  if (!/^[A-Z]{2}-\d{4}$/.test(code)) {
+  if (!isCompleteRoomCode(code)) {
     setRoomMessage("Código no válido.", "error");
     return;
   }
@@ -432,10 +428,7 @@ function bindEvents() {
   });
   elements.createRoomButton.addEventListener("click", createPublicRoom);
   elements.roomForm.addEventListener("submit", joinPublicRoom);
-  elements.roomCodeInput.addEventListener("input", () => {
-    elements.roomCodeInput.value = normalizeRoomCode(elements.roomCodeInput.value);
-    setRoomMessage("");
-  });
+  bindRoomCodeInput(elements.roomCodeInput, () => setRoomMessage(""));
   elements.roomDialogClose.addEventListener("click", () => elements.roomDialog.close());
   elements.roomDialog.addEventListener("click", (event) => {
     if (event.target === elements.roomDialog) {

@@ -1,4 +1,4 @@
-import { hopperApi } from "./api.js?v=20260908-5";
+import { hopperApi } from "./api.js";
 
 const elements = {
   loading: document.querySelector("#recovery-loading"),

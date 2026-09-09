@@ -7,10 +7,8 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
 
-test("mantiene una única versión interna de assets y TTL predeterminado de 5 minutos", () => {
+test("usa URLs directas de assets y conserva TTL predeterminado de 5 minutos", () => {
   const config = read("js/config.js");
-  const version = config.match(/assetVersion:\s*"([^"]+)"/)?.[1];
-  assert.equal(version, "20260908-5");
   assert.match(config, /defaultTtlMinutes:\s*5/);
   assert.match(config, /roomDefaultTtlMinutes:\s*5/);
 
@@ -27,17 +25,20 @@ test("mantiene una única versión interna de assets y TTL predeterminado de 5 m
     "js/recover.js",
     "js/room.js",
     "js/share-target.js",
-    "js/transfer-controller.js"
+    "js/transfer-controller.js",
+    "js/config.js",
+    "hopper-admin.ps1"
   ];
 
   for (const file of files) {
-    const content = read(file);
-    const versions = [...content.matchAll(/\?v=(\d{8}-\d+)/g)].map((match) => match[1]);
-    assert.ok(versions.length > 0, `${file} debe usar cache-busting interno.`);
-    assert.deepEqual([...new Set(versions)], [version], `${file} debe usar la versión ${version}.`);
+    assert.doesNotMatch(read(file), /\?[a-z]=20\d{6}-\d+/i, `${file} debe usar URLs directas de assets.`);
+    assert.doesNotMatch(read(file), /20\d{6}-\d+/);
   }
 
-  assert.match(read("service-worker.js"), new RegExp(`hopper-shell-${version}`));
+  const serviceWorker = read("service-worker.js");
+  assert.match(serviceWorker, /const CACHE_NAME = "hopper-shell";/);
+  assert.doesNotMatch(serviceWorker, /hopper-shell-\d/);
+  assert.match(serviceWorker, /fetch\(event\.request, \{ cache: "no-cache" \}\)/);
 });
 
 test("el generador PowerShell conserva toda la configuración moderna del frontend", () => {
@@ -48,7 +49,6 @@ test("el generador PowerShell conserva toda la configuración moderna del fronte
   assert.match(script, /roomDefaultTtlMinutes:\s*\$script:RoomDefaultTtlMinutes/);
   assert.match(script, /roomMaxFileBytes:\s*\$script:RoomMaxFileBytes/);
   assert.match(script, /uploadConcurrency:\s*\$script:UploadConcurrency/);
-  assert.match(script, /assetVersion:\s*"\$script:AssetVersion"/);
 });
 
 test("el manifest PWA y el shell solo referencian recursos locales existentes", () => {
@@ -86,6 +86,9 @@ test("la portada separa el PIN privado de las salas públicas", () => {
   assert.match(index, /id="room-capacity">— \/ 2/);
   assert.match(index, /id="public-create-room"/);
   assert.match(index, /id="public-room-form"/);
+  assert.match(index, /<label for="pin-input">PIN ADMIN<\/label>/);
+  assert.match(index, /id="public-room-code"[^>]*pattern="\[A-Za-z\]\{2\}-\[0-9\]\{4\}"[^>]*placeholder="XX-####"/);
+  assert.match(read("room.html"), /id="room-code-input"[^>]*placeholder="XX-####"/);
   assert.match(index, /href="admin\.html">Administración<\/a>/);
   assert.match(index, /Código de la sala/);
   assert.match(index, /id="room-created-enter"[^>]*>Entrar a la sala/);
@@ -139,4 +142,13 @@ test("la sesión de sala respeta el código del enlace y la inactividad vuelve a
 
 test("no conserva el módulo UI antiguo sin referencias", () => {
   assert.equal(existsSync(resolve(root, "js/ui.js")), false);
+});
+test("la portada usa reparto 70/30 real en escritorio y conserva el apilado responsive", () => {
+  const index = read("index.html");
+  const styles = read("css/styles.css");
+  assert.match(index, /class="auth-divider"/);
+  assert.match(styles, /\.auth-layout\s*\{[\s\S]*width:\s*100%;[\s\S]*grid-template-columns:\s*minmax\(0,\s*7fr\)\s+minmax\(0,\s*3fr\)/);
+  assert.match(styles, /\.auth-divider\s*\{[\s\S]*left:\s*70%;[\s\S]*width:\s*2px/);
+  assert.match(styles, /\.room-access-panel\s*\{[\s\S]*grid-column:\s*2;[\s\S]*width:\s*min\(100%,\s*320px\);[\s\S]*justify-self:\s*center/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.auth-layout\s*\{[\s\S]*grid-template-columns:\s*1fr/);
 });
