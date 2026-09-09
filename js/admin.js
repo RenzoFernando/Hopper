@@ -39,13 +39,13 @@ function showToast(message, type = "") {
   window.setTimeout(() => toast.remove(), 3800);
 }
 
-function statusRow(label, value, ok = true) {
+function statusRow(label, value, variant = "") {
   const row = document.createElement("div");
   row.className = "status-row";
   const name = document.createElement("span");
   name.textContent = label;
   const status = document.createElement("strong");
-  status.className = ok ? "is-ok" : "is-error";
+  status.className = variant ? `is-${variant}` : "";
   status.textContent = value;
   row.append(name, status);
   return row;
@@ -83,16 +83,16 @@ function renderUsage() {
   elements.limitsList.replaceChildren(
     statusRow("Máximo por archivo", formatBytes(usage.limits.maxFileBytes)),
     statusRow("Límite interno", formatBytes(usage.limits.storageInternalLimitBytes)),
-    statusRow("Advertencia", formatBytes(usage.limits.storageWarningBytes)),
+    statusRow("Advertencia", formatBytes(usage.limits.storageWarningBytes), "info"),
     statusRow("Salas activas", `${usage.rooms.active} / ${usage.rooms.maximum}`),
     statusRow("Archivo por sala", formatBytes(usage.limits.roomMaxFileBytes)),
     statusRow("Almacenamiento por sala", formatBytes(usage.limits.roomMaxBytes)),
     statusRow("Elementos por sala", String(usage.limits.roomMaxItems)),
     statusRow("Inactividad de sala", `${usage.limits.roomMaxTtlMinutes} min`),
     statusRow("Elementos activos", String(usage.limits.activeItems)),
-    statusRow("Uploads pendientes", String(usage.limits.pendingUploads)),
-    statusRow("Huérfanos", String(usage.limits.orphanItems), usage.limits.orphanItems === 0),
-    statusRow("Fallos cleanup", String(usage.limits.cleanupFailures), usage.limits.cleanupFailures === 0)
+    statusRow("Uploads pendientes", String(usage.limits.pendingUploads), usage.limits.pendingUploads > 0 ? "info" : ""),
+    statusRow("Huérfanos", String(usage.limits.orphanItems), usage.limits.orphanItems === 0 ? "ok" : "error"),
+    statusRow("Fallos cleanup", String(usage.limits.cleanupFailures), usage.limits.cleanupFailures === 0 ? "ok" : "error")
   );
 }
 
@@ -111,14 +111,14 @@ function renderHealth() {
     ? new Date(health.cleanup.lastCleanupAt).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
     : "Sin ejecución";
   elements.healthList.replaceChildren(
-    statusRow("Worker", healthLabel(health.worker), health.worker.ok),
-    statusRow("D1", healthLabel(health.d1), health.d1.ok),
-    statusRow("B2", healthLabel(health.b2), health.b2.ok),
-    statusRow("Firma B2", healthLabel(health.b2Signing), health.b2Signing.ok),
-    statusRow("Resend", health.resend.configured ? "Configurado" : "No configurado", health.resend.ok),
-    statusRow("Cleanup", health.cleanup.ok ? "OK" : "Revisar", health.cleanup.ok),
-    statusRow("Última limpieza", cleanupTime, Boolean(health.cleanup.lastCleanupAt)),
-    statusRow("Reconciliación", health.reconcile.lastReconcileAt ? "Ejecutada" : "Pendiente", Boolean(health.reconcile.lastReconcileAt))
+    statusRow("Worker", healthLabel(health.worker), health.worker.ok ? "ok" : "error"),
+    statusRow("D1", healthLabel(health.d1), health.d1.ok ? "ok" : "error"),
+    statusRow("B2", healthLabel(health.b2), health.b2.ok ? "ok" : "error"),
+    statusRow("Firma B2", healthLabel(health.b2Signing), health.b2Signing.ok ? "ok" : "error"),
+    statusRow("Resend", health.resend.configured ? "Configurado" : "No configurado", health.resend.ok ? "ok" : "error"),
+    statusRow("Cleanup", health.cleanup.ok ? "OK" : "Revisar", health.cleanup.ok ? "ok" : "error"),
+    statusRow("Última limpieza", cleanupTime, health.cleanup.lastCleanupAt ? "info" : "error"),
+    statusRow("Reconciliación", health.reconcile.lastReconcileAt ? "Ejecutada" : "Pendiente", health.reconcile.lastReconcileAt ? "info" : "error")
   );
 }
 
@@ -150,16 +150,20 @@ function renderRooms() {
     actions.className = "admin-room-actions";
     const open = document.createElement("button");
     open.type = "button";
-    open.className = "secondary-button compact-button";
+    open.className = "admin-room-action is-info";
     open.dataset.action = "open";
     open.dataset.roomId = room.id;
-    open.textContent = "Abrir";
+    open.setAttribute("aria-label", "Abrir sala");
+    open.title = "Abrir sala";
+    open.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h8a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Zm2.5 7h5M13.5 9l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
     const close = document.createElement("button");
     close.type = "button";
-    close.className = "danger-button compact-button";
+    close.className = "admin-room-action is-danger";
     close.dataset.action = "close";
     close.dataset.roomId = room.id;
-    close.textContent = "Cerrar";
+    close.setAttribute("aria-label", "Cerrar sala");
+    close.title = "Cerrar sala";
+    close.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>';
     actions.append(open, close);
     card.append(info, actions);
     elements.roomList.append(card);

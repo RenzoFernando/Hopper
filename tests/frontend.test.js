@@ -152,3 +152,25 @@ test("la portada usa reparto 70/30 real en escritorio y conserva el apilado resp
   assert.match(styles, /\.room-access-panel\s*\{[\s\S]*grid-column:\s*2;[\s\S]*width:\s*min\(100%,\s*320px\);[\s\S]*justify-self:\s*center/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.auth-layout\s*\{[\s\S]*grid-template-columns:\s*1fr/);
 });
+
+test("la iconografía conserva la base neutra y usa verde, azul y rojo como ayudas visuales", () => {
+  const index = read("index.html");
+  const admin = read("admin.html");
+  const room = read("room.html");
+  const styles = read("css/styles.css");
+  const transfers = read("js/transfer-controller.js");
+
+  assert.match(styles, /--accent:\s*#2f6f5e/);
+  assert.match(styles, /--info:\s*#4f6f8f/);
+  assert.match(styles, /--danger:\s*#a63a3a/);
+  assert.match(styles, /--info-soft:\s*#edf3f8/);
+  assert.match(index, /id="update-button"[^>]*aria-label="Actualizar Hopper"/);
+  assert.match(room, /id="share-room-button"[^>]*aria-label="Compartir sala"/);
+  assert.match(admin, /metric-icon is-info/);
+  assert.match(admin, /metric-icon is-success/);
+  assert.match(admin, /metric-icon is-danger/);
+  assert.match(transfers, /function actionIcon\(action\)/);
+  assert.match(transfers, /button\.setAttribute\("aria-label", label\)/);
+  assert.match(transfers, /mark\.classList\.add\("is-text"\)/);
+  assert.match(transfers, /mark\.classList\.add\("is-file"\)/);
+});

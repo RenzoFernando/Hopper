@@ -66,23 +66,44 @@ function createTypeMark(item) {
   mark.className = "item-type-mark";
 
   if (item.type === "text") {
+    mark.classList.add("is-text");
     mark.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h12M6 9h12M6 13h8M6 17h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>';
   } else if (item.audio) {
+    mark.classList.add("is-audio");
     mark.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V8a6 6 0 0 1 12 0v8M6 14H4.8A1.8 1.8 0 0 0 3 15.8v2.4A1.8 1.8 0 0 0 4.8 20H7v-6Zm12 0h1.2a1.8 1.8 0 0 1 1.8 1.8v2.4a1.8 1.8 0 0 1-1.8 1.8H17v-6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
   } else {
+    mark.classList.add("is-file");
     mark.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h7l4 4V20H7zM14 3.5V8h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path></svg>';
   }
 
   return mark;
 }
 
+function actionIcon(action) {
+  const icons = {
+    copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="10" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>',
+    preview: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12s3.2-5 8.5-5 8.5 5 8.5 5-3.2 5-8.5 5-8.5-5-8.5-5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"></path><circle cx="12" cy="12" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"></circle></svg>',
+    download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v10m0 0 4-4m-4 4-4-4M5 18v2h14v-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+    share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 12v6.2A1.8 1.8 0 0 0 6.8 20h10.4a1.8 1.8 0 0 0 1.8-1.8V12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></path></svg>',
+    delete: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8v10m4-10v10m4-10v10M5 6h14M9 6V4h6v2m3 0-1 15H7L6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+  };
+  return icons[action] || "";
+}
+
 function createAction(label, action, itemId, className = "") {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `action-button ${className}`.trim();
-  button.textContent = label;
+  button.className = `action-button ${className || "is-info"}`.trim();
   button.dataset.action = action;
   button.dataset.itemId = itemId;
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.innerHTML = actionIcon(action);
+
+  if (!button.innerHTML) {
+    button.textContent = label;
+  }
+
   return button;
 }
 
@@ -90,30 +111,30 @@ function selectedStatus(entry) {
   const progress = Math.max(0, Math.min(100, Number(entry.progress) || 0));
 
   if (entry.status === "error") {
-    return { label: "Error · Reintentar", error: true };
+    return { label: "Error · Reintentar", variant: "error" };
   }
 
   if (entry.status === "preparando") {
-    return { label: "Preparando", error: false };
+    return { label: "Preparando", variant: "info" };
   }
 
   if (entry.status === "queued" || !entry.status) {
-    return { label: "Listo para enviar", error: false };
+    return { label: "Listo para enviar", variant: "" };
   }
 
   if (entry.status === "subiendo") {
-    return { label: `${Math.max(1, Math.min(99, progress))}% · Subiendo`, error: false };
+    return { label: `${Math.max(1, Math.min(99, progress))}% · Subiendo`, variant: "info" };
   }
 
   if (entry.status === "confirmando") {
-    return { label: "100% · Confirmando", error: false };
+    return { label: "100% · Confirmando", variant: "info" };
   }
 
   if (entry.status === "listo") {
-    return { label: "100% · Listo", error: false };
+    return { label: "100% · Listo", variant: "success" };
   }
 
-  return { label: "Listo para enviar", error: false };
+  return { label: "Listo para enviar", variant: "" };
 }
 
 function createTransferController({
@@ -359,7 +380,7 @@ function createTransferController({
       size.textContent = formatBytes(entry.file.size);
       const statusValue = selectedStatus(entry);
       const status = document.createElement("span");
-      status.className = `selected-file-status selected-file-progress-label ${statusValue.error ? "is-error" : ""}`.trim();
+      status.className = `selected-file-status selected-file-progress-label ${statusValue.variant ? `is-${statusValue.variant}` : ""}`.trim();
       status.textContent = statusValue.label;
       copy.append(name, size, status);
       const action = document.createElement("button");
@@ -376,7 +397,8 @@ function createTransferController({
         action.className = "selected-file-retry-button";
         action.dataset.action = "retry-selected-file";
         action.setAttribute("aria-label", `Reintentar ${entry.file.name}`);
-        action.textContent = "Reintentar";
+        action.title = "Reintentar";
+        action.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5M7.1 8.2A6.5 6.5 0 0 1 18.4 10M16.9 15.8A6.5 6.5 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
       } else {
         action.className = "remove-file-button";
         action.dataset.action = "remove-selected-file";
