@@ -5,7 +5,8 @@ import {
   getAdminUsage,
   deleteAdminStatistics,
   maybeReconcileStorage,
-  reconcileStorage
+  reconcileStorage,
+  resetAdminSystem
 } from "./admin.js";
 import {
   cancelFileUpload,
@@ -414,6 +415,38 @@ async function handleAdminDeleteStatistics(request, env, origin) {
   return jsonResponse({ ok: true, ...result }, 200, origin);
 }
 
+async function handleWebAdminChangePin(request, env, origin) {
+  const client = await authorizePersonal(request, env);
+  const body = await readJson(request);
+  const pin = normalizeText(body?.pin);
+  const confirmation = normalizeText(body?.confirmation);
+
+  if (!isValidPin(pin)) {
+    throw new HttpError(400, "invalid-pin-format", "El PIN debe tener exactamente 4 dígitos numéricos.");
+  }
+
+  if (pin !== confirmation) {
+    throw new HttpError(400, "pin-mismatch", "Los PIN no coinciden.");
+  }
+
+  await writePinCredentials(env.DB, pin, env);
+  await resetSecurityState(env.DB, client, "admin-web-pin-change");
+  return jsonResponse({ ok: true, status: "updated" }, 200, origin);
+}
+
+async function handleAdminResetSystem(request, env, origin) {
+  const client = await authorizePersonal(request, env);
+  await readJson(request);
+  const result = await resetAdminSystem(env);
+
+  if (result.failed > 0) {
+    throw new HttpError(502, "system-reset-incomplete", "El reinicio no pudo eliminar todo el contenido temporal. Inténtalo de nuevo.");
+  }
+
+  await resetSecurityState(env.DB, client, "admin-system-reset");
+  return jsonResponse({ ok: true, status: "reset", ...result }, 200, origin);
+}
+
 async function requireAdminCli(request, env) {
   const client = getClientInfo(request);
   await ensureClientAllowed(env.DB, client);
@@ -635,6 +668,14 @@ async function routeRequest(request, env, origin) {
 
   if (request.method === "DELETE" && pathname === "/api/admin/statistics") {
     return handleAdminDeleteStatistics(request, env, origin);
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/pin") {
+    return handleWebAdminChangePin(request, env, origin);
+  }
+
+  if (request.method === "POST" && pathname === "/api/admin/reset-system") {
+    return handleAdminResetSystem(request, env, origin);
   }
 
   if (request.method === "POST" && pathname === "/admin/change-pin") {

@@ -19,7 +19,16 @@ const elements = {
   refreshButton: document.querySelector("#admin-refresh-button"),
   cleanupButton: document.querySelector("#cleanup-button"),
   reconcileButton: document.querySelector("#reconcile-button"),
+  changePinButton: document.querySelector("#change-pin-button"),
   deleteStatsButton: document.querySelector("#delete-stats-button"),
+  resetSystemButton: document.querySelector("#reset-system-button"),
+  changePinDialog: document.querySelector("#change-pin-dialog"),
+  changePinForm: document.querySelector("#change-pin-form"),
+  changePinNew: document.querySelector("#change-pin-new"),
+  changePinConfirm: document.querySelector("#change-pin-confirm"),
+  changePinMessage: document.querySelector("#change-pin-message"),
+  changePinCancel: document.querySelector("#change-pin-cancel"),
+  changePinSubmit: document.querySelector("#change-pin-submit"),
   toastRegion: document.querySelector("#toast-region")
 };
 
@@ -282,6 +291,91 @@ async function runMaintenance(action) {
   }
 }
 
+
+function normalizePinInput(input) {
+  const normalized = String(input.value || "").replace(/\D/g, "").slice(0, 4);
+
+  if (input.value !== normalized) {
+    input.value = normalized;
+  }
+
+  return normalized;
+}
+
+function setChangePinMessage(message, type = "") {
+  elements.changePinMessage.textContent = message;
+  elements.changePinMessage.className = `form-message ${type ? `is-${type}` : ""}`.trim();
+  elements.changePinMessage.hidden = !message;
+}
+
+function openChangePinDialog() {
+  elements.changePinNew.value = "";
+  elements.changePinConfirm.value = "";
+  setChangePinMessage("");
+  elements.changePinDialog.showModal();
+  window.requestAnimationFrame(() => elements.changePinNew.focus());
+}
+
+function closeChangePinDialog() {
+  if (!elements.changePinSubmit.disabled) {
+    elements.changePinDialog.close();
+  }
+}
+
+async function changePin(event) {
+  event.preventDefault();
+  const pin = normalizePinInput(elements.changePinNew);
+  const confirmation = normalizePinInput(elements.changePinConfirm);
+
+  if (pin.length !== 4 || confirmation.length !== 4) {
+    setChangePinMessage("Escribe cuatro dígitos en ambos campos.", "error");
+    return;
+  }
+
+  if (pin !== confirmation) {
+    setChangePinMessage("Los PIN no coinciden.", "error");
+    return;
+  }
+
+  elements.changePinSubmit.disabled = true;
+  elements.changePinCancel.disabled = true;
+  elements.changePinNew.disabled = true;
+  elements.changePinConfirm.disabled = true;
+  setChangePinMessage("Guardando…");
+
+  try {
+    await hopperApi.adminChangePin(pin, confirmation);
+    hopperApi.clearSession();
+    setChangePinMessage("PIN actualizado. Volviendo al inicio…", "success");
+    window.setTimeout(() => window.location.replace("./"), 450);
+  } catch (error) {
+    setChangePinMessage(error.message || "No fue posible cambiar el PIN.", "error");
+    elements.changePinSubmit.disabled = false;
+    elements.changePinCancel.disabled = false;
+    elements.changePinNew.disabled = false;
+    elements.changePinConfirm.disabled = false;
+  }
+}
+
+async function resetSystem() {
+  if (!window.confirm("¿Reiniciar Hopper? Se eliminará todo el contenido temporal, se cerrarán las salas y se invalidarán las sesiones. El PIN, la configuración y las estadísticas se conservarán.")) {
+    return;
+  }
+
+  elements.resetSystemButton.disabled = true;
+
+  try {
+    await hopperApi.adminResetSystem();
+    hopperApi.clearSession();
+    hopperApi.clearRoomSession();
+    showToast("Sistema reiniciado. Volviendo al inicio…", "success");
+    window.setTimeout(() => window.location.replace("./"), 450);
+  } catch (error) {
+    showToast(error.message || "No fue posible reiniciar Hopper.", "error");
+    elements.resetSystemButton.disabled = false;
+  }
+}
+
 async function deleteStatistics() {
   if (!window.confirm("¿Borrar las estadísticas agregadas de Hopper? El contenido temporal no se ve afectado.")) {
     return;
@@ -305,7 +399,18 @@ function bindEvents() {
   elements.roomList.addEventListener("click", (event) => handleRoomAction(event).catch((error) => showToast(error.message, "error")));
   elements.cleanupButton.addEventListener("click", () => runMaintenance("cleanup"));
   elements.reconcileButton.addEventListener("click", () => runMaintenance("reconcile"));
+  elements.changePinButton.addEventListener("click", openChangePinDialog);
+  elements.changePinNew.addEventListener("input", () => { normalizePinInput(elements.changePinNew); setChangePinMessage(""); });
+  elements.changePinConfirm.addEventListener("input", () => { normalizePinInput(elements.changePinConfirm); setChangePinMessage(""); });
+  elements.changePinForm.addEventListener("submit", changePin);
+  elements.changePinCancel.addEventListener("click", closeChangePinDialog);
+  elements.changePinDialog.addEventListener("click", (event) => {
+    if (event.target === elements.changePinDialog) {
+      closeChangePinDialog();
+    }
+  });
   elements.deleteStatsButton.addEventListener("click", deleteStatistics);
+  elements.resetSystemButton.addEventListener("click", resetSystem);
   window.addEventListener("hopper:session-expired", () => window.location.replace("./"));
 }
 

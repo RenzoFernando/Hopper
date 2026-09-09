@@ -1887,6 +1887,27 @@ summary:focus-visible {
   background: var(--danger-soft);
 }
 
+.admin-pin-dialog .admin-pin-form {
+  margin-top: 0;
+}
+
+.admin-pin-dialog .admin-pin-form .eyebrow {
+  margin-bottom: 0;
+}
+
+.admin-pin-dialog .form-message {
+  margin-top: 4px;
+}
+
+.admin-pin-dialog .form-message.is-error {
+  color: var(--danger);
+}
+
+.admin-pin-dialog .form-message.is-success {
+  color: var(--accent);
+}
+
+
 .qr-dialog {
   width: min(92vw, 360px);
   padding: 0 18px 20px;
@@ -1962,6 +1983,107 @@ summary:focus-visible {
   font-size: 0.77rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.share-auth {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+
+.share-auth-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.share-auth-form {
+  display: grid;
+  gap: 7px;
+}
+
+.share-auth-form > label {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.share-auth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.share-auth-row input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.share-auth-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(47 111 94 / 0.1);
+  outline: none;
+}
+
+#share-pin {
+  letter-spacing: 0.2em;
+  text-align: center;
+}
+
+#share-room-code {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-auth-message {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.share-auth-message.is-error {
+  color: var(--danger);
+}
+
+.share-auth-message.is-success {
+  color: var(--accent);
+}
+
+.share-auth-divider {
+  position: relative;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+}
+
+.share-auth-divider::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.share-auth-divider span {
+  position: relative;
+  z-index: 1;
+  padding: 0 8px;
+  background: var(--surface-subtle);
 }
 
 .share-card .field-label + .field-label {
@@ -2125,7 +2247,6 @@ summary:focus-visible {
 }
 
 @media (max-width: 480px) {
-  .public-nav #install-button,
   .public-nav #update-button {
     display: none !important;
   }
@@ -2154,6 +2275,14 @@ summary:focus-visible {
   .room-create-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .share-auth-row {
+    grid-template-columns: 1fr;
+  }
+
+  .share-auth-row .secondary-button {
+    width: 100%;
   }
 
   .share-actions > * {

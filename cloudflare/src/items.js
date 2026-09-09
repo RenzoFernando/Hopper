@@ -695,6 +695,71 @@ async function runWithConcurrency(values, limit, worker) {
   await Promise.all(runners);
 }
 
+export async function deleteAllItems(env) {
+  let cursorCreatedAt = "";
+  let cursorId = "";
+  let scanned = 0;
+  let deleted = 0;
+  let failed = 0;
+
+  while (true) {
+    const result = await env.DB.prepare(`
+      SELECT
+        id,
+        type,
+        status,
+        content,
+        name,
+        size,
+        mime_type,
+        storage_key,
+        created_at,
+        expires_at,
+        ttl_minutes,
+        space_type,
+        room_id,
+        etag
+      FROM drop_items
+      WHERE ?1 = '' OR created_at > ?1 OR (created_at = ?1 AND id > ?2)
+      ORDER BY created_at ASC, id ASC
+      LIMIT 100
+    `).bind(cursorCreatedAt, cursorId).all();
+    const items = (result.results || []).map(rowToDropItem);
+
+    if (items.length === 0) {
+      break;
+    }
+
+    const last = items[items.length - 1];
+    cursorCreatedAt = last.createdAt;
+    cursorId = last.id;
+    scanned += items.length;
+
+    await runWithConcurrency(items, 5, async (item) => {
+      try {
+        await deleteItemRecord(env, item);
+        deleted += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("No fue posible eliminar un elemento durante el reinicio.", item.id, error);
+      }
+    });
+
+    if (items.length < 100) {
+      break;
+    }
+  }
+
+  const remaining = await env.DB.prepare(`SELECT COUNT(*) AS count FROM drop_items`).first();
+  const remainingCount = Number(remaining?.count || 0);
+
+  if (failed > 0 || remainingCount > 0) {
+    await recordCleanupFailure(env.DB, Math.max(failed, remainingCount)).catch(() => {});
+  }
+
+  return { scanned, deleted, failed: Math.max(failed, remainingCount), remaining: remainingCount };
+}
+
 export async function cleanupExpiredItems(env) {
   const now = new Date().toISOString();
   const result = await env.DB.prepare(`

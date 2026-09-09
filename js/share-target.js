@@ -1,10 +1,23 @@
 import { hopperApi } from "./api.js";
 import { appConfig } from "./config.js";
+import { bindRoomCodeInput, isCompleteRoomCode, normalizeRoomCode } from "./room-code.js";
 import { formatBytes } from "./transfer-controller.js";
 
 const SHARE_DB = "hopper-share-target-v1";
 const elements = {
   summary: document.querySelector("#share-summary"),
+  auth: document.querySelector("#share-auth"),
+  authCopy: document.querySelector("#share-auth-copy"),
+  authDivider: document.querySelector("#share-auth-divider"),
+  pinForm: document.querySelector("#share-pin-form"),
+  pinInput: document.querySelector("#share-pin"),
+  pinSubmit: document.querySelector("#share-pin-submit"),
+  pinMessage: document.querySelector("#share-pin-message"),
+  roomForm: document.querySelector("#share-room-form"),
+  roomCodeInput: document.querySelector("#share-room-code"),
+  roomSubmit: document.querySelector("#share-room-submit"),
+  roomMessage: document.querySelector("#share-room-message"),
+  destinationField: document.querySelector("#share-destination-field"),
   destination: document.querySelector("#share-destination"),
   ttl: document.querySelector("#share-ttl"),
   ttlField: document.querySelector("#share-ttl-field"),
@@ -15,6 +28,7 @@ const elements = {
 };
 
 let payload = null;
+let authBusy = false;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -57,6 +71,28 @@ function setMessage(message, type = "") {
   elements.message.className = `form-message ${type ? `is-${type}` : ""}`.trim();
 }
 
+function setAuthMessage(element, message, type = "") {
+  element.textContent = message;
+  element.className = `share-auth-message ${type ? `is-${type}` : ""}`.trim();
+  element.hidden = !message;
+}
+
+function normalizePinInput() {
+  const normalized = String(elements.pinInput.value || "").replace(/\D/g, "").slice(0, 4);
+
+  if (elements.pinInput.value !== normalized) {
+    elements.pinInput.value = normalized;
+  }
+
+  return normalized;
+}
+
+function payloadHasContent() {
+  const text = [payload?.title, payload?.text, payload?.url].filter(Boolean).join("\n").trim();
+  const files = Array.from(payload?.files || []);
+  return Boolean(text || files.length > 0);
+}
+
 function roomLabel() {
   const session = hopperApi.getRoomSession();
 
@@ -67,12 +103,11 @@ function roomLabel() {
   return hopperApi.getRememberedRoomCodes()?.[session.roomId]?.code || "Sala activa";
 }
 
-
 function configureTtlOptions() {
   const current = Number(elements.ttl.value) || appConfig.defaultTtlMinutes;
   const roomDestination = elements.destination.value === "room";
   const values = roomDestination ? [5] : [5, 15, 30, 60, 360];
-  elements.ttlField.hidden = roomDestination;
+  elements.ttlField.hidden = elements.destination.options.length === 0 || roomDestination;
   const labels = new Map([
     [5, "5 min"],
     [15, "15 min"],
@@ -93,30 +128,46 @@ function configureTtlOptions() {
   elements.ttl.value = String(values.includes(current) ? current : 5);
 }
 
-function configureDestinations() {
+function configureDestinations(preferred = "") {
+  const current = preferred || elements.destination.value;
+  const hasPersonalSession = hopperApi.hasSession();
+  const hasRoomSession = hopperApi.hasRoomSession();
   elements.destination.replaceChildren();
 
-  if (hopperApi.hasSession()) {
+  if (hasPersonalSession) {
     const option = document.createElement("option");
     option.value = "personal";
     option.textContent = "Mi espacio";
     elements.destination.append(option);
   }
 
-  if (hopperApi.hasRoomSession()) {
+  if (hasRoomSession) {
     const option = document.createElement("option");
     option.value = "room";
     option.textContent = roomLabel();
     elements.destination.append(option);
   }
 
-  if (elements.destination.options.length === 0) {
-    elements.send.disabled = true;
-    setMessage("Abre Hopper e inicia sesión en Mi espacio o en una sala antes de volver a compartir.", "error");
-    return;
+  if ([...elements.destination.options].some((option) => option.value === current)) {
+    elements.destination.value = current;
   }
 
-  configureTtlOptions();
+  const hasDestination = elements.destination.options.length > 0;
+  elements.destinationField.hidden = !hasDestination;
+  elements.pinForm.hidden = hasPersonalSession;
+  elements.roomForm.hidden = hasRoomSession;
+  elements.authDivider.hidden = hasPersonalSession || hasRoomSession;
+  elements.auth.hidden = hasPersonalSession && hasRoomSession;
+  elements.authCopy.textContent = hasDestination
+    ? "Puedes añadir otro destino antes de enviar."
+    : "Accede a Mi espacio o entra a una sala para elegir el destino.";
+  elements.send.disabled = !hasDestination || !payloadHasContent();
+
+  if (hasDestination) {
+    configureTtlOptions();
+  } else {
+    elements.ttlField.hidden = true;
+  }
 }
 
 function renderSummary() {
@@ -141,6 +192,89 @@ function renderSummary() {
   if (!text && files.length === 0) {
     setMessage("No hay contenido compartido pendiente.", "error");
     elements.send.disabled = true;
+  }
+}
+
+async function handlePinSubmit(event) {
+  event.preventDefault();
+
+  if (authBusy) {
+    return;
+  }
+
+  const pin = normalizePinInput();
+
+  if (pin.length !== 4) {
+    setAuthMessage(elements.pinMessage, "Escribe los cuatro dígitos del PIN.", "error");
+    return;
+  }
+
+  authBusy = true;
+  elements.pinInput.disabled = true;
+  elements.pinSubmit.disabled = true;
+  setAuthMessage(elements.pinMessage, "");
+
+  try {
+    const result = await hopperApi.login(pin);
+
+    if (result?.status === "authorized") {
+      elements.pinInput.value = "";
+      configureDestinations("personal");
+      return;
+    }
+
+    if (result?.status === "locked") {
+      setAuthMessage(elements.pinMessage, "Hopper está bloqueado. Usa Recuperar acceso desde la página principal.", "error");
+      return;
+    }
+
+    const attempts = Number(result?.remainingAttempts);
+    setAuthMessage(
+      elements.pinMessage,
+      Number.isFinite(attempts)
+        ? `PIN incorrecto. Quedan ${attempts} intento${attempts === 1 ? "" : "s"}.`
+        : "PIN incorrecto.",
+      "error"
+    );
+    elements.pinInput.value = "";
+  } catch (error) {
+    setAuthMessage(elements.pinMessage, error.message || "No fue posible validar el PIN.", "error");
+  } finally {
+    authBusy = false;
+    elements.pinInput.disabled = false;
+    elements.pinSubmit.disabled = false;
+  }
+}
+
+async function handleRoomSubmit(event) {
+  event.preventDefault();
+
+  if (authBusy) {
+    return;
+  }
+
+  const code = normalizeRoomCode(elements.roomCodeInput.value);
+  elements.roomCodeInput.value = code;
+
+  if (!isCompleteRoomCode(code)) {
+    setAuthMessage(elements.roomMessage, "Código no válido.", "error");
+    return;
+  }
+
+  authBusy = true;
+  elements.roomCodeInput.disabled = true;
+  elements.roomSubmit.disabled = true;
+  setAuthMessage(elements.roomMessage, "");
+
+  try {
+    await hopperApi.joinRoom(code);
+    configureDestinations("room");
+  } catch (error) {
+    setAuthMessage(elements.roomMessage, error.message || "No fue posible entrar a la sala.", "error");
+  } finally {
+    authBusy = false;
+    elements.roomCodeInput.disabled = false;
+    elements.roomSubmit.disabled = false;
   }
 }
 
@@ -281,8 +415,9 @@ async function sendPayload() {
     window.setTimeout(() => window.location.replace(api.target), 350);
   } catch (error) {
     setMessage(error.message || "No fue posible enviar el contenido compartido.", "error");
-    elements.send.disabled = false;
+    elements.send.disabled = !payloadHasContent() || elements.destination.options.length === 0;
     elements.discard.disabled = false;
+    configureDestinations(elements.destination.value);
   }
 }
 
@@ -293,7 +428,6 @@ async function discardPayload() {
 }
 
 async function initialize() {
-  configureDestinations();
   payload = await readPayload().catch(() => null);
 
   if (payload?.createdAt && payload.createdAt < Date.now() - 10 * 60 * 1000) {
@@ -302,9 +436,19 @@ async function initialize() {
   }
 
   renderSummary();
+  configureDestinations();
+  elements.pinInput.addEventListener("input", () => {
+    normalizePinInput();
+    setAuthMessage(elements.pinMessage, "");
+  });
+  elements.pinForm.addEventListener("submit", handlePinSubmit);
+  elements.roomForm.addEventListener("submit", handleRoomSubmit);
+  bindRoomCodeInput(elements.roomCodeInput, () => setAuthMessage(elements.roomMessage, ""));
   elements.destination.addEventListener("change", configureTtlOptions);
   elements.send.addEventListener("click", sendPayload);
   elements.discard.addEventListener("click", discardPayload);
+  window.addEventListener("hopper:session-expired", () => configureDestinations());
+  window.addEventListener("hopper:room-session-expired", () => configureDestinations());
 }
 
 initialize();

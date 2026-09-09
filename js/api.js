@@ -504,6 +504,22 @@ const hopperApi = {
       method: "DELETE",
       auth: "personal"
     });
+  },
+
+  async adminChangePin(pin, confirmation) {
+    return request("/api/admin/pin", {
+      method: "POST",
+      auth: "personal",
+      body: { pin, confirmation }
+    });
+  },
+
+  async adminResetSystem() {
+    return request("/api/admin/reset-system", {
+      method: "POST",
+      auth: "personal",
+      body: {}
+    });
   }
 };
 

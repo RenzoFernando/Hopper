@@ -16,13 +16,14 @@ import {
   deleteB2Version,
   listB2VersionsByPrefix
 } from "./b2.js";
-import { getEstimatedStorageUsage } from "./items.js";
-import { listActiveRooms } from "./rooms.js";
+import { deleteAllItems, getEstimatedStorageUsage } from "./items.js";
+import { closeRoom, listActiveRooms } from "./rooms.js";
 import {
   clearUsageStatistics,
   getMaintenanceState,
   getRecentUsage,
   getTodayUsage,
+  recordCleanupState,
   recordReconcileState
 } from "./usage.js";
 
@@ -244,4 +245,28 @@ export async function maybeReconcileStorage(env) {
 
 export async function deleteAdminStatistics(env) {
   return clearUsageStatistics(env.DB);
+}
+
+export async function resetAdminSystem(env) {
+  const rooms = await listActiveRooms(env.DB);
+  let closed = 0;
+  let roomDeleted = 0;
+  let roomFailures = 0;
+
+  for (const room of rooms) {
+    const result = await closeRoom(env, room.id);
+    closed += result.closed ? 1 : 0;
+    roomDeleted += Number(result.deleted || 0);
+    roomFailures += Number(result.failed || 0);
+  }
+
+  const items = await deleteAllItems(env);
+  await env.DB.prepare(`DELETE FROM rate_limits`).run();
+  await recordCleanupState(env.DB, items.failed);
+
+  return {
+    rooms: { scanned: rooms.length, closed, deleted: roomDeleted, failed: roomFailures },
+    items,
+    failed: Number(items.failed || 0)
+  };
 }

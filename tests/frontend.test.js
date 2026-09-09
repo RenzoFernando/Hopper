@@ -87,11 +87,22 @@ test("la portada separa el PIN privado de las salas públicas", () => {
   assert.match(index, /id="public-create-room"/);
   assert.match(index, /id="public-room-form"/);
   assert.match(index, /<label for="pin-input">PIN ADMIN<\/label>/);
-  assert.match(index, /id="public-room-code"[^>]*pattern="\[A-Za-z\]\{2\}-\[0-9\]\{4\}"[^>]*placeholder="XX-####"/);
-  assert.match(read("room.html"), /id="room-code-input"[^>]*placeholder="XX-####"/);
+  assert.match(index, /id="public-room-code"[^>]*pattern="\[A-Za-z\]\{2\}-\[0-9\]\{4\}"[^>]*placeholder="XX-0000"/);
+  assert.match(read("room.html"), /id="room-code-input"[^>]*placeholder="XX-0000"/);
   assert.match(index, /href="admin\.html">Administración<\/a>/);
   assert.match(index, /Código de la sala/);
   assert.match(index, /id="room-created-enter"[^>]*>Entrar a la sala/);
+});
+
+
+test("la instalación PWA permanece disponible en la portada móvil", () => {
+  const index = read("index.html");
+  const styles = read("css/styles.css");
+  const app = read("js/app.js");
+  assert.match(index, /id="install-button"/);
+  assert.match(app, /beforeinstallprompt/);
+  assert.doesNotMatch(styles, /\.public-nav #install-button,\s*\.public-nav #update-button\s*\{\s*display:\s*none !important;/);
+  assert.match(styles, /@media \(max-width: 480px\)[\s\S]*?\.public-nav #update-button\s*\{\s*display:\s*none !important;/);
 });
 
 test("las salas públicas usan TTL fijo y no muestran controles para cambiarlo", () => {
@@ -106,10 +117,16 @@ test("las salas públicas usan TTL fijo y no muestran controles para cambiarlo",
   assert.match(constants, /ROOM_INACTIVITY_SECONDS = 5 \* 60/);
 });
 
-test("Share Target fija 5 minutos cuando el destino es una sala", () => {
+test("Share Target permite autenticarse directamente y fija 5 minutos en salas", () => {
+  const html = read("share-target.html");
   const source = read("js/share-target.js");
+  assert.match(html, /id="share-pin-form"/);
+  assert.match(html, /id="share-room-form"/);
+  assert.match(html, /id="share-room-code"[^>]*placeholder="XX-0000"/);
+  assert.match(source, /hopperApi\.login\(pin\)/);
+  assert.match(source, /hopperApi\.joinRoom\(code\)/);
   assert.match(source, /roomDestination \? \[5\] : \[5, 15, 30, 60, 360\]/);
-  assert.match(source, /elements\.ttlField\.hidden = roomDestination/);
+  assert.match(source, /elements\.ttlField\.hidden = elements\.destination\.options\.length === 0 \|\| roomDestination/);
 });
 
 test("la cola no muestra cero por ciento antes de enviar y usa cancelación compacta", () => {
@@ -121,15 +138,21 @@ test("la cola no muestra cero por ciento antes de enviar y usa cancelación comp
   assert.match(source, /composerCard\?\.classList\.toggle\("is-sending", sending\)/);
 });
 
-test("Administración observa y abre salas pero no las crea", () => {
+test("Administración observa salas y añade cambio de PIN y reinicio", () => {
   const admin = read("admin.html");
   const adminJs = read("js/admin.js");
   const api = read("js/api.js");
   assert.match(admin, /<h1>Administración<\/h1>/);
   assert.doesNotMatch(admin, /id="new-room-button"/);
   assert.doesNotMatch(admin, /id="room-ttl"/);
+  assert.match(admin, /id="change-pin-button"/);
+  assert.match(admin, /id="reset-system-button"/);
   assert.match(adminJs, /hopperApi\.adminOpenRoom\(room\.id\)/);
+  assert.match(adminJs, /hopperApi\.adminChangePin\(pin, confirmation\)/);
+  assert.match(adminJs, /hopperApi\.adminResetSystem\(\)/);
   assert.match(api, /async adminOpenRoom\(roomId\)/);
+  assert.match(api, /async adminChangePin\(pin, confirmation\)/);
+  assert.match(api, /async adminResetSystem\(\)/);
 });
 
 test("la sesión de sala respeta el código del enlace y la inactividad vuelve a inicio", () => {

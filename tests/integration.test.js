@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import worker from "../cloudflare/src/index.js";
-import { createSessionToken } from "../cloudflare/src/security.js";
+import { createSessionToken, verifyConfiguredPin } from "../cloudflare/src/security.js";
 import { TestD1 } from "./d1-test-helper.js";
 
 const schema = readFileSync(new URL("../cloudflare/schema.sql", import.meta.url), "utf8");
@@ -215,6 +215,80 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     assert.equal(expiredItems.count, 0);
   } finally {
     globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Administración cambia el PIN y reinicia el estado temporal sin perder el PIN", async () => {
+  const db = new TestD1(schema);
+  const env = {
+    DB: db,
+    SESSION_SECRET: secret,
+    ALLOWED_ORIGINS: origin
+  };
+
+  try {
+    const initialToken = await createSessionToken(secret, 1);
+    const changePinResponse = await worker.fetch(request("/api/admin/pin", {
+      method: "POST",
+      token: initialToken,
+      body: { pin: "2468", confirmation: "2468" }
+    }), env);
+    assert.equal(changePinResponse.status, 200);
+    assert.equal((await json(changePinResponse)).status, "updated");
+
+    const revokedInitialResponse = await worker.fetch(request("/api/admin/usage", { token: initialToken }), env);
+    assert.equal(revokedInitialResponse.status, 401);
+
+    assert.equal(await verifyConfiguredPin(env, "2468"), true);
+    const sessionAfterPinChange = await db.prepare("SELECT version FROM session_state WHERE id = 1").first();
+    const personalToken = await createSessionToken(secret, Number(sessionAfterPinChange.version));
+
+    const personalTextResponse = await worker.fetch(request("/api/items/text", {
+      method: "POST",
+      token: personalToken,
+      body: { content: "temporal personal", ttlMinutes: 30 }
+    }), env);
+    assert.equal(personalTextResponse.status, 201);
+
+    const roomResponse = await worker.fetch(request("/api/rooms", {
+      method: "POST",
+      body: {}
+    }), env);
+    assert.equal(roomResponse.status, 201);
+    const room = await json(roomResponse);
+
+    const roomTextResponse = await worker.fetch(request("/api/room/items/text", {
+      method: "POST",
+      token: room.token,
+      body: { content: "temporal sala", ttlMinutes: 5 }
+    }), env);
+    assert.equal(roomTextResponse.status, 201);
+
+    const resetResponse = await worker.fetch(request("/api/admin/reset-system", {
+      method: "POST",
+      token: personalToken,
+      body: {}
+    }), env);
+    assert.equal(resetResponse.status, 200);
+    const reset = await json(resetResponse);
+    assert.equal(reset.status, "reset");
+    assert.equal(reset.failed, 0);
+
+    const remainingItems = await db.prepare("SELECT COUNT(*) AS count FROM drop_items").first();
+    assert.equal(remainingItems.count, 0);
+    const activeRooms = await db.prepare("SELECT COUNT(*) AS count FROM rooms WHERE status = 'active'").first();
+    assert.equal(activeRooms.count, 0);
+
+    const revokedPersonalResponse = await worker.fetch(request("/api/admin/usage", { token: personalToken }), env);
+    assert.equal(revokedPersonalResponse.status, 401);
+    const revokedRoomResponse = await worker.fetch(request("/api/room/status", { token: room.token }), env);
+    assert.equal(revokedRoomResponse.status, 401);
+
+    assert.equal(await verifyConfiguredPin(env, "2468"), true);
+    const sessionAfterReset = await db.prepare("SELECT version FROM session_state WHERE id = 1").first();
+    assert.ok(Number(sessionAfterReset.version) > Number(sessionAfterPinChange.version));
+  } finally {
     db.close();
   }
 });
