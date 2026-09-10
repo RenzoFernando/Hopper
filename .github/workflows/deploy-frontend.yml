@@ -1,0 +1,83 @@
+name: Deploy frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "assets/**"
+      - "config/production.json"
+      - "index.html"
+      - "public/**"
+      - "scripts/prepare-pages-preview.mjs"
+      - "scripts/serve-dist.mjs"
+      - "src/**"
+      - "tests/e2e/pwa.spec.ts"
+      - "tests/e2e/react-*.spec.ts"
+      - "playwright.pwa.config.ts"
+      - "playwright.react.config.ts"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-frontend.yml"
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-pages-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: cloudflare-pages
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Exigir corte aprobado
+        run: |
+          node -e "const c=require('./config/production.json'); if(!c.cutoverComplete) { console.error('Fase 5 todavía no está aprobada para producción.'); process.exit(1); }"
+
+      - name: Dependencias
+        run: npm ci
+
+      - name: Calidad frontend
+        run: |
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E y PWA
+        run: npm run test:e2e
+
+      - name: Desplegar Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy dist --project-name=hopper-transfer --branch=main
+
+      - name: URL desplegada
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          echo "Cloudflare Pages: $DEPLOYMENT_URL"

@@ -6,7 +6,7 @@ declare const self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<{ url: string; revision?: string | null }>;
 };
 
-const CACHE_NAME = "hopper-shell-v3";
+const CACHE_NAME = "hopper-shell-v5";
 const CACHE_PREFIX = "hopper-shell";
 const SHARE_DB = "hopper-share-target-v1";
 const PRECACHE = self.__WB_MANIFEST;

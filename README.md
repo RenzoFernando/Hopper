@@ -9,11 +9,13 @@
 <br>
 <br>
 
+<!-- HOPPER_APP_URL_START -->
 <p>
-  <a href="https://renzofernando.github.io/Hopper/">
+  <a href="https://hopper-transfer.pages.dev/">
     <img src="https://img.shields.io/badge/VER%20APLICACI%C3%93N%20WEB-202123?style=for-the-badge" alt="Ver aplicación web">
   </a>
 </p>
+<!-- HOPPER_APP_URL_END -->
 
 <strong>Transferencia temporal de texto, archivos y audio.</strong>
 
@@ -21,39 +23,38 @@
 
 <br>
 
-<p>
-  Hopper es una aplicación web instalable para mover contenido temporalmente entre dispositivos. Incluye un espacio privado protegido con PIN y hasta dos salas públicas temporales que cualquier persona puede crear o abrir mediante un código.
-</p>
+Hopper es una PWA para mover contenido temporalmente entre dispositivos. El frontend es una SPA estÃ¡tica en React + TypeScript desplegada en Cloudflare Pages y la API es un Ãºnico Cloudflare Worker TypeScript con Hono y Zod. La persistencia usa Cloudflare D1, los archivos temporales Backblaze B2 y la recuperaciÃ³n Resend.
 
-## Características
+## CaracterÃ­sticas
 
-- Transferir texto, código, imágenes, documentos, ZIPs, audio y otros archivos.
-- Proteger el espacio privado mediante un PIN de cuatro dígitos y recuperación por correo.
-- Crear hasta dos salas públicas simultáneas sin usar el PIN.
+- Transferir texto, cÃ³digo, imÃ¡genes, documentos, ZIPs, audio y otros archivos.
+- Proteger el espacio privado mediante un PIN de cuatro dÃ­gitos y recuperaciÃ³n por correo.
+- Crear hasta dos salas pÃºblicas simultÃ¡neas sin usar el PIN.
 - Mantener cada sala activa mientras exista actividad y cerrarla tras 5 minutos de inactividad.
 - Expirar el contenido de las salas a los 5 minutos, sin controles de TTL para participantes.
-- Subir hasta dos archivos simultáneamente con cola, progreso, cancelación y reintentos seguros.
-- Previsualizar imágenes y reproducir audio bajo demanda mediante URLs firmadas temporales.
-- Instalar Hopper como PWA y recibir contenido mediante Web Share Target en navegadores compatibles.
-- Consultar uso, salud, límites, salas activas y mantenimiento desde Administración.
-- Abrir o cerrar cualquier sala activa desde Administración.
+- Subir hasta dos archivos simultÃ¡neamente con cola, progreso, cancelaciÃ³n y reintentos seguros.
+- Previsualizar imÃ¡genes y reproducir audio bajo demanda mediante URLs firmadas temporales.
+- Instalar Hopper como PWA y recibir contenido mediante Web Share Target.
+- Consultar uso, salud, lÃ­mites, salas activas y mantenimiento desde AdministraciÃ³n.
+- Abrir o cerrar cualquier sala activa desde AdministraciÃ³n.
 
-## Tecnologías
+## Arquitectura
 
-- HTML5
-- CSS3
-- JavaScript ES Modules
-- Progressive Web App
-- Cloudflare Workers
-- Cloudflare D1
-- Backblaze B2
-- Resend
+- React + TypeScript + Vite + React Router + TanStack Query + Zod.
+- Cloudflare Pages Direct Upload para el frontend estÃ¡tico.
+- Un Ãºnico Cloudflare Worker con TypeScript + Hono + Zod.
+- Cloudflare D1 para persistencia.
+- Backblaze B2 para archivos temporales y subida directa con URLs firmadas.
+- Resend para recuperaciÃ³n.
+- GitHub Actions para CI/CD independiente de frontend y Worker.
+- Vitest, Testing Library y Playwright para pruebas.
 
+Las rutas pÃºblicas actuales son `/`, `/space`, `/admin`, `/room/XX-0000`, `/recover` y `/share`. Los enlaces histÃ³ricos se conservan mediante un redirect de compatibilidad publicado en GitHub Pages.
 
 ## Autor y licencia
 
 [Renzo Fernando Mosquera Daza](https://github.com/RenzoFernando)
 
-© 2026 — Renzo Fernando Mosquera Daza
+Â© 2026 â€” Renzo Fernando Mosquera Daza
 
 Licencia MIT.

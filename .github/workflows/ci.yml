@@ -9,19 +9,24 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
 
       - name: Dependencias
         run: |
@@ -32,28 +37,65 @@ jobs:
           fi
 
       - name: Dependencias del Worker
-        run: npm install --prefix worker --no-audit --no-fund
+        run: |
+          if [ -f worker/package-lock.json ]; then
+            npm ci --prefix worker
+          else
+            npm install --prefix worker --no-audit --no-fund
+          fi
+
+      - name: Validar estructura Fase 5
+        run: node scripts/phase5-check.mjs
 
       - name: TypeScript del Worker
         run: npm --prefix worker run typecheck
 
-      - name: Tests de seguridad del Worker
+      - name: Seguridad del Worker
         run: npm --prefix worker test
 
       - name: ESLint
         run: npm run lint
 
-      - name: TypeScript
+      - name: TypeScript frontend
         run: npm run typecheck
 
-      - name: Tests unitarios modernos
+      - name: Unitarios
         run: npm run test
 
-      - name: Tests existentes
+      - name: Regresión backend
         run: npm run test:legacy
 
-      - name: Tests de integración existentes
+      - name: Integración
         run: npm run test:integration
 
       - name: Build
         run: npm run build
+
+  e2e:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Dependencias
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E, PWA y regresión visual
+        run: npm run test:e2e

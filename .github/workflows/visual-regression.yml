@@ -4,15 +4,16 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - "css/**"
+      - "assets/**"
+      - "index.html"
+      - "public/**"
       - "src/**"
-      - "modern/**"
-      - "public/_headers"
-      - "scripts/prepare-pages-preview.mjs"
-      - "*.html"
-      - "tests/e2e/**"
-      - "playwright*.config.ts"
+      - "tests/e2e/react-visual-regression.spec.ts"
+      - "tests/e2e/visual/baselines/**"
+      - "playwright.react.config.ts"
+      - "vite.config.ts"
       - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: read
@@ -24,23 +25,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
 
       - name: Dependencias
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install --no-audit --no-fund
-          fi
+        run: npm ci
 
-      - name: Chromium de Playwright
+      - name: Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: E2E React y regresión visual
-        run: npm run test:e2e
+      - name: Regresión visual React
+        run: npx playwright test tests/e2e/react-visual-regression.spec.ts --config playwright.react.config.ts

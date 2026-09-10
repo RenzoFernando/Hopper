@@ -1,5 +1,9 @@
-param(
-  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url", "pages-preview", "phase3-preview-cors", "phase3-preview-cors-reset")]
+﻿param(
+  [ValidateSet(
+    "menu", "setup", "init", "deploy", "pages", "cutover", "finalize", "verify", "rollback",
+    "cleanup-refactor", "github", "status", "lock", "unlock", "change-pin", "block", "unblock",
+    "events", "email", "b2", "cors", "cleanup", "url"
+  )]
   [string]$Action = "menu"
 )
 
@@ -7,10 +11,12 @@ $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
-$deployConfigPath = Join-Path $PSScriptRoot ".hopper-wrangler.json"
+$productionConfigPath = Join-Path $PSScriptRoot "config\production.json"
+$rollbackPath = Join-Path $PSScriptRoot ".hopper-phase5-rollback.json"
 $migrationsPath = Join-Path $PSScriptRoot "worker\migrations"
 $workerPackagePath = Join-Path $PSScriptRoot "worker\package.json"
-$frontendConfigPath = Join-Path $PSScriptRoot "js\config.js"
+$workerConfigPath = Join-Path $PSScriptRoot "worker\wrangler.jsonc"
+$readmePath = Join-Path $PSScriptRoot "README.md"
 
 $script:DatabaseName = ""
 $script:DatabaseId = ""
@@ -20,6 +26,9 @@ $script:WorkerName = ""
 $script:WorkerUrl = ""
 $script:PublicAppUrl = ""
 $script:AllowedOrigin = ""
+$script:LegacyPublicAppUrl = ""
+$script:PagesProjectName = "hopper-transfer"
+$script:ProductionBranch = "main"
 $script:MaxFileBytes = [long](512MB)
 $script:RoomMaxFileBytes = [long](100MB)
 $script:DefaultTtlMinutes = 5
@@ -30,27 +39,100 @@ $script:SessionSecretConfigured = $false
 $script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
 $script:CleanFrontendUrls = $false
-$script:Phase3PreviewCorsEnabled = $false
-$script:Phase3PreviewOrigin = "https://phase-3.hopper-preview.pages.dev"
+$script:CutoverComplete = $false
+$script:LegacyRedirectVerified = $false
+$script:GitHubCliPath = ""
+$script:NpxCliPath = ""
+
+
+function Write-Utf8NoBom {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Content
+  )
+
+  $encoding = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($Path, $Content, $encoding)
+}
+
+function Resolve-NpxCliPath {
+  if ($script:NpxCliPath -and (Test-Path -LiteralPath $script:NpxCliPath)) {
+    return $script:NpxCliPath
+  }
+
+  $command = Get-Command npx.cmd -ErrorAction SilentlyContinue
+  if ($command) {
+    $resolved = if ($command.Path) { [string]$command.Path } else { [string]$command.Source }
+    if ($resolved -and (Test-Path -LiteralPath $resolved)) {
+      $script:NpxCliPath = $resolved
+      return $script:NpxCliPath
+    }
+  }
+
+  $candidates = @()
+  if ($env:ProgramFiles) {
+    $candidates += Join-Path $env:ProgramFiles "nodejs\npx.cmd"
+  }
+  if (${env:ProgramFiles(x86)}) {
+    $candidates += Join-Path ${env:ProgramFiles(x86)} "nodejs\npx.cmd"
+  }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      $script:NpxCliPath = [string]$candidate
+      return $script:NpxCliPath
+    }
+  }
+
+  $fallback = Get-Command npx -ErrorAction SilentlyContinue
+  if ($fallback) {
+    $resolved = if ($fallback.Path) { [string]$fallback.Path } else { [string]$fallback.Source }
+    if ($resolved) {
+      $script:NpxCliPath = $resolved
+      return $script:NpxCliPath
+    }
+  }
+
+  throw "No se encontró npx. Instala Node.js antes de ejecutar este administrador."
+}
+
+function Invoke-WranglerProcess {
+  param([string[]]$Arguments)
+
+  $npx = Resolve-NpxCliPath
+  $previousErrorActionPreference = $ErrorActionPreference
+
+  try {
+    # Windows PowerShell 5.1 convierte stderr redirigido de comandos nativos en
+    # NativeCommandError. Las advertencias de Wrangler no deben abortar el corte.
+    $ErrorActionPreference = "Continue"
+    $processOutput = & $npx --yes wrangler @Arguments 2>&1
+    $processExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  return [pscustomobject]@{
+    Output = @($processOutput)
+    ExitCode = [int]$processExitCode
+  }
+}
 
 function Invoke-Wrangler {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
-  & npx --yes wrangler @Arguments
+  $result = Invoke-WranglerProcess -Arguments $Arguments
+  $result.Output | ForEach-Object { Write-Host $_ }
 
-  if ($LASTEXITCODE -ne 0) {
-    throw "Wrangler terminó con código $LASTEXITCODE."
+  if ($result.ExitCode -ne 0) {
+    throw "Wrangler terminó con código $($result.ExitCode)."
   }
 }
 
 function Ensure-CloudflareLogin {
-  if (-not (Get-Command npx -ErrorAction SilentlyContinue)) {
-    throw "No se encontró npx. Instala Node.js antes de ejecutar este administrador."
-  }
+  $result = Invoke-WranglerProcess -Arguments @("whoami")
 
-  & npx --yes wrangler whoami *> $null
-
-  if ($LASTEXITCODE -ne 0) {
+  if ($result.ExitCode -ne 0) {
     Invoke-Wrangler login
   }
 }
@@ -70,28 +152,79 @@ function Read-Config {
 function Load-Config {
   $config = Read-Config
 
-  if (-not $config) {
-    return
+  if ($config) {
+    $script:DatabaseName = [string]$config.databaseName
+    $script:DatabaseId = [string]$config.databaseId
+    $script:B2BucketName = [string]$config.b2BucketName
+    $script:B2Endpoint = [string]$config.b2Endpoint
+    $script:WorkerName = [string]$config.workerName
+    $script:WorkerUrl = [string]$config.workerUrl
+    $script:PublicAppUrl = [string]$config.publicAppUrl
+    $script:AllowedOrigin = [string]$config.allowedOrigin
+
+    if ($config.maxFileBytes) {
+      $script:MaxFileBytes = [long]$config.maxFileBytes
+    }
+
+    $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
+    $script:B2SecretConfigured = [bool]$config.b2SecretConfigured
+    $script:RecoveryConfigured = [bool]$config.recoveryConfigured
+    $script:CleanFrontendUrls = [bool]$config.cleanFrontendUrls
+
+    if ($config.pagesProjectName) {
+      $script:PagesProjectName = [string]$config.pagesProjectName
+    }
+
+    if ($config.legacyPublicAppUrl) {
+      $script:LegacyPublicAppUrl = [string]$config.legacyPublicAppUrl
+    }
+
+    if ($null -ne $config.cutoverComplete) {
+      $script:CutoverComplete = [bool]$config.cutoverComplete
+    }
+
+    if ($null -ne $config.legacyRedirectVerified) {
+      $script:LegacyRedirectVerified = [bool]$config.legacyRedirectVerified
+    }
   }
 
-  $script:DatabaseName = [string]$config.databaseName
-  $script:DatabaseId = [string]$config.databaseId
-  $script:B2BucketName = [string]$config.b2BucketName
-  $script:B2Endpoint = [string]$config.b2Endpoint
-  $script:WorkerName = [string]$config.workerName
-  $script:WorkerUrl = [string]$config.workerUrl
-  $script:PublicAppUrl = [string]$config.publicAppUrl
-  $script:AllowedOrigin = [string]$config.allowedOrigin
+  if (Test-Path $productionConfigPath) {
+    try {
+      $production = Get-Content $productionConfigPath -Raw | ConvertFrom-Json
 
-  if ($config.maxFileBytes) {
-    $script:MaxFileBytes = [long]$config.maxFileBytes
+      if ($production.pagesProjectName) {
+        $script:PagesProjectName = [string]$production.pagesProjectName
+      }
+
+      if ($production.productionBranch) {
+        $script:ProductionBranch = [string]$production.productionBranch
+      }
+
+      if ($production.legacyPublicAppUrl) {
+        $script:LegacyPublicAppUrl = [string]$production.legacyPublicAppUrl
+      }
+
+      if ($production.workerBaseUrl) {
+        $script:WorkerUrl = ([string]$production.workerBaseUrl).TrimEnd("/")
+      }
+
+      if ($production.b2Endpoint) {
+        $script:B2Endpoint = ([string]$production.b2Endpoint).TrimEnd("/")
+      }
+
+      if ([bool]$production.cutoverComplete -and $production.publicAppUrl) {
+        $uri = [Uri]([string]$production.publicAppUrl)
+        $script:PublicAppUrl = $uri.AbsoluteUri.TrimEnd("/") + "/"
+        $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
+        $script:CleanFrontendUrls = $true
+      }
+
+      $script:CutoverComplete = [bool]$production.cutoverComplete
+      $script:LegacyRedirectVerified = [bool]$production.legacyRedirectVerified
+    } catch {
+      throw "config\production.json no es válido."
+    }
   }
-
-  $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
-  $script:B2SecretConfigured = [bool]$config.b2SecretConfigured
-  $script:RecoveryConfigured = [bool]$config.recoveryConfigured
-  $script:CleanFrontendUrls = [bool]$config.cleanFrontendUrls
-  $script:Phase3PreviewCorsEnabled = [bool]$config.phase3PreviewCorsEnabled
 }
 
 function Save-Config {
@@ -109,14 +242,62 @@ function Save-Config {
     b2SecretConfigured = $script:B2SecretConfigured
     recoveryConfigured = $script:RecoveryConfigured
     cleanFrontendUrls = $script:CleanFrontendUrls
-    phase3PreviewCorsEnabled = $script:Phase3PreviewCorsEnabled
+    pagesProjectName = $script:PagesProjectName
+    legacyPublicAppUrl = $script:LegacyPublicAppUrl
+    cutoverComplete = $script:CutoverComplete
+    legacyRedirectVerified = $script:LegacyRedirectVerified
   }
 
-  $payload | ConvertTo-Json | Set-Content $configPath -Encoding UTF8
+  Write-Utf8NoBom -Path $configPath -Content ($payload | ConvertTo-Json)
+}
+
+function Write-ProductionConfig {
+  $directory = Split-Path $productionConfigPath -Parent
+  if (-not (Test-Path $directory)) {
+    New-Item -ItemType Directory -Path $directory | Out-Null
+  }
+
+  $payload = [ordered]@{
+    pagesProjectName = $script:PagesProjectName
+    productionBranch = $script:ProductionBranch
+    workerName = $script:WorkerName
+    workerBaseUrl = $script:WorkerUrl.TrimEnd("/")
+    publicAppUrl = $script:PublicAppUrl
+    legacyPublicAppUrl = $script:LegacyPublicAppUrl
+    b2Endpoint = $script:B2Endpoint.TrimEnd("/")
+    cutoverComplete = $script:CutoverComplete
+    legacyRedirectVerified = $script:LegacyRedirectVerified
+  }
+
+  Write-Utf8NoBom -Path $productionConfigPath -Content ($payload | ConvertTo-Json)
+}
+
+function Update-ReadmePublicUrl {
+  if (-not (Test-Path $readmePath) -or -not $script:PublicAppUrl) {
+    return
+  }
+
+  $source = Get-Content $readmePath -Raw
+  $replacement = @"
+<!-- HOPPER_APP_URL_START -->
+<p>
+  <a href="$($script:PublicAppUrl)">
+    <img src="https://img.shields.io/badge/VER%20APLICACI%C3%93N%20WEB-202123?style=for-the-badge" alt="Ver aplicación web">
+  </a>
+</p>
+<!-- HOPPER_APP_URL_END -->
+"@
+
+  $pattern = '(?s)<!-- HOPPER_APP_URL_START -->.*?<!-- HOPPER_APP_URL_END -->'
+
+  if ($source -match $pattern) {
+    $source = [regex]::Replace($source, $pattern, [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $replacement }, 1)
+    Write-Utf8NoBom -Path $readmePath -Content $source
+  }
 }
 
 function Get-Databases {
-  $raw = (& npx --yes wrangler d1 list --json 2>$null | Out-String)
+  $raw = (& (Resolve-NpxCliPath) --yes wrangler d1 list --json 2>$null | Out-String)
 
   if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
     throw "No fue posible listar las bases D1."
@@ -210,10 +391,6 @@ function Select-Database {
   $script:DatabaseId = [string]$candidates[$selection - 1].uuid
   Save-Config
 }
-
-
-
-
 
 function Read-ValidatedUrl {
   param([string]$Prompt, [string]$Default = "")
@@ -348,11 +525,63 @@ function Configure-BaseValues {
   }
 
   Save-Config
+  Write-ProductionConfig
 }
 
 function Invoke-D1Command {
   param([string]$Sql)
   Invoke-Wrangler d1 execute $script:DatabaseName --remote --command $Sql --yes
+}
+
+function Sync-WorkerConfig {
+  param([string[]]$AdditionalAllowedOrigins = @())
+
+  if (
+    -not $script:DatabaseId -or
+    -not $script:DatabaseName -or
+    -not $script:WorkerName -or
+    -not $script:PublicAppUrl -or
+    -not $script:B2BucketName -or
+    -not $script:B2Endpoint
+  ) {
+    throw "Faltan valores para generar worker\wrangler.jsonc."
+  }
+
+  $origins = @(
+    $script:AllowedOrigin
+    $AdditionalAllowedOrigins
+  ) | Where-Object { $_ } | Select-Object -Unique
+
+  $payload = [ordered]@{
+    '$schema' = "node_modules/wrangler/config-schema.json"
+    name = $script:WorkerName
+    main = "src/index.ts"
+    compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
+    workers_dev = $true
+    vars = [ordered]@{
+      ALLOWED_ORIGINS = ($origins -join ",")
+      ALLOW_LOCALHOST = "false"
+      PUBLIC_APP_URL = $script:PublicAppUrl
+      CLEAN_FRONTEND_URLS = if ($script:CleanFrontendUrls) { "true" } else { "false" }
+      MAX_FILE_BYTES = [string]$script:MaxFileBytes
+      ROOM_MAX_FILE_BYTES = [string]$script:RoomMaxFileBytes
+      B2_BUCKET_NAME = $script:B2BucketName
+      B2_ENDPOINT = $script:B2Endpoint
+    }
+    d1_databases = @(
+      [ordered]@{
+        binding = "DB"
+        database_name = $script:DatabaseName
+        database_id = $script:DatabaseId
+        migrations_dir = "migrations"
+      }
+    )
+    triggers = [ordered]@{
+      crons = @("* * * * *")
+    }
+  }
+
+  Write-Utf8NoBom -Path $workerConfigPath -Content ($payload | ConvertTo-Json -Depth 8)
 }
 
 function Initialize-Schema {
@@ -368,26 +597,17 @@ function Initialize-Schema {
     throw "No se encontró worker\migrations."
   }
 
-  $migrationConfig = [ordered]@{
-    name = if ($script:WorkerName) { $script:WorkerName } else { "hopper-api" }
-    main = "worker/src/index.ts"
-    compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
-    d1_databases = @(
-      [ordered]@{
-        binding = "DB"
-        database_name = $script:DatabaseName
-        database_id = $script:DatabaseId
-        migrations_dir = "worker/migrations"
-      }
-    )
-  }
+  Ensure-WorkerDependencies
+  Sync-WorkerConfig
 
-  $migrationConfig | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
-
+  Push-Location (Join-Path $PSScriptRoot "worker")
   try {
-    Invoke-Wrangler d1 migrations apply $script:DatabaseName --remote --config $deployConfigPath
+    & (Resolve-NpxCliPath) wrangler d1 migrations apply $script:DatabaseName --remote --config wrangler.jsonc
+    if ($LASTEXITCODE -ne 0) {
+      throw "Las migraciones D1 terminaron con código $LASTEXITCODE."
+    }
   } finally {
-    Remove-Item $deployConfigPath -Force -ErrorAction SilentlyContinue
+    Pop-Location
   }
 }
 
@@ -452,81 +672,10 @@ function Set-WorkerSecretsBulk {
   }
 
   $json = $Values | ConvertTo-Json -Compress
-  $json | & npx --yes wrangler secret bulk --name $script:WorkerName
+  $json | & (Resolve-NpxCliPath) --yes wrangler secret bulk --name $script:WorkerName
 
   if ($LASTEXITCODE -ne 0) {
     throw "No fue posible actualizar los secrets del Worker."
-  }
-}
-
-function Write-FrontendConfig {
-  if (-not $script:WorkerUrl) {
-    return
-  }
-
-  $content = @"
-const appConfig = Object.freeze({
-  workerBaseUrl: "$($script:WorkerUrl.TrimEnd('/'))",
-  publicAppUrl: "$($script:PublicAppUrl)",
-  defaultTtlMinutes: $script:DefaultTtlMinutes,
-  roomDefaultTtlMinutes: $script:RoomDefaultTtlMinutes,
-  maxFileBytes: $script:MaxFileBytes,
-  roomMaxFileBytes: $script:RoomMaxFileBytes,
-  pollIntervalMs: $script:PollIntervalMs,
-  uploadConcurrency: $script:UploadConcurrency
-});
-
-export { appConfig };
-"@
-
-  Set-Content $frontendConfigPath -Value $content -Encoding UTF8
-}
-
-function New-DeployConfig {
-  param([string[]]$AdditionalAllowedOrigins = @())
-
-  if (
-    -not $script:DatabaseId -or
-    -not $script:WorkerName -or
-    -not $script:PublicAppUrl -or
-    -not $script:B2BucketName -or
-    -not $script:B2Endpoint
-  ) {
-    throw "Faltan valores de configuración. Ejecuta primero la configuración guiada."
-  }
-
-  $previewOrigins = if ($script:Phase3PreviewCorsEnabled) { @($script:Phase3PreviewOrigin) } else { @() }
-  $allowedOrigins = @(
-    $script:AllowedOrigin
-    $previewOrigins
-    $AdditionalAllowedOrigins
-  ) | Where-Object { $_ } | Select-Object -Unique
-
-  return [ordered]@{
-    name = $script:WorkerName
-    main = "worker/src/index.ts"
-    compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
-    workers_dev = $true
-    vars = [ordered]@{
-      ALLOWED_ORIGINS = ($allowedOrigins -join ",")
-      ALLOW_LOCALHOST = "true"
-      PUBLIC_APP_URL = $script:PublicAppUrl
-      CLEAN_FRONTEND_URLS = if ($script:CleanFrontendUrls) { "true" } else { "false" }
-      MAX_FILE_BYTES = [string]$script:MaxFileBytes
-      B2_BUCKET_NAME = $script:B2BucketName
-      B2_ENDPOINT = $script:B2Endpoint
-    }
-    d1_databases = @(
-      [ordered]@{
-        binding = "DB"
-        database_name = $script:DatabaseName
-        database_id = $script:DatabaseId
-        migrations_dir = "worker/migrations"
-      }
-    )
-    triggers = [ordered]@{
-      crons = @("* * * * *")
-    }
   }
 }
 
@@ -542,33 +691,33 @@ function Deploy-Worker {
     Initialize-Schema
   }
 
-  $config = New-DeployConfig -AdditionalAllowedOrigins $AdditionalAllowedOrigins
-  $config | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
+  Sync-WorkerConfig -AdditionalAllowedOrigins $AdditionalAllowedOrigins
 
+  Push-Location (Join-Path $PSScriptRoot "worker")
   try {
-    $output = & npx --yes wrangler deploy --config $deployConfigPath 2>&1
-    $exitCode = $LASTEXITCODE
+    $result = Invoke-WranglerProcess -Arguments @("deploy", "--config", "wrangler.jsonc")
+    $output = @($result.Output)
     $output | ForEach-Object { Write-Host $_ }
 
-    if ($exitCode -ne 0) {
+    if ($result.ExitCode -ne 0) {
       throw "Wrangler no pudo desplegar el Worker."
     }
-
-    $text = $output | Out-String
-    $match = [regex]::Match($text, "https://[^\s]+\.workers\.dev")
-
-    if ($match.Success) {
-      $script:WorkerUrl = $match.Value.TrimEnd("/")
-    } elseif (-not $script:WorkerUrl) {
-      $uri = Read-ValidatedUrl "URL HTTPS del Worker recién desplegado"
-      $script:WorkerUrl = $uri.AbsoluteUri.TrimEnd("/")
-    }
-
-    Save-Config
-    Write-FrontendConfig
   } finally {
-    Remove-Item $deployConfigPath -Force -ErrorAction SilentlyContinue
+    Pop-Location
   }
+
+  $text = $output | Out-String
+  $match = [regex]::Match($text, "https://[^\s]+\.workers\.dev")
+
+  if ($match.Success) {
+    $script:WorkerUrl = $match.Value.TrimEnd("/")
+  } elseif (-not $script:WorkerUrl) {
+    $uri = Read-ValidatedUrl "URL HTTPS del Worker recién desplegado"
+    $script:WorkerUrl = $uri.AbsoluteUri.TrimEnd("/")
+  }
+
+  Save-Config
+  Write-ProductionConfig
 }
 
 function Configure-SessionSecret {
@@ -734,13 +883,9 @@ function Configure-B2Cors {
     throw "Object Lock está habilitado. Hopper necesita poder eliminar archivos temporales; usa un bucket sin Object Lock."
   }
 
-  $previewOrigins = if ($script:Phase3PreviewCorsEnabled) { @($script:Phase3PreviewOrigin) } else { @() }
   $origins = @(
     $script:AllowedOrigin
-    $previewOrigins
     $AdditionalAllowedOrigins
-    "http://localhost:5500"
-    "http://127.0.0.1:5500"
     "http://localhost:4173"
     "http://127.0.0.1:4173"
     "http://localhost:4175"
@@ -748,6 +893,7 @@ function Configure-B2Cors {
     "http://localhost:5173"
     "http://127.0.0.1:5173"
   ) | Where-Object { $_ } | Select-Object -Unique
+
   $corsRules = @(
     [ordered]@{
       corsRuleName = "hopperDirectTransfer"
@@ -895,7 +1041,6 @@ function Set-NewPin {
 }
 
 function Show-Status {
-  Initialize-Schema
   Invoke-D1Command "SELECT failed_attempts, locked, locked_at, last_failed_at, last_success_at, updated_at FROM security_state WHERE id = 1; SELECT version, updated_at FROM session_state WHERE id = 1; SELECT COUNT(*) AS active_items FROM drop_items WHERE status = 'ready' AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'); SELECT target, kind, created_at, note FROM blocked_clients ORDER BY id DESC;"
 
   if ($script:B2BucketName -and $script:B2Endpoint) {
@@ -903,19 +1048,21 @@ function Show-Status {
     Write-Host "Endpoint: $script:B2Endpoint"
   }
 
-  if ($script:Phase3PreviewCorsEnabled) {
-    Write-Host "Preview Fase 3 autorizado en CORS: $script:Phase3PreviewOrigin"
+  if ($script:PublicAppUrl) {
+    Write-Host "Frontend: $script:PublicAppUrl"
   }
 
   if ($script:WorkerUrl) {
     try {
-      $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get
+      $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get -Headers @{ Origin = $script:AllowedOrigin }
       Write-Host "Worker: $($health.service) - OK"
       Write-Host "B2: $($health.configured.b2Bucket) | firma: $($health.configured.b2Signing) | correo: $($health.configured.recoveryEmail)"
     } catch {
       Write-Warning "El Worker no respondió al health check."
     }
   }
+
+  Write-Host "Corte Cloudflare: $script:CutoverComplete | redirect legacy verificado: $script:LegacyRedirectVerified"
 }
 
 function Set-ManualLock {
@@ -995,145 +1142,680 @@ function Update-PublicUrl {
   $uri = Read-ValidatedUrl "Nueva URL pública de Hopper" $script:PublicAppUrl
   $previousPublicAppUrl = $script:PublicAppUrl
   $previousAllowedOrigin = $script:AllowedOrigin
-  $previousCleanFrontendUrls = $script:CleanFrontendUrls
-  $previousPreviewCorsEnabled = $script:Phase3PreviewCorsEnabled
 
   $script:PublicAppUrl = $uri.AbsoluteUri.TrimEnd("/") + "/"
   $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
   $script:CleanFrontendUrls = $true
-  $script:Phase3PreviewCorsEnabled = $false
   Save-Config
+  Write-ProductionConfig
 
   try {
     Deploy-Worker
     Configure-B2Cors
+    Update-ReadmePublicUrl
   } catch {
-    $failure = $_
     $script:PublicAppUrl = $previousPublicAppUrl
     $script:AllowedOrigin = $previousAllowedOrigin
-    $script:CleanFrontendUrls = $previousCleanFrontendUrls
-    $script:Phase3PreviewCorsEnabled = $previousPreviewCorsEnabled
     Save-Config
-
-    try {
-      Write-Warning "El cambio de URL pública no se completó. Restaurando la configuración anterior del Worker."
-      Deploy-Worker -SkipSchema
-    } catch {
-      Write-Warning "No fue posible restaurar automáticamente el Worker. Revisa el despliegue antes de continuar."
-    }
-
-    throw $failure
+    Write-ProductionConfig
+    throw
   }
 }
 
-function Set-Phase3PreviewCors {
-  param([bool]$Enabled)
+function Invoke-ExternalCommand {
+  param(
+    [string]$Label,
+    [scriptblock]$Command
+  )
 
-  $previousState = $script:Phase3PreviewCorsEnabled
-  $label = if ($Enabled) { "habilitando" } else { "retirando" }
-  Write-Host "Fase 3: $label acceso del preview en Worker y B2 sin cambiar la URL pública."
-  $script:Phase3PreviewCorsEnabled = $Enabled
+  & $Command
 
-  try {
-    Deploy-Worker -SkipSchema
-    Configure-B2Cors
-  } catch {
-    $failure = $_
-    $script:Phase3PreviewCorsEnabled = $previousState
-    Save-Config
-
-    try {
-      Write-Warning "La actualización de CORS no se completó. Restaurando la configuración anterior del Worker."
-      Deploy-Worker -SkipSchema
-    } catch {
-      Write-Warning "No fue posible restaurar automáticamente el Worker. Ejecuta de nuevo la acción de CORS correspondiente antes de continuar."
-    }
-
-    throw $failure
-  }
-
-  Save-Config
-
-  if ($Enabled) {
-    Write-Host "CORS de preview habilitado para $script:Phase3PreviewOrigin. La URL pública y los enlaces de recuperación permanecen en producción actual."
-  } else {
-    Write-Host "CORS de preview retirado. Worker y B2 vuelven a aceptar únicamente producción y los orígenes locales configurados."
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Label terminó con código $LASTEXITCODE."
   }
 }
 
-function Invoke-PagesPreview {
-  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    throw "No se encontró npm. Instala Node.js antes de preparar el preview."
-  }
+function Remove-Phase5TransitionalArtifacts {
+  $obsolete = @(
+    "modern",
+    "scripts\serve-legacy.mjs",
+    ".github\workflows\preview-frontend.yml",
+    "tests\e2e\phase-three-pwa.spec.ts",
+    "tests\e2e\visual-regression.spec.ts",
+    "tests\unit\layout-parity.test.tsx",
+    "tests\unit\style-freeze.test.ts"
+  )
 
-  $projectName = "hopper-preview"
-  $raw = (& npx --yes wrangler pages project list --json 2>$null | Out-String)
+  foreach ($relative in $obsolete) {
+    $path = Join-Path $PSScriptRoot $relative
+    if (Test-Path -LiteralPath $path) {
+      Remove-Item -LiteralPath $path -Recurse -Force
+      Write-Host "Retirado artefacto transitorio: $relative"
+    }
+  }
+}
+
+function Invoke-FullValidation {
+  Write-Host ""
+  Write-Host "Validación completa de Fase 5"
+
+  Invoke-ExternalCommand "Validación estructural" { node scripts/phase5-check.mjs }
+  Invoke-ExternalCommand "TypeScript del Worker" { npm --prefix worker run typecheck }
+  Invoke-ExternalCommand "Tests de seguridad del Worker" { npm --prefix worker test }
+  Invoke-ExternalCommand "ESLint" { npm run lint }
+  Invoke-ExternalCommand "TypeScript frontend" { npm run typecheck }
+  Invoke-ExternalCommand "Vitest" { npm run test }
+  Invoke-ExternalCommand "Tests legacy/backend" { npm run test:legacy }
+  Invoke-ExternalCommand "Tests de integración" { npm run test:integration }
+  Invoke-ExternalCommand "Build" { npm run build }
+  Invoke-ExternalCommand "E2E/PWA/visual" { npm run test:e2e }
+  Invoke-ExternalCommand "Audit producción raíz" { npm audit --omit=dev }
+  Invoke-ExternalCommand "Audit producción Worker" { npm audit --prefix worker --omit=dev }
+
+  Write-Host "Suite completa aprobada."
+}
+
+function Get-PagesProjects {
+  $raw = (& (Resolve-NpxCliPath) --yes wrangler pages project list --json 2>$null | Out-String)
 
   if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
     throw "No fue posible consultar los proyectos de Cloudflare Pages."
   }
 
   $parsed = $raw | ConvertFrom-Json
-  $projects = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
-  $existing = @($projects | Where-Object { $_.name -eq $projectName -or $_.project_name -eq $projectName -or $_.'Project Name' -eq $projectName })
+  if ($parsed -is [System.Array]) { return @($parsed) }
+  if ($parsed.result) { return @($parsed.result) }
+  return @($parsed)
+}
 
-  if ($existing.Count -eq 0) {
-    Write-Host "Creando proyecto Direct Upload de Cloudflare Pages: $projectName"
-    Invoke-Wrangler pages project create $projectName --production-branch main
+function Get-PagesProject {
+  $projects = @(Get-PagesProjects)
+  return @($projects | Where-Object {
+    $_.name -eq $script:PagesProjectName -or
+    $_.project_name -eq $script:PagesProjectName -or
+    $_.'Project Name' -eq $script:PagesProjectName
+  }) | Select-Object -First 1
+}
+
+function Ensure-PagesProject {
+  $project = Get-PagesProject
+
+  if (-not $project) {
+    Write-Host "Creando proyecto Direct Upload de Cloudflare Pages: $script:PagesProjectName"
+    Invoke-Wrangler pages project create $script:PagesProjectName --production-branch $script:ProductionBranch
+    $project = Get-PagesProject
   }
 
-  Write-Host "Validando y compilando el preview moderno..."
-  $lockPath = Join-Path $PSScriptRoot "package-lock.json"
-  if (Test-Path $lockPath) {
-    & npm ci
+  if (-not $project) {
+    throw "Cloudflare no confirmó la creación del proyecto Pages."
+  }
+
+  return $project
+}
+
+function ConvertTo-PagesStableUrl {
+  param([object]$Value)
+
+  if ($null -eq $Value) {
+    return ""
+  }
+
+  foreach ($entry in @($Value)) {
+    if ($null -eq $entry) {
+      continue
+    }
+
+    $text = [string]$entry
+    $urlMatches = [regex]::Matches(
+      $text,
+      "(?i)(?:https?://)?([a-z0-9-]+\.pages\.dev)(?=[/,\s]|$)"
+    )
+
+    foreach ($match in $urlMatches) {
+      $candidateHost = $match.Groups[1].Value.ToLowerInvariant()
+
+      # La URL estable de proyecto tiene una única etiqueta antes de pages.dev.
+      # Las URLs de deployment añaden un hash delante y no deben persistirse
+      # como PUBLIC_APP_URL.
+      if ($candidateHost -match "^[^.]+\.pages\.dev$") {
+        return "https://$candidateHost/"
+      }
+    }
+  }
+
+  return ""
+}
+
+function Get-PagesStableUrlFromDeployments {
+  $raw = (& (Resolve-NpxCliPath) --yes wrangler pages deployment list --project-name $script:PagesProjectName --environment production --json 2>$null | Out-String)
+
+  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
+    return ""
+  }
+
+  try {
+    $parsed = $raw | ConvertFrom-Json
+    $deployments = if ($parsed -is [System.Array]) {
+      @($parsed)
+    } elseif ($parsed.result) {
+      @($parsed.result)
+    } else {
+      @($parsed)
+    }
+
+    foreach ($deployment in $deployments) {
+      foreach ($candidate in @(
+        $deployment.aliases,
+        $deployment.domains,
+        $deployment.'Aliases',
+        $deployment.'Domains'
+      )) {
+        $stableUrl = ConvertTo-PagesStableUrl $candidate
+        if ($stableUrl) {
+          return $stableUrl
+        }
+      }
+    }
+  } catch {
+    return ""
+  }
+
+  return ""
+}
+
+function Get-PagesPublicUrl {
+  param($Project)
+
+  # Wrangler ha expuesto estos datos con nombres distintos entre versiones.
+  # Se prioriza siempre el dominio estable *.pages.dev del proyecto.
+  foreach ($candidate in @(
+    $Project.subdomain,
+    $Project.domains,
+    $Project.project_domains,
+    $Project.'Project Domains',
+    $Project.'Project Domain'
+  )) {
+    $stableUrl = ConvertTo-PagesStableUrl $candidate
+    if ($stableUrl) {
+      return $stableUrl
+    }
+  }
+
+  # Si el listado del proyecto omite dominios, un deployment de producción
+  # puede exponer el alias estable dentro de aliases/domains.
+  $deploymentUrl = Get-PagesStableUrlFromDeployments
+  if ($deploymentUrl) {
+    return $deploymentUrl
+  }
+
+  $properties = @($Project.PSObject.Properties.Name) -join ", "
+  throw "Cloudflare Pages no devolvió un dominio estable *.pages.dev. Campos recibidos: $properties"
+}
+
+function Assert-PagesPublicUrlMatchesProject {
+  param([string]$PagesUrl)
+
+  if (-not $PagesUrl) {
+    throw "Cloudflare Pages no devolvió una URL pública para validar."
+  }
+
+  $pagesUri = [Uri]$PagesUrl
+  $expectedHost = ("$($script:PagesProjectName).pages.dev").ToLowerInvariant()
+  $actualPagesHost = $pagesUri.Host.ToLowerInvariant()
+
+  if ($actualPagesHost -ne $expectedHost) {
+    throw "Cloudflare asignó '$actualPagesHost' al proyecto '$script:PagesProjectName', no '$expectedHost'. El corte se detiene para no conservar un sufijo aleatorio. Prueba otro nombre, por ejemplo hopper-send o hopper-relay."
+  }
+}
+
+function Get-CurrentWorkerVersionId {
+  if (-not $script:WorkerName) {
+    return ""
+  }
+
+  $raw = (& (Resolve-NpxCliPath) --yes wrangler versions list --name $script:WorkerName --json 2>$null | Out-String)
+  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
+    return ""
+  }
+
+  try {
+    $parsed = $raw | ConvertFrom-Json
+    $versions = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
+    $latest = $versions | Select-Object -First 1
+    return [string]$latest.id
+  } catch {
+    return ""
+  }
+}
+
+function Get-CurrentPagesDeploymentId {
+  $raw = (& (Resolve-NpxCliPath) --yes wrangler pages deployment list --project-name $script:PagesProjectName --json 2>$null | Out-String)
+  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
+    return ""
+  }
+
+  try {
+    $parsed = $raw | ConvertFrom-Json
+    $deployments = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
+    $production = $deployments | Where-Object { -not $_.environment -or $_.environment -eq "production" } | Select-Object -First 1
+    return [string]$production.id
+  } catch {
+    return ""
+  }
+}
+
+function Save-Phase5Rollback {
+  if (Test-Path -LiteralPath $rollbackPath) {
+    try {
+      $existing = Get-Content $rollbackPath -Raw | ConvertFrom-Json
+
+      if ($existing -and -not [bool]$existing.cutoverComplete) {
+        $legacyUrl = [string]$existing.legacyPublicAppUrl
+        if (-not $legacyUrl) {
+          $legacyUrl = $script:LegacyPublicAppUrl
+        }
+
+        if ($legacyUrl) {
+          $legacyUri = [Uri]$legacyUrl
+          $payload = [ordered]@{
+            createdAt = [string]$existing.createdAt
+            workerVersionId = [string]$existing.workerVersionId
+            pagesDeploymentId = [string]$existing.pagesDeploymentId
+            pagesProjectName = if ($existing.pagesProjectName) { [string]$existing.pagesProjectName } else { $script:PagesProjectName }
+            publicAppUrl = $legacyUri.AbsoluteUri.TrimEnd("/") + "/"
+            allowedOrigin = $legacyUri.GetLeftPart([UriPartial]::Authority)
+            legacyPublicAppUrl = $legacyUri.AbsoluteUri.TrimEnd("/") + "/"
+            cleanFrontendUrls = $false
+            cutoverComplete = $false
+            legacyRedirectVerified = $false
+          }
+
+          Write-Utf8NoBom -Path $rollbackPath -Content ($payload | ConvertTo-Json)
+        }
+
+        Write-Host "Snapshot de rollback existente conservado: $rollbackPath"
+        return
+      }
+    } catch {
+      Write-Warning "El snapshot de rollback existente no pudo validarse; se creará uno nuevo."
+    }
+  }
+
+  $payload = [ordered]@{
+    createdAt = (Get-Date).ToUniversalTime().ToString("o")
+    workerVersionId = Get-CurrentWorkerVersionId
+    pagesDeploymentId = Get-CurrentPagesDeploymentId
+    pagesProjectName = $script:PagesProjectName
+    publicAppUrl = $script:PublicAppUrl
+    allowedOrigin = $script:AllowedOrigin
+    legacyPublicAppUrl = $script:LegacyPublicAppUrl
+    cleanFrontendUrls = $script:CleanFrontendUrls
+    cutoverComplete = $script:CutoverComplete
+    legacyRedirectVerified = $script:LegacyRedirectVerified
+  }
+
+  Write-Utf8NoBom -Path $rollbackPath -Content ($payload | ConvertTo-Json)
+  Write-Host "Snapshot de rollback: $rollbackPath"
+}
+
+function Deploy-Pages {
+  Invoke-ExternalCommand "Build final" { npm run build }
+
+  $result = Invoke-WranglerProcess -Arguments @(
+    "pages", "deploy", "dist",
+    "--project-name", $script:PagesProjectName,
+    "--branch", $script:ProductionBranch,
+    "--commit-dirty=true"
+  )
+  $result.Output | ForEach-Object { Write-Host $_ }
+
+  if ($result.ExitCode -ne 0) {
+    throw "Cloudflare Pages no pudo desplegar el frontend."
+  }
+}
+
+function Verify-Production {
+  if (-not $script:PublicAppUrl -or -not $script:WorkerUrl) {
+    throw "No hay URLs de producción suficientes para verificar."
+  }
+
+  $env:HOPPER_PUBLIC_APP_URL = $script:PublicAppUrl
+  $env:HOPPER_WORKER_URL = $script:WorkerUrl
+
+  try {
+    Invoke-ExternalCommand "Verificación HTTP de producción" { node scripts/verify-production.mjs }
+  } finally {
+    Remove-Item Env:\HOPPER_PUBLIC_APP_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:\HOPPER_WORKER_URL -ErrorAction SilentlyContinue
+  }
+}
+
+function Resolve-GitHubCliPath {
+  if ($script:GitHubCliPath -and (Test-Path -LiteralPath $script:GitHubCliPath)) {
+    return $script:GitHubCliPath
+  }
+
+  $command = Get-Command gh -ErrorAction SilentlyContinue
+  if ($command) {
+    $resolved = if ($command.Path) { [string]$command.Path } else { [string]$command.Source }
+    if ($resolved -and (Test-Path -LiteralPath $resolved)) {
+      $script:GitHubCliPath = $resolved
+      return $script:GitHubCliPath
+    }
+  }
+
+  $candidates = @()
+  if ($env:ProgramFiles) {
+    $candidates += Join-Path $env:ProgramFiles "GitHub CLI\gh.exe"
+  }
+  if (${env:ProgramFiles(x86)}) {
+    $candidates += Join-Path ${env:ProgramFiles(x86)} "GitHub CLI\gh.exe"
+  }
+  if ($env:LOCALAPPDATA) {
+    $candidates += Join-Path $env:LOCALAPPDATA "Programs\GitHub CLI\gh.exe"
+  }
+
+  foreach ($candidate in $candidates) {
+    if (Test-Path -LiteralPath $candidate) {
+      $script:GitHubCliPath = [string]$candidate
+      return $script:GitHubCliPath
+    }
+  }
+
+  if ($env:LOCALAPPDATA) {
+    $wingetPackages = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    if (Test-Path -LiteralPath $wingetPackages) {
+      $wingetGh = Get-ChildItem $wingetPackages -Filter gh.exe -File -Recurse -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
+
+      if ($wingetGh) {
+        $script:GitHubCliPath = [string]$wingetGh
+        return $script:GitHubCliPath
+      }
+    }
+  }
+
+  throw "Falta GitHub CLI (gh). Instálalo y ejecuta 'gh auth login' antes del corte."
+}
+
+function Ensure-GitHubCli {
+  $gh = Resolve-GitHubCliPath
+
+  & $gh auth status *> $null
+  if ($LASTEXITCODE -ne 0) {
+    throw "GitHub CLI no está autenticado. Ejecuta 'gh auth login'."
+  }
+}
+
+function Get-GitHubRepository {
+  Ensure-GitHubCli
+  $repo = (& $script:GitHubCliPath repo view --json nameWithOwner --jq ".nameWithOwner" 2>$null | Out-String).Trim()
+
+  if ($LASTEXITCODE -ne 0 -or -not $repo) {
+    throw "No fue posible resolver el repositorio GitHub actual."
+  }
+
+  return $repo
+}
+
+function Configure-GitHubActions {
+  $repo = Get-GitHubRepository
+  $accountId = [string]$env:CLOUDFLARE_ACCOUNT_ID
+
+  if (-not $accountId) {
+    $accountId = (Read-Host "Cloudflare Account ID para GitHub Actions").Trim()
+  }
+
+  if (-not $accountId) {
+    throw "Cloudflare Account ID es obligatorio."
+  }
+
+  $apiToken = [string]$env:CLOUDFLARE_API_TOKEN
+
+  if (-not $apiToken) {
+    Write-Host "El token de CI/CD debe permitir Pages Edit/Write, Workers Scripts Edit/Write y D1 Edit/Write en esta cuenta."
+    $apiToken = Read-SecretText "Cloudflare API Token para GitHub Actions"
+  }
+
+  if (-not $apiToken) {
+    throw "Cloudflare API Token es obligatorio."
+  }
+
+  $accountId | & $script:GitHubCliPath secret set CLOUDFLARE_ACCOUNT_ID --repo $repo
+  if ($LASTEXITCODE -ne 0) {
+    throw "No fue posible guardar CLOUDFLARE_ACCOUNT_ID en GitHub."
+  }
+
+  try {
+    $apiToken | & $script:GitHubCliPath secret set CLOUDFLARE_API_TOKEN --repo $repo
+    if ($LASTEXITCODE -ne 0) {
+      throw "No fue posible guardar CLOUDFLARE_API_TOKEN en GitHub."
+    }
+  } finally {
+    $apiToken = $null
+  }
+
+  Write-Host "Secrets de GitHub Actions configurados para $repo."
+}
+
+function Enable-GitHubPagesWorkflow {
+  $repo = Get-GitHubRepository
+
+  & $script:GitHubCliPath api --method PUT "repos/$repo/pages" -f build_type=workflow *> $null
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "No fue posible cambiar GitHub Pages a GitHub Actions."
+  }
+
+  Write-Host "GitHub Pages quedó configurado para publicar mediante GitHub Actions."
+}
+
+function Test-LegacyRedirect {
+  if (-not $script:LegacyPublicAppUrl) {
+    throw "No existe una URL legacy configurada."
+  }
+
+  try {
+    $response = Invoke-WebRequest -Uri $script:LegacyPublicAppUrl -UseBasicParsing
+  } catch {
+    throw "No fue posible consultar la URL antigua de GitHub Pages."
+  }
+
+  $content = [string]$response.Content
+  $target = $script:PublicAppUrl.TrimEnd("/")
+
+  if ($content -notmatch [regex]::Escape($target)) {
+    throw "GitHub Pages todavía no publica el redirect hacia Cloudflare Pages."
+  }
+}
+
+function Invoke-Phase5Cutover {
+  Write-Host ""
+  Write-Host "FASE 5 - corte a Cloudflare Pages + Worker TypeScript"
+  Write-Host "No se eliminará el frontend legacy hasta verificar producción."
+  Write-Host ""
+
+  Ensure-GitHubCli
+  [void](Get-GitHubRepository)
+  Remove-Phase5TransitionalArtifacts
+  Invoke-FullValidation
+  $project = Ensure-PagesProject
+  Save-Phase5Rollback
+
+  if (-not $script:LegacyPublicAppUrl) {
+    $script:LegacyPublicAppUrl = $script:PublicAppUrl
+  }
+
+  $legacyOrigin = if ($script:LegacyPublicAppUrl) {
+    ([Uri]$script:LegacyPublicAppUrl).GetLeftPart([UriPartial]::Authority)
   } else {
-    & npm install --no-audit --no-fund
+    ""
   }
 
-  if ($LASTEXITCODE -ne 0) {
-    throw "La instalación de dependencias terminó con código $LASTEXITCODE."
+  $pagesUrl = Get-PagesPublicUrl $project
+  Assert-PagesPublicUrlMatchesProject -PagesUrl $pagesUrl
+  $pagesUri = [Uri]$pagesUrl
+  $script:PublicAppUrl = $pagesUri.AbsoluteUri.TrimEnd("/") + "/"
+  $script:AllowedOrigin = $pagesUri.GetLeftPart([UriPartial]::Authority)
+  $script:CleanFrontendUrls = $true
+  $script:CutoverComplete = $false
+  $script:LegacyRedirectVerified = $false
+
+  Save-Config
+  Write-ProductionConfig
+
+  try {
+    Deploy-Pages
+    Deploy-Worker -AdditionalAllowedOrigins @($legacyOrigin)
+    Configure-B2Cors -AdditionalAllowedOrigins @($legacyOrigin)
+    Verify-Production
+  } catch {
+    Write-Warning "El corte no superó la verificación. El snapshot de rollback se conserva."
+    throw
   }
 
-  & npm run lint
-  if ($LASTEXITCODE -ne 0) {
-    throw "ESLint terminó con código $LASTEXITCODE."
+  Write-Host ""
+  Write-Host "Cloudflare Pages y Worker están operativos en:"
+  Write-Host $script:PublicAppUrl
+  Write-Host ""
+  Write-Host "Verificación manual obligatoria antes de aprobar el corte:"
+  Write-Host "  - login con PIN y reautenticación"
+  Write-Host "  - texto: crear, descargar/copiar y eliminar"
+  Write-Host "  - archivo real, incluida una subida grande dentro del límite configurado"
+  Write-Host "  - sala: crear, entrar desde otra sesión, transferir y cerrar"
+  Write-Host "  - Administración y cambio de PIN"
+  Write-Host "  - recuperación por correo"
+  Write-Host "  - instalar/actualizar PWA y Share Target"
+  Write-Host ""
+
+  try {
+    Start-Process $script:PublicAppUrl
+  } catch {
+    Write-Host "Abre manualmente: $script:PublicAppUrl"
   }
 
-  & npm run typecheck
-  if ($LASTEXITCODE -ne 0) {
-    throw "TypeScript terminó con código $LASTEXITCODE."
+  $approval = (Read-Host "Si todo lo anterior funciona, escribe APROBAR").Trim()
+
+  if ($approval -cne "APROBAR") {
+    Write-Warning "No se marcó el corte como aprobado. Puedes ejecutar -Action rollback."
+    return
   }
 
-  & npm run test
-  if ($LASTEXITCODE -ne 0) {
-    throw "Vitest terminó con código $LASTEXITCODE."
+  Configure-GitHubActions
+  Enable-GitHubPagesWorkflow
+
+  $script:CutoverComplete = $true
+  Save-Config
+  Write-ProductionConfig
+  Update-ReadmePublicUrl
+
+  Write-Host ""
+  Write-Host "Corte principal aprobado."
+  Write-Host "Ahora ejecuta -Action cleanup-refactor, revisa git diff, commit/push y espera los Actions."
+  Write-Host "Después ejecuta -Action finalize para verificar el redirect antiguo y retirar su CORS."
+}
+
+function Invoke-Phase5Finalize {
+  if (-not $script:CutoverComplete) {
+    throw "El corte principal todavía no está aprobado."
   }
 
-  & npm run test:legacy
-  if ($LASTEXITCODE -ne 0) {
-    throw "Los tests existentes terminaron con código $LASTEXITCODE."
+  Verify-Production
+  Test-LegacyRedirect
+
+  Deploy-Worker -SkipSchema
+  Configure-B2Cors
+  Verify-Production
+
+  $script:LegacyRedirectVerified = $true
+  Save-Config
+  Write-ProductionConfig
+
+  Write-Host ""
+  Write-Host "FASE 5 FINALIZADA: producción Cloudflare y redirect legacy verificados."
+}
+
+function Invoke-Phase5Rollback {
+  if (-not (Test-Path $rollbackPath)) {
+    throw "No existe $rollbackPath."
   }
 
-  & npm run test:integration
-  if ($LASTEXITCODE -ne 0) {
-    throw "Los tests de integración terminaron con código $LASTEXITCODE."
+  $rollback = Get-Content $rollbackPath -Raw | ConvertFrom-Json
+
+  if ($rollback.workerVersionId) {
+    Write-Host "Restaurando Worker a la versión $($rollback.workerVersionId)..."
+    & (Resolve-NpxCliPath) --yes wrangler rollback ([string]$rollback.workerVersionId) --name $script:WorkerName --message "Rollback Fase 5"
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Wrangler no pudo restaurar automáticamente el Worker."
+    }
   }
 
-  & npm run build
-  if ($LASTEXITCODE -ne 0) {
-    throw "El build terminó con código $LASTEXITCODE."
+  $script:PublicAppUrl = [string]$rollback.publicAppUrl
+  $script:AllowedOrigin = [string]$rollback.allowedOrigin
+  $script:LegacyPublicAppUrl = [string]$rollback.legacyPublicAppUrl
+  $script:CleanFrontendUrls = [bool]$rollback.cleanFrontendUrls
+  $script:CutoverComplete = [bool]$rollback.cutoverComplete
+  $script:LegacyRedirectVerified = [bool]$rollback.legacyRedirectVerified
+
+  Save-Config
+  Write-ProductionConfig
+  Sync-WorkerConfig
+
+  if ($rollback.pagesDeploymentId) {
+    Write-Warning "Pages puede restaurarse al deployment $($rollback.pagesDeploymentId) desde Cloudflare Pages > Deployments > Rollback."
   }
 
-  Write-Host "Desplegando únicamente la rama de preview phase-3..."
-  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-3
-  Write-Host "Preview desplegado. La URL pública actual, el Worker, D1 y B2 no fueron modificados."
+  Write-Host "Configuración local de Fase 5 restaurada."
+}
+
+function Remove-RefactorLegacy {
+  if (-not $script:CutoverComplete) {
+    throw "El frontend Cloudflare todavía no está aprobado. No se eliminará el legado."
+  }
+
+  $approval = (Read-Host "Escribe ELIMINAR para retirar los archivos sustituidos por el refactor").Trim()
+  if ($approval -cne "ELIMINAR") {
+    Write-Host "Limpieza cancelada."
+    return
+  }
+
+  $obsolete = @(
+    "admin.html",
+    "recover.html",
+    "room.html",
+    "share-target.html",
+    "service-worker.js",
+    "manifest.webmanifest",
+    "css",
+    "js",
+    "modern",
+    "public\assets",
+    "scripts\serve-legacy.mjs",
+    ".github\workflows\preview-frontend.yml",
+    "tests\e2e\phase-three-pwa.spec.ts",
+    "tests\e2e\visual-regression.spec.ts",
+    "tests\unit\layout-parity.test.tsx",
+    "tests\unit\style-freeze.test.ts",
+    ".wrangler",
+    "test-results"
+  )
+
+  foreach ($relative in $obsolete) {
+    $path = Join-Path $PSScriptRoot $relative
+    if (Test-Path -LiteralPath $path) {
+      Remove-Item -LiteralPath $path -Recurse -Force
+      Write-Host "Eliminado: $relative"
+    }
+  }
+
+  Invoke-ExternalCommand "Validación post-limpieza" { node scripts/phase5-check.mjs --post-cleanup }
+  Write-Host "Limpieza del refactor completada."
 }
 
 function Invoke-GuidedSetup {
   Write-Host ""
   Write-Host "Hopper - configuración inicial"
-  Write-Host "Necesitas Cloudflare Workers/D1 en Free, un bucket privado de Backblaze B2 sin método de pago y una API key de Resend Free."
-  Write-Host "No añadas una tarjeta ni un método de pago para configurar Hopper."
+  Write-Host "Configura el Worker, D1, B2 y Resend. El frontend final se corta con la acción 'cutover'."
   Write-Host ""
 
   Select-Database
@@ -1146,14 +1828,14 @@ function Invoke-GuidedSetup {
   Configure-RecoveryEmail
   Set-NewPin
   Configure-B2Cors
-  Write-FrontendConfig
+  Save-Config
+  Write-ProductionConfig
   Show-Status
 
   Write-Host ""
-  Write-Host "Configuración terminada."
+  Write-Host "Configuración base terminada."
   Write-Host "Worker: $script:WorkerUrl"
   Write-Host "Backblaze B2: $script:B2BucketName"
-  Write-Host "Frontend enlazado en: js/config.js"
 }
 
 function Invoke-Action {
@@ -1163,28 +1845,32 @@ function Invoke-Action {
     "setup" { Invoke-GuidedSetup }
     "init" { Initialize-Schema }
     "deploy" { Deploy-Worker }
+    "pages" { Ensure-PagesProject | Out-Null; Deploy-Pages }
+    "cutover" { Invoke-Phase5Cutover }
+    "finalize" { Invoke-Phase5Finalize }
+    "verify" { Verify-Production }
+    "rollback" { Invoke-Phase5Rollback }
+    "cleanup-refactor" { Remove-RefactorLegacy }
+    "github" { Configure-GitHubActions }
     "status" { Show-Status }
-    "lock" { Initialize-Schema; Set-ManualLock }
-    "unlock" { Initialize-Schema; Set-ManualUnlock }
+    "lock" { Set-ManualLock }
+    "unlock" { Set-ManualUnlock }
     "change-pin" { Set-NewPin }
-    "block" { Initialize-Schema; Add-BlockedClient }
-    "unblock" { Initialize-Schema; Remove-BlockedClient }
-    "events" { Initialize-Schema; Show-Events }
+    "block" { Add-BlockedClient }
+    "unblock" { Remove-BlockedClient }
+    "events" { Show-Events }
     "email" { Configure-RecoveryEmail }
     "b2" { Configure-B2Secrets; Test-B2WorkerAccess }
     "cors" { Configure-B2Cors }
     "cleanup" { Invoke-Cleanup }
     "url" { Update-PublicUrl }
-    "pages-preview" { Invoke-PagesPreview }
-    "phase3-preview-cors" { Set-Phase3PreviewCors $true }
-    "phase3-preview-cors-reset" { Set-Phase3PreviewCors $false }
   }
 }
 
 Ensure-CloudflareLogin
 Load-Config
 
-if ($Action -notin @("pages-preview", "phase3-preview-cors", "phase3-preview-cors-reset")) {
+if (-not $script:DatabaseName) {
   Select-Database
 }
 
@@ -1199,24 +1885,29 @@ do {
   Write-Host "D1: $script:DatabaseName"
   if ($script:B2BucketName) { Write-Host "B2: $script:B2BucketName" }
   if ($script:WorkerUrl) { Write-Host "Worker: $script:WorkerUrl" }
+  if ($script:PublicAppUrl) { Write-Host "Frontend: $script:PublicAppUrl" }
   Write-Host "[1] Configuración inicial guiada"
   Write-Host "[2] Aplicar migraciones D1"
   Write-Host "[3] Desplegar Worker"
-  Write-Host "[4] Ver estado"
-  Write-Host "[5] Cambiar PIN"
-  Write-Host "[6] Bloquear Hopper"
-  Write-Host "[7] Desbloquear Hopper"
-  Write-Host "[8] Bloquear IP o red"
-  Write-Host "[9] Desbloquear IP o red"
-  Write-Host "[10] Ver eventos de seguridad"
-  Write-Host "[11] Configurar correo de recuperación"
-  Write-Host "[12] Configurar credenciales de Backblaze B2"
-  Write-Host "[13] Configurar CORS de Backblaze B2"
-  Write-Host "[14] Ejecutar limpieza ahora"
-  Write-Host "[15] Cambiar URL pública"
-  Write-Host "[16] Crear o desplegar preview de Cloudflare Pages"
-  Write-Host "[17] Habilitar CORS para preview de Fase 3"
-  Write-Host "[18] Retirar CORS del preview de Fase 3"
+  Write-Host "[4] Desplegar Cloudflare Pages"
+  Write-Host "[5] Ejecutar corte completo Fase 5"
+  Write-Host "[6] Finalizar Fase 5 tras publicar redirect GitHub"
+  Write-Host "[7] Verificar producción"
+  Write-Host "[8] Rollback Fase 5"
+  Write-Host "[9] Eliminar archivos sustituidos por el refactor"
+  Write-Host "[10] Configurar secrets de GitHub Actions"
+  Write-Host "[11] Ver estado"
+  Write-Host "[12] Cambiar PIN"
+  Write-Host "[13] Bloquear Hopper"
+  Write-Host "[14] Desbloquear Hopper"
+  Write-Host "[15] Bloquear IP o red"
+  Write-Host "[16] Desbloquear IP o red"
+  Write-Host "[17] Ver eventos de seguridad"
+  Write-Host "[18] Configurar correo de recuperación"
+  Write-Host "[19] Configurar credenciales de Backblaze B2"
+  Write-Host "[20] Configurar CORS de Backblaze B2"
+  Write-Host "[21] Ejecutar limpieza temporal ahora"
+  Write-Host "[22] Cambiar URL pública manualmente"
   Write-Host "[0] Salir"
 
   $choice = Read-Host "Opción"
@@ -1225,21 +1916,25 @@ do {
     "1" { Invoke-Action "setup" }
     "2" { Invoke-Action "init" }
     "3" { Invoke-Action "deploy" }
-    "4" { Invoke-Action "status" }
-    "5" { Invoke-Action "change-pin" }
-    "6" { Invoke-Action "lock" }
-    "7" { Invoke-Action "unlock" }
-    "8" { Invoke-Action "block" }
-    "9" { Invoke-Action "unblock" }
-    "10" { Invoke-Action "events" }
-    "11" { Invoke-Action "email" }
-    "12" { Invoke-Action "b2" }
-    "13" { Invoke-Action "cors" }
-    "14" { Invoke-Action "cleanup" }
-    "15" { Invoke-Action "url" }
-    "16" { Invoke-Action "pages-preview" }
-    "17" { Invoke-Action "phase3-preview-cors" }
-    "18" { Invoke-Action "phase3-preview-cors-reset" }
+    "4" { Invoke-Action "pages" }
+    "5" { Invoke-Action "cutover" }
+    "6" { Invoke-Action "finalize" }
+    "7" { Invoke-Action "verify" }
+    "8" { Invoke-Action "rollback" }
+    "9" { Invoke-Action "cleanup-refactor" }
+    "10" { Invoke-Action "github" }
+    "11" { Invoke-Action "status" }
+    "12" { Invoke-Action "change-pin" }
+    "13" { Invoke-Action "lock" }
+    "14" { Invoke-Action "unlock" }
+    "15" { Invoke-Action "block" }
+    "16" { Invoke-Action "unblock" }
+    "17" { Invoke-Action "events" }
+    "18" { Invoke-Action "email" }
+    "19" { Invoke-Action "b2" }
+    "20" { Invoke-Action "cors" }
+    "21" { Invoke-Action "cleanup" }
+    "22" { Invoke-Action "url" }
     "0" { return }
     default { Write-Host "Opción inválida." }
   }

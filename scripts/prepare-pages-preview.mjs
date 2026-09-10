@@ -2,19 +2,29 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const distDir = resolve("dist");
-const modernDir = resolve(distDir, "modern");
+const productionConfigPath = resolve("config", "production.json");
+const productionConfig = JSON.parse((await readFile(productionConfigPath, "utf8")).replace(/^\uFEFF/, ""));
 
-await cp(resolve(modernDir, "index.html"), resolve(distDir, "index.html"));
+function originOf(value, label) {
+  try {
+    return new URL(String(value || "")).origin;
+  } catch {
+    throw new Error(`${label} no contiene una URL válida.`);
+  }
+}
+
+const workerOrigin = originOf(productionConfig.workerBaseUrl, "workerBaseUrl");
+const b2Origin = originOf(productionConfig.b2Endpoint, "b2Endpoint");
+
 await mkdir(resolve(distDir, "assets"), { recursive: true });
 await cp(resolve("assets"), resolve(distDir, "assets"), { recursive: true, force: true });
 
-const configSource = await readFile(resolve("js", "config.js"), "utf8");
-const workerMatch = configSource.match(/workerBaseUrl\s*:\s*"([^"]*)"/);
-const workerUrl = workerMatch?.[1]?.trim() || "";
-const workerOrigin = workerUrl ? new URL(workerUrl).origin : "";
 const headersPath = resolve(distDir, "_headers");
 let headers = await readFile(headersPath, "utf8");
-if (workerOrigin) headers = headers.replace("connect-src 'self'", `connect-src 'self' ${workerOrigin}`);
+headers = headers
+  .replaceAll("__HOPPER_WORKER_ORIGIN__", workerOrigin)
+  .replaceAll("__HOPPER_B2_ORIGIN__", b2Origin);
 await writeFile(headersPath, headers, "utf8");
 
-await rm(modernDir, { recursive: true, force: true });
+// Elimina residuos de builds de la estructura temporal usada durante Fase 3.
+await rm(resolve(distDir, "modern"), { recursive: true, force: true });

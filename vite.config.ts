@@ -4,26 +4,28 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-function configuredValue(source: string, key: string) {
-  const stringMatch = source.match(new RegExp(`${key}\\s*:\\s*"([^"]*)"`));
-  if (stringMatch) return stringMatch[1] ?? "";
-  const numberMatch = source.match(new RegExp(`${key}\\s*:\\s*(\\d+)`));
-  return Number(numberMatch?.[1] ?? 0);
-}
+type ProductionConfig = {
+  workerBaseUrl: string;
+  publicAppUrl: string;
+  b2Endpoint: string;
+};
 
-function readAppConfig() {
-  const source = readFileSync(resolve(import.meta.dirname, "js/config.js"), "utf8");
+function readProductionConfig(): ProductionConfig {
+  const path = resolve(import.meta.dirname, "config/production.json");
+  const source = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Partial<ProductionConfig>;
+
+  if (!source.workerBaseUrl || !source.publicAppUrl || !source.b2Endpoint) {
+    throw new Error("config/production.json no contiene la configuración mínima de Hopper.");
+  }
+
   return {
-    workerBaseUrl: String(configuredValue(source, "workerBaseUrl")),
-    publicAppUrl: String(configuredValue(source, "publicAppUrl")),
-    defaultTtlMinutes: Number(configuredValue(source, "defaultTtlMinutes")),
-    roomDefaultTtlMinutes: Number(configuredValue(source, "roomDefaultTtlMinutes")),
-    maxFileBytes: Number(configuredValue(source, "maxFileBytes")),
-    roomMaxFileBytes: Number(configuredValue(source, "roomMaxFileBytes")),
-    pollIntervalMs: Number(configuredValue(source, "pollIntervalMs")),
-    uploadConcurrency: Number(configuredValue(source, "uploadConcurrency"))
+    workerBaseUrl: String(source.workerBaseUrl),
+    publicAppUrl: String(source.publicAppUrl),
+    b2Endpoint: String(source.b2Endpoint)
   };
 }
+
+const productionConfig = readProductionConfig();
 
 export default defineConfig({
   plugins: [
@@ -64,7 +66,7 @@ export default defineConfig({
         }
       },
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,svg,ico,webmanifest}"]
+        globPatterns: ["**/*.{js,css,html,svg,ico,png,webmanifest}"]
       },
       devOptions: {
         enabled: true,
@@ -73,13 +75,15 @@ export default defineConfig({
     })
   ],
   define: {
-    __HOPPER_APP_CONFIG__: JSON.stringify(readAppConfig())
-  },
-  build: {
-    rollupOptions: {
-      input: {
-        index: resolve(import.meta.dirname, "modern/index.html")
-      }
-    }
+    __HOPPER_APP_CONFIG__: JSON.stringify({
+      workerBaseUrl: productionConfig.workerBaseUrl,
+      publicAppUrl: productionConfig.publicAppUrl,
+      defaultTtlMinutes: 5,
+      roomDefaultTtlMinutes: 5,
+      maxFileBytes: 536870912,
+      roomMaxFileBytes: 104857600,
+      pollIntervalMs: 3000,
+      uploadConcurrency: 2
+    })
   }
 });

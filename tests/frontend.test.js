@@ -1,202 +1,198 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
+const readJson = (path) => JSON.parse(read(path).replace(/^\uFEFF/, ""));
 
-test("usa URLs directas de assets y conserva TTL predeterminado de 5 minutos", () => {
-  const config = read("js/config.js");
-  assert.match(config, /defaultTtlMinutes:\s*5/);
-  assert.match(config, /roomDefaultTtlMinutes:\s*5/);
-
-  const files = [
-    "index.html",
-    "room.html",
-    "admin.html",
-    "recover.html",
-    "share-target.html",
-    "service-worker.js",
-    "js/admin.js",
-    "js/api.js",
-    "js/app.js",
-    "js/recover.js",
-    "js/room.js",
-    "js/share-target.js",
-    "js/transfer-controller.js",
-    "js/config.js",
-    "hopper-admin.ps1"
-  ];
-
-  for (const file of files) {
-    assert.doesNotMatch(read(file), /\?[a-z]=20\d{6}-\d+/i, `${file} debe usar URLs directas de assets.`);
-    assert.doesNotMatch(read(file), /20\d{6}-\d+/);
-  }
-
-  const serviceWorker = read("service-worker.js");
-  assert.match(serviceWorker, /const CACHE_NAME = "hopper-shell";/);
-  assert.doesNotMatch(serviceWorker, /hopper-shell-\d/);
-  assert.match(serviceWorker, /fetch\(event\.request, \{ cache: "no-cache" \}\)/);
+test("la entrada raíz es la SPA React definitiva", () => {
+  const html = read("index.html");
+  assert.match(html, /id="root"/);
+  assert.match(html, /src="\/src\/main\.tsx"/);
+  assert.doesNotMatch(html, /js\/app\.js|css\/styles\.css/);
 });
 
-test("el generador PowerShell conserva toda la configuración moderna del frontend", () => {
+test("Vite ya no depende de js/config.js ni de modern/index.html", () => {
+  const vite = read("vite.config.ts");
+  assert.match(vite, /config\/production\.json/);
+  assert.doesNotMatch(vite, /js\/config\.js|modern\/index\.html/);
+  assert.match(vite, /action:\s*"\/share"/);
+});
+
+test("la configuración pública separa Pages, Worker y URL legacy", () => {
+  const config = readJson("config/production.json");
+  assert.equal(config.pagesProjectName, "hopper-transfer");
+  assert.equal(config.productionBranch, "main");
+  assert.match(config.workerBaseUrl, /^https:\/\/.+\.workers\.dev$/);
+  assert.match(config.publicAppUrl, /^https:\/\//);
+  assert.match(config.legacyPublicAppUrl, /^https:\/\//);
+  assert.equal(typeof config.cutoverComplete, "boolean");
+});
+
+test("Cloudflare Pages recibe headers endurecidos con orígenes explícitos", () => {
+  const headers = read("public/_headers");
+  assert.match(headers, /Content-Security-Policy:/);
+  assert.match(headers, /frame-ancestors 'none'/);
+  assert.match(headers, /X-Content-Type-Options: nosniff/);
+  assert.match(headers, /Referrer-Policy: no-referrer/);
+  assert.match(headers, /Permissions-Policy:/);
+  assert.match(headers, /__HOPPER_WORKER_ORIGIN__/);
+  assert.match(headers, /__HOPPER_B2_ORIGIN__/);
+  assert.doesNotMatch(headers, /connect-src[^\r\n]*\*/);
+});
+
+test("el Service Worker conserva rutas limpias, Share Target y fallback offline", () => {
+  const sw = read("src/sw.ts");
+  assert.match(sw, /url\.pathname === "\/share"/);
+  assert.match(sw, /event\.request\.mode === "navigate"/);
+  assert.match(sw, /hopper-share-target-v1/);
+  assert.match(sw, /\/manifest\.webmanifest/);
+});
+
+test("React mantiene compatibilidad de entrada para enlaces históricos", () => {
+  const router = read("src/app/router.tsx");
+  for (const route of ["/admin.html", "/room.html", "/recover.html", "/share-target.html"]) {
+    assert.match(router, new RegExp(route.replace(".", "\\.")));
+  }
+  assert.match(router, /Navigate replace/);
+});
+
+test("Wrangler versionado contiene D1 y migraciones formales", () => {
+  const wrangler = readJson("worker/wrangler.jsonc");
+  assert.equal(wrangler.main, "src/index.ts");
+  assert.equal(wrangler.d1_databases?.[0]?.binding, "DB");
+  assert.equal(wrangler.d1_databases?.[0]?.migrations_dir, "migrations");
+  assert.equal(wrangler.vars?.ALLOW_LOCALHOST, "false");
+});
+
+test("CI y CD están separados entre calidad, Pages, Worker y redirect legacy", () => {
+  const ci = read(".github/workflows/ci.yml");
+  const frontend = read(".github/workflows/deploy-frontend.yml");
+  const worker = read(".github/workflows/deploy-worker.yml");
+  const redirect = read(".github/workflows/legacy-github-pages-redirect.yml");
+
+  assert.match(ci, /npm --prefix worker run typecheck/);
+  assert.match(ci, /npm run test:e2e/);
+  assert.match(frontend, /pages deploy dist --project-name=hopper-transfer --branch=main/);
+  assert.match(worker, /d1 migrations apply hopper-db --remote/);
+  assert.match(worker, /workingDirectory: worker/);
+  assert.match(redirect, /actions\/deploy-pages@v4/);
+});
+
+test("el administrador incluye corte, verificación, rollback y limpieza protegida", () => {
   const script = read("hopper-admin.ps1");
-  assert.doesNotMatch(script, /defaultTtlMinutes:\s*15/);
-  assert.match(script, /publicAppUrl:\s*"\$\(\$script:PublicAppUrl\)"/);
-  assert.match(script, /defaultTtlMinutes:\s*\$script:DefaultTtlMinutes/);
-  assert.match(script, /roomDefaultTtlMinutes:\s*\$script:RoomDefaultTtlMinutes/);
-  assert.match(script, /roomMaxFileBytes:\s*\$script:RoomMaxFileBytes/);
-  assert.match(script, /uploadConcurrency:\s*\$script:UploadConcurrency/);
-  assert.match(script, /\$previewOrigins = if \(\$script:Phase3PreviewCorsEnabled\)/);
-  assert.match(script, /\$origins = @\([\s\S]*?\$previewOrigins[\s\S]*?\$AdditionalAllowedOrigins/);
-  assert.match(script, /Backblaze no confirmó todos los orígenes CORS requeridos/);
+  assert.match(script, /"cutover"/);
+  assert.match(script, /"finalize"/);
+  assert.match(script, /"rollback"/);
+  assert.match(script, /"cleanup-refactor"/);
+  assert.match(script, /Invoke-Phase5Cutover/);
+  assert.match(script, /Invoke-Phase5Finalize/);
+  assert.match(script, /Save-Phase5Rollback/);
+  assert.match(script, /ELIMINAR/);
+  assert.doesNotMatch(script, /Phase3|pages-preview|js\\config\.js/);
 });
 
-test("el manifest PWA y el shell solo referencian recursos locales existentes", () => {
-  const manifestPath = resolve(root, "manifest.webmanifest");
-  assert.equal(existsSync(manifestPath), true);
-  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  assert.equal(manifest.lang, "es");
-  assert.equal(manifest.display, "standalone");
-  assert.equal(manifest.start_url, "./");
-  assert.equal(manifest.scope, "./");
-  assert.equal(manifest.share_target?.method, "POST");
-  assert.equal(manifest.share_target?.enctype, "multipart/form-data");
-
-  for (const icon of manifest.icons || []) {
-    assert.equal(existsSync(resolve(root, icon.src)), true, `Falta ${icon.src}.`);
+test("los scripts operativos de Fase 5 existen y no incluyen secretos", () => {
+  for (const path of [
+    "scripts/phase5-check.mjs",
+    "scripts/verify-production.mjs",
+    "scripts/build-legacy-redirect.mjs"
+  ]) {
+    assert.equal(existsSync(resolve(root, path)), true, path);
   }
 
-  const shell = read("service-worker.js").match(/const SHELL = \[(.*?)\];/s)?.[1] || "";
-  const entries = [...shell.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const production = read("config/production.json");
+  assert.doesNotMatch(production, /B2_APPLICATION_KEY|B2_KEY_ID|RESEND_API_KEY|SESSION_SECRET|CLOUDFLARE_API_TOKEN/);
+});
 
-  for (const entry of entries) {
-    if (entry === "./") {
-      continue;
-    }
 
-    const relative = entry.replace(/^\.\//, "").split("?")[0];
-    assert.equal(existsSync(resolve(root, relative)), true, `Falta ${relative} en el shell PWA.`);
+test("el corte resuelve GitHub CLI sin depender del PATH y limpia solo artefactos transitorios", () => {
+  const script = read("hopper-admin.ps1");
+  assert.match(script, /function Resolve-GitHubCliPath/);
+  assert.match(script, /GitHub CLI\\gh\.exe/);
+  assert.match(script, /Remove-Phase5TransitionalArtifacts/);
+  assert.doesNotMatch(script, /& gh(?:\s|$)/);
+
+  const cleanupStart = script.indexOf("function Remove-RefactorLegacy");
+  assert.notEqual(cleanupStart, -1);
+  const cleanup = script.slice(cleanupStart);
+  assert.doesNotMatch(cleanup, /change-pin\.png/);
+  assert.doesNotMatch(cleanup, /\"playwright\.config\.ts\"/);
+});
+
+test("el administrador evita el shim npx.ps1 en todas las operaciones Wrangler", () => {
+  const script = read("hopper-admin.ps1");
+  assert.match(script, /function Resolve-NpxCliPath/);
+  assert.match(script, /npx\.cmd/);
+  assert.doesNotMatch(script, /&\s+npx(?:\s|$)/);
+  assert.match(script, /Resolve-NpxCliPath\) --yes wrangler pages project list/);
+  assert.match(script, /Resolve-NpxCliPath\) --yes wrangler versions list/);
+  assert.match(script, /function Invoke-WranglerProcess/);
+});
+
+test("warnings nativos de Wrangler no abortan el corte y Pages declara workspace dirty", () => {
+  const script = read("hopper-admin.ps1");
+  assert.match(script, /function Invoke-WranglerProcess/);
+  assert.match(script, /\$ErrorActionPreference = "Continue"/);
+  assert.match(script, /\$processExitCode = \$LASTEXITCODE/);
+  assert.match(script, /--commit-dirty=true/);
+  assert.doesNotMatch(script, /pages deploy[^\n]*2>&1/);
+  assert.doesNotMatch(script, /wrangler deploy --config wrangler\.jsonc 2>&1/);
+});
+
+test("el snapshot de rollback se conserva entre reintentos de un corte no aprobado", () => {
+  const script = read("hopper-admin.ps1");
+  const start = script.indexOf("function Save-Phase5Rollback");
+  const end = script.indexOf("function Deploy-Pages", start);
+  const rollback = script.slice(start, end);
+  assert.match(rollback, /Snapshot de rollback existente conservado/);
+  assert.match(rollback, /legacyPublicAppUrl/);
+  assert.match(rollback, /cleanFrontendUrls = \$false/);
+  assert.match(rollback, /cutoverComplete = \$false/);
+});
+
+test("Pages exige el hostname exacto del proyecto y rechaza sufijos aleatorios", () => {
+  const script = read("hopper-admin.ps1");
+  assert.match(script, /\$script:PagesProjectName = "hopper-transfer"/);
+  assert.match(script, /function Assert-PagesPublicUrlMatchesProject/);
+  assert.match(script, /\$expectedHost = \("\$\(\$script:PagesProjectName\)\.pages\.dev"\)/);
+  assert.match(script, /\$actualPagesHost -ne \$expectedHost/);
+  assert.match(script, /sufijo aleatorio/);
+  assert.match(script, /Assert-PagesPublicUrlMatchesProject -PagesUrl \$pagesUrl/);
+});
+
+test("Pages resuelve el dominio estable aunque Wrangler no exponga subdomain", () => {
+  const script = read("hopper-admin.ps1");
+  assert.match(script, /function ConvertTo-PagesStableUrl/);
+  assert.match(script, /Project Domains/);
+  assert.match(script, /project_domains/);
+  assert.match(script, /function Get-PagesStableUrlFromDeployments/);
+  assert.match(script, /pages deployment list --project-name \$script:PagesProjectName --environment production --json/);
+  assert.doesNotMatch(
+    script,
+    /function Get-PagesPublicUrl[\s\S]{0,500}throw "Cloudflare Pages no devolvió el subdominio estable del proyecto\."/,
+  );
+  assert.doesNotMatch(script, /\$host\s*=/i);
+  assert.doesNotMatch(script, /\$matches\s*=/i);
+  assert.match(script, /\$candidateHost\s*=\s*\$match\.Groups\[1\]/);
+});
+
+test("JSON de producción es tolerante a BOM y PowerShell escribe UTF-8 sin BOM", () => {
+  const vite = read("vite.config.ts");
+  const prepare = read("scripts/prepare-pages-preview.mjs");
+  const verify = read("scripts/verify-production.mjs");
+  const redirect = read("scripts/build-legacy-redirect.mjs");
+  const phase5 = read("scripts/phase5-check.mjs");
+  const admin = read("hopper-admin.ps1");
+
+  for (const source of [vite, prepare, verify, redirect, phase5]) {
+    assert.match(source, /replace\(\/\^\\uFEFF\//);
   }
-});
 
-test("la portada separa el PIN privado de las salas públicas", () => {
-  const index = read("index.html");
-  assert.doesNotMatch(index, /<nav[^>]*>[\s\S]*href="room\.html">Entrar a una sala<\/a>/);
-  assert.doesNotMatch(index, /Todo desaparece automáticamente/);
-  assert.match(index, /id="room-capacity">— \/ 2/);
-  assert.match(index, /id="public-create-room"/);
-  assert.match(index, /id="public-room-form"/);
-  assert.match(index, /<label for="pin-input">PIN ADMIN<\/label>/);
-  assert.match(index, /id="public-room-code"[^>]*pattern="\[A-Za-z\]\{2\}-\[0-9\]\{4\}"[^>]*placeholder="XX-0000"/);
-  assert.match(read("room.html"), /id="room-code-input"[^>]*placeholder="XX-0000"/);
-  assert.match(index, /href="admin\.html">Administración<\/a>/);
-  assert.match(index, /Código de la sala/);
-  assert.match(index, /id="room-created-enter"[^>]*>Entrar a la sala/);
-});
-
-
-test("la instalación PWA permanece disponible en la portada móvil", () => {
-  const index = read("index.html");
-  const styles = read("css/styles.css");
-  const app = read("js/app.js");
-  assert.match(index, /id="install-button"/);
-  assert.match(app, /beforeinstallprompt/);
-  assert.doesNotMatch(styles, /\.public-nav #install-button,\s*\.public-nav #update-button\s*\{\s*display:\s*none !important;/);
-  assert.match(styles, /@media \(max-width: 480px\)[\s\S]*?\.public-nav #update-button\s*\{\s*display:\s*none !important;/);
-});
-
-test("las salas públicas usan TTL fijo y no muestran controles para cambiarlo", () => {
-  const roomHtml = read("room.html");
-  const roomJs = read("js/room.js");
-  const constants = read("worker/src/lib/constants.ts");
-  assert.doesNotMatch(roomHtml, /id="ttl-select"/);
-  assert.match(roomJs, /defaultTtlMinutes:\s*5/);
-  assert.match(roomJs, /ttlOptions:\s*\[5\]/);
-  assert.match(roomJs, /allowTtlReset:\s*false/);
-  assert.match(constants, /ROOM_TTL_OPTIONS = Object\.freeze\(\[5\]\)/);
-  assert.match(constants, /ROOM_INACTIVITY_SECONDS = 5 \* 60/);
-});
-
-test("Share Target permite autenticarse directamente y fija 5 minutos en salas", () => {
-  const html = read("share-target.html");
-  const source = read("js/share-target.js");
-  assert.match(html, /id="share-pin-form"/);
-  assert.match(html, /id="share-room-form"/);
-  assert.match(html, /id="share-room-code"[^>]*placeholder="XX-0000"/);
-  assert.match(source, /hopperApi\.login\(pin\)/);
-  assert.match(source, /hopperApi\.joinRoom\(code\)/);
-  assert.match(source, /roomDestination \? \[5\] : \[5, 15, 30, 60, 360\]/);
-  assert.match(source, /elements\.ttlField\.hidden = elements\.destination\.options\.length === 0 \|\| roomDestination/);
-});
-
-test("la cola no muestra cero por ciento antes de enviar y usa cancelación compacta", () => {
-  const source = read("js/transfer-controller.js");
-  assert.doesNotMatch(source, /0% · Listo para enviar/);
-  assert.match(source, /label: "Listo para enviar"/);
-  assert.match(source, /className = "remove-file-button is-cancel"/);
-  assert.match(source, /progress\.hidden = !activeProgress/);
-  assert.match(source, /composerCard\?\.classList\.toggle\("is-sending", sending\)/);
-});
-
-test("Administración observa salas y añade cambio de PIN y reinicio", () => {
-  const admin = read("admin.html");
-  const adminJs = read("js/admin.js");
-  const api = read("js/api.js");
-  assert.match(admin, /<h1>Administración<\/h1>/);
-  assert.doesNotMatch(admin, /id="new-room-button"/);
-  assert.doesNotMatch(admin, /id="room-ttl"/);
-  assert.match(admin, /id="change-pin-button"/);
-  assert.match(admin, /id="reset-system-button"/);
-  assert.match(adminJs, /hopperApi\.adminOpenRoom\(room\.id\)/);
-  assert.match(adminJs, /hopperApi\.adminChangePin\(pin, confirmation\)/);
-  assert.match(adminJs, /hopperApi\.adminResetSystem\(\)/);
-  assert.match(api, /async adminOpenRoom\(roomId\)/);
-  assert.match(api, /async adminChangePin\(pin, confirmation\)/);
-  assert.match(api, /async adminResetSystem\(\)/);
-});
-
-test("la sesión de sala respeta el código del enlace y la inactividad vuelve a inicio", () => {
-  const room = read("js/room.js");
-  assert.match(room, /storedRoomSession && storedRoomCode && storedRoomCode !== normalizedHash[\s\S]*?hopperApi\.clearRoomSession\(\)/);
-  assert.match(room, /async function markRoomActivity/);
-  assert.match(room, /hopperApi\.roomActivity\(\)/);
-  assert.match(room, /function leaveToHome\(\)[\s\S]*?window\.location\.replace\("\.\/"\)/);
-});
-
-test("no conserva el módulo UI antiguo sin referencias", () => {
-  assert.equal(existsSync(resolve(root, "js/ui.js")), false);
-});
-test("la portada usa reparto 70/30 real en escritorio y conserva el apilado responsive", () => {
-  const index = read("index.html");
-  const styles = read("css/styles.css");
-  assert.match(index, /class="auth-divider"/);
-  assert.match(styles, /\.auth-layout\s*\{[\s\S]*width:\s*100%;[\s\S]*grid-template-columns:\s*minmax\(0,\s*7fr\)\s+minmax\(0,\s*3fr\)/);
-  assert.match(styles, /\.auth-divider\s*\{[\s\S]*left:\s*70%;[\s\S]*width:\s*2px/);
-  assert.match(styles, /\.room-access-panel\s*\{[\s\S]*grid-column:\s*2;[\s\S]*width:\s*min\(100%,\s*320px\);[\s\S]*justify-self:\s*center/);
-  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*\.auth-layout\s*\{[\s\S]*grid-template-columns:\s*1fr/);
-});
-
-test("la iconografía conserva la base neutra y usa verde, azul y rojo como ayudas visuales", () => {
-  const index = read("index.html");
-  const admin = read("admin.html");
-  const room = read("room.html");
-  const styles = read("css/styles.css");
-  const transfers = read("js/transfer-controller.js");
-
-  assert.match(styles, /--accent:\s*#2f6f5e/);
-  assert.match(styles, /--info:\s*#4f6f8f/);
-  assert.match(styles, /--danger:\s*#a63a3a/);
-  assert.match(styles, /--info-soft:\s*#edf3f8/);
-  assert.match(index, /id="update-button"[^>]*aria-label="Actualizar Hopper"/);
-  assert.match(room, /id="share-room-button"[^>]*aria-label="Compartir sala"/);
-  assert.match(admin, /metric-icon is-info/);
-  assert.match(admin, /metric-icon is-success/);
-  assert.match(admin, /metric-icon is-danger/);
-  assert.match(transfers, /function actionIcon\(action\)/);
-  assert.match(transfers, /button\.setAttribute\("aria-label", label\)/);
-  assert.match(transfers, /mark\.classList\.add\("is-text"\)/);
-  assert.match(transfers, /mark\.classList\.add\("is-file"\)/);
+  assert.match(admin, /function Write-Utf8NoBom/);
+  assert.match(admin, /UTF8Encoding\]::new\(\$false\)/);
+  assert.doesNotMatch(admin, /Set-Content\s+\$productionConfigPath\s+-Encoding\s+UTF8/);
+  assert.doesNotMatch(admin, /Set-Content\s+\$workerConfigPath\s+-Encoding\s+UTF8/);
 });

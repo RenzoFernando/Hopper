@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const config = {
   testDir: "./tests/e2e",
-  testIgnore: [/(?:^|[\\/])visual-regression\.spec\.ts$/, /(?:^|[\\/])phase-three-pwa\.spec\.ts$/],
+  testIgnore: [/(?:^|[\\/])pwa\.spec\.ts$/],
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,

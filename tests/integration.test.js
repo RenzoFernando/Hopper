@@ -6,7 +6,7 @@ import { createSessionToken, verifyConfiguredPin, writePinCredentials } from "..
 import { TestD1 } from "./d1-test-helper.js";
 
 const schema = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
-const origin = "https://renzofernando.github.io";
+const origin = "https://hopper.pages.dev";
 const secret = "hopper-integration-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 
 function request(path, { method = "GET", token = "", body } = {}) {

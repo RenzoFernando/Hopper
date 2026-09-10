@@ -15,11 +15,11 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 *service-account*.json
-cloudflare/.dev.vars
 worker/.dev.vars
-cloudflare/.wrangler/
 .wrangler/
 .hopper-admin.json
 .hopper-wrangler.json
 playwright-report/
 test-results/
+.hopper-phase5-rollback.json
+.phase5-github-pages/

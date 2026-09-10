@@ -1,0 +1,51 @@
+name: Legacy GitHub Pages redirect
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "config/production.json"
+      - "scripts/build-legacy-redirect.mjs"
+      - ".github/workflows/legacy-github-pages-redirect.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  redirect:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Generar redirect legacy
+        run: node scripts/build-legacy-redirect.mjs
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empaquetar redirect
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ".phase5-github-pages"
+
+      - name: Publicar redirect
+        id: deployment
+        uses: actions/deploy-pages@v4

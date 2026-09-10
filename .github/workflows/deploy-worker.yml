@@ -1,0 +1,75 @@
+name: Deploy worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "config/production.json"
+      - "worker/**"
+      - "tests/b2.test.js"
+      - "tests/d1-test-helper.js"
+      - "tests/evolution.test.js"
+      - "tests/integration.test.js"
+      - "tests/items.test.js"
+      - "tests/schema.test.js"
+      - "tests/security.test.js"
+      - ".github/workflows/deploy-worker.yml"
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-worker-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: cloudflare-worker
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Exigir corte aprobado
+        run: |
+          node -e "const c=require('./config/production.json'); if(!c.cutoverComplete) { console.error('Fase 5 todavía no está aprobada para producción.'); process.exit(1); }"
+
+      - name: Dependencias raíz
+        run: npm ci
+
+      - name: Dependencias Worker
+        run: |
+          if [ -f worker/package-lock.json ]; then
+            npm ci --prefix worker
+          else
+            npm install --prefix worker --no-audit --no-fund
+          fi
+
+      - name: Validar Worker
+        run: |
+          npm --prefix worker run typecheck
+          npm --prefix worker test
+          npm run test:legacy
+          npm run test:integration
+
+      - name: Migrar y desplegar Worker
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          preCommands: wrangler d1 migrations apply hopper-db --remote --config wrangler.jsonc
+          command: deploy --config wrangler.jsonc

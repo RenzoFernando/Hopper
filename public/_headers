@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.backblazeb2.com; media-src 'self' blob: https://*.backblazeb2.com; connect-src 'self' https://*.backblazeb2.com; worker-src 'self'; manifest-src 'self'
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __HOPPER_B2_ORIGIN__; media-src 'self' blob: __HOPPER_B2_ORIGIN__; connect-src 'self' __HOPPER_WORKER_ORIGIN__ __HOPPER_B2_ORIGIN__; font-src 'self'; worker-src 'self'; manifest-src 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), geolocation=(), microphone=(), payment=(), usb=()

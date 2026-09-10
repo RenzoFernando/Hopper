@@ -1,0 +1,11 @@
+{
+    "pagesProjectName":  "hopper-transfer",
+    "productionBranch":  "main",
+    "workerName":  "hopper-api",
+    "workerBaseUrl":  "https://hopper-api.renzofernando.workers.dev",
+    "publicAppUrl":  "https://hopper-transfer.pages.dev/",
+    "legacyPublicAppUrl":  "https://renzofernando.github.io/Hopper/",
+    "b2Endpoint":  "https://s3.us-east-005.backblazeb2.com",
+    "cutoverComplete":  true,
+    "legacyRedirectVerified":  false
+}
