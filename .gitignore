@@ -20,3 +20,5 @@ cloudflare/.wrangler/
 .wrangler/
 .hopper-admin.json
 .hopper-wrangler.json
+playwright-report/
+test-results/

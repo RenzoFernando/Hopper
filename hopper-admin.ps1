@@ -1,5 +1,5 @@
-param(
-  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url")]
+﻿param(
+  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url", "pages-preview")]
   [string]$Action = "menu"
 )
 
@@ -905,6 +905,64 @@ function Update-PublicUrl {
   Configure-B2Cors
 }
 
+function Invoke-PagesPreview {
+  if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+    throw "No se encontró npm. Instala Node.js antes de preparar el preview."
+  }
+
+  $projectName = "hopper-preview"
+  $raw = (& npx --yes wrangler pages project list --json 2>$null | Out-String)
+
+  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
+    throw "No fue posible consultar los proyectos de Cloudflare Pages."
+  }
+
+  $parsed = $raw | ConvertFrom-Json
+  $projects = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
+  $existing = @($projects | Where-Object { $_.name -eq $projectName -or $_.project_name -eq $projectName -or $_.'Project Name' -eq $projectName })
+
+  if ($existing.Count -eq 0) {
+    Write-Host "Creando proyecto Direct Upload de Cloudflare Pages: $projectName"
+    Invoke-Wrangler pages project create $projectName --production-branch main
+  }
+
+  Write-Host "Validando y compilando el preview moderno..."
+  $lockPath = Join-Path $PSScriptRoot "package-lock.json"
+  if (Test-Path $lockPath) {
+    & npm ci
+  } else {
+    & npm install --no-audit --no-fund
+  }
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "La instalación de dependencias terminó con código $LASTEXITCODE."
+  }
+
+  & npm run lint
+  if ($LASTEXITCODE -ne 0) {
+    throw "ESLint terminó con código $LASTEXITCODE."
+  }
+
+  & npm run typecheck
+  if ($LASTEXITCODE -ne 0) {
+    throw "TypeScript terminó con código $LASTEXITCODE."
+  }
+
+  & npm run test
+  if ($LASTEXITCODE -ne 0) {
+    throw "Vitest terminó con código $LASTEXITCODE."
+  }
+
+  & npm run build
+  if ($LASTEXITCODE -ne 0) {
+    throw "El build terminó con código $LASTEXITCODE."
+  }
+
+  Write-Host "Desplegando únicamente la rama de preview phase-1..."
+  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-1
+  Write-Host "Preview desplegado. La URL pública actual, el Worker, D1 y B2 no fueron modificados."
+}
+
 function Invoke-GuidedSetup {
   Write-Host ""
   Write-Host "Hopper - configuración inicial"
@@ -951,12 +1009,16 @@ function Invoke-Action {
     "cors" { Configure-B2Cors }
     "cleanup" { Invoke-Cleanup }
     "url" { Update-PublicUrl }
+    "pages-preview" { Invoke-PagesPreview }
   }
 }
 
 Ensure-CloudflareLogin
 Load-Config
-Select-Database
+
+if ($Action -ne "pages-preview") {
+  Select-Database
+}
 
 if ($Action -ne "menu") {
   Invoke-Action $Action
@@ -984,6 +1046,7 @@ do {
   Write-Host "[13] Configurar CORS de Backblaze B2"
   Write-Host "[14] Ejecutar limpieza ahora"
   Write-Host "[15] Cambiar URL pública"
+  Write-Host "[16] Crear o desplegar preview de Cloudflare Pages"
   Write-Host "[0] Salir"
 
   $choice = Read-Host "Opción"
@@ -1004,6 +1067,7 @@ do {
     "13" { Invoke-Action "cors" }
     "14" { Invoke-Action "cleanup" }
     "15" { Invoke-Action "url" }
+    "16" { Invoke-Action "pages-preview" }
     "0" { return }
     default { Write-Host "Opción inválida." }
   }

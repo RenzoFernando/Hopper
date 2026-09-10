@@ -1,0 +1,42 @@
+name: Visual regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "css/**"
+      - "src/**"
+      - "*.html"
+      - "tests/e2e/**"
+      - "playwright.config.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dependencias
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Chromium de Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Regresión visual
+        run: npm run test:visual
