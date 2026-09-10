@@ -6,9 +6,13 @@ on:
     paths:
       - "css/**"
       - "src/**"
+      - "modern/**"
+      - "public/_headers"
+      - "scripts/prepare-pages-preview.mjs"
       - "*.html"
       - "tests/e2e/**"
-      - "playwright.config.ts"
+      - "playwright*.config.ts"
+      - "package.json"
 
 permissions:
   contents: read
@@ -38,5 +42,5 @@ jobs:
       - name: Chromium de Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: Regresión visual
-        run: npm run test:visual
+      - name: E2E React y regresión visual
+        run: npm run test:e2e

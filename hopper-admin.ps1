@@ -953,13 +953,23 @@ function Invoke-PagesPreview {
     throw "Vitest terminó con código $LASTEXITCODE."
   }
 
+  & npm run test:legacy
+  if ($LASTEXITCODE -ne 0) {
+    throw "Los tests existentes terminaron con código $LASTEXITCODE."
+  }
+
+  & npm run test:integration
+  if ($LASTEXITCODE -ne 0) {
+    throw "Los tests de integración terminaron con código $LASTEXITCODE."
+  }
+
   & npm run build
   if ($LASTEXITCODE -ne 0) {
     throw "El build terminó con código $LASTEXITCODE."
   }
 
-  Write-Host "Desplegando únicamente la rama de preview phase-1..."
-  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-1
+  Write-Host "Desplegando únicamente la rama de preview phase-2..."
+  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-2
   Write-Host "Preview desplegado. La URL pública actual, el Worker, D1 y B2 no fueron modificados."
 }
 

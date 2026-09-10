@@ -8,17 +8,18 @@
     "npm": ">=10.9.0"
   },
   "scripts": {
-    "dev": "vite --open /preview.html",
+    "dev": "vite --open /modern/index.html",
     "build": "vite build && node scripts/prepare-pages-preview.mjs",
     "preview": "vite preview --host 127.0.0.1",
-    "lint": "eslint src tests/unit tests/e2e vite.config.ts vitest.config.ts playwright.config.ts",
+    "lint": "eslint src tests/unit tests/e2e vite.config.ts vitest.config.ts playwright.config.ts playwright.react.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:legacy": "node --test tests/b2.test.js tests/frontend.test.js tests/items.test.js tests/room-code.test.js tests/schema.test.js tests/security.test.js",
     "test:integration": "node --test tests/integration.test.js tests/evolution.test.js",
-    "test:e2e": "playwright test",
-    "test:visual": "playwright test tests/e2e/visual-regression.spec.ts",
-    "test:visual:update": "playwright test tests/e2e/visual-regression.spec.ts --update-snapshots"
+    "test:e2e": "npm run build && playwright test --config playwright.react.config.ts",
+    "test:visual": "npm run build && playwright test --config playwright.react.config.ts tests/e2e/react-visual-regression.spec.ts",
+    "test:visual:update": "npm run build && playwright test --config playwright.react.config.ts tests/e2e/react-visual-regression.spec.ts --update-snapshots",
+    "test:visual:legacy": "playwright test tests/e2e/visual-regression.spec.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.102.8",
