@@ -1,3 +1,4 @@
+import type { Env } from "../types/env.ts";
 import {
   DEFAULT_MAX_FILE_BYTES,
   DEFAULT_ROOM_MAX_BYTES,
@@ -10,14 +11,14 @@ import {
   STORAGE_INTERNAL_LIMIT_BYTES,
   STORAGE_REFERENCE_BYTES,
   STORAGE_WARNING_BYTES
-} from "./constants.js";
+} from "../lib/constants.ts";
 import {
   checkB2Access,
   deleteB2Version,
   listB2VersionsByPrefix
-} from "./b2.js";
-import { deleteAllItems, getEstimatedStorageUsage } from "./items.js";
-import { closeRoom, listActiveRooms } from "./rooms.js";
+} from "./b2.ts";
+import { deleteAllItems, getEstimatedStorageUsage } from "./items.ts";
+import { closeRoom, listActiveRooms } from "./rooms.ts";
 import {
   clearUsageStatistics,
   getMaintenanceState,
@@ -25,14 +26,14 @@ import {
   getTodayUsage,
   recordCleanupState,
   recordReconcileState
-} from "./usage.js";
+} from "./usage.ts";
 
-function configuredMaxFileBytes(env) {
+function configuredMaxFileBytes(env: Env) {
   const value = Number(env.MAX_FILE_BYTES);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_FILE_BYTES;
 }
 
-export async function getAdminUsage(env) {
+export async function getAdminUsage(env: Env) {
   const [storage, today, last7Days, rooms, counts, maintenance] = await Promise.all([
     getEstimatedStorageUsage(env),
     getTodayUsage(env.DB),
@@ -43,7 +44,7 @@ export async function getAdminUsage(env) {
         SUM(CASE WHEN status = 'ready' AND expires_at > ?1 THEN 1 ELSE 0 END) AS activeItems,
         SUM(CASE WHEN status = 'pending' AND expires_at > ?1 THEN 1 ELSE 0 END) AS pendingUploads
       FROM drop_items
-    `).bind(new Date().toISOString()).first(),
+    `).bind(new Date().toISOString()).first<{ activeItems: number | null; pendingUploads: number | null }>(),
     getMaintenanceState(env.DB)
   ]);
 
@@ -85,7 +86,7 @@ export async function getAdminUsage(env) {
   };
 }
 
-export async function getAdminHealth(env) {
+export async function getAdminHealth(env: Env) {
   const d1Started = Date.now();
   let d1Ok = false;
 
@@ -98,13 +99,13 @@ export async function getAdminHealth(env) {
 
   const maintenance = await getMaintenanceState(env.DB);
   let b2Ok = false;
-  let b2Error = null;
+  let b2Error: string | null = null;
 
   try {
     await checkB2Access(env);
     b2Ok = true;
   } catch (error) {
-    b2Error = error?.message || "No disponible";
+    b2Error = error instanceof Error ? error.message : "No disponible";
   }
 
   return {
@@ -127,12 +128,12 @@ export async function getAdminHealth(env) {
   };
 }
 
-function isOlderThanSafety(value) {
-  const timestamp = Date.parse(value || "");
+function isOlderThanSafety(value: unknown) {
+  const timestamp = Date.parse(String(value || ""));
   return Number.isFinite(timestamp) && timestamp <= Date.now() - ORPHAN_SAFETY_SECONDS * 1000;
 }
 
-export async function reconcileStorage(env) {
+export async function reconcileStorage(env: Env) {
   const [listing, rowsResult] = await Promise.all([
     listB2VersionsByPrefix(env, "drop/", 50),
     env.DB.prepare(`
@@ -141,7 +142,13 @@ export async function reconcileStorage(env) {
       WHERE type = 'file' AND storage_key IS NOT NULL
     `).all()
   ]);
-  const rows = rowsResult.results || [];
+  const rows = (rowsResult.results || []) as Array<{
+    id: string;
+    status: string;
+    storageKey: string | null;
+    createdAt: string;
+    size: number;
+  }>;
   const referenced = new Map(rows.map((row) => [String(row.storageKey || ""), row]));
   const latestByKey = new Map();
 
@@ -232,9 +239,9 @@ export async function reconcileStorage(env) {
   };
 }
 
-export async function maybeReconcileStorage(env) {
+export async function maybeReconcileStorage(env: Env) {
   const maintenance = await getMaintenanceState(env.DB);
-  const last = Date.parse(maintenance.lastReconcileAt || "");
+  const last = Date.parse(String(maintenance.lastReconcileAt || ""));
 
   if (Number.isFinite(last) && last + RECONCILE_INTERVAL_SECONDS * 1000 > Date.now()) {
     return { skipped: true };
@@ -243,11 +250,73 @@ export async function maybeReconcileStorage(env) {
   return reconcileStorage(env);
 }
 
-export async function deleteAdminStatistics(env) {
+export async function deleteAdminStatistics(env: Env) {
   return clearUsageStatistics(env.DB);
 }
 
-export async function resetAdminSystem(env) {
+async function purgeB2Storage(env: Env) {
+  let listing;
+
+  try {
+    listing = await listB2VersionsByPrefix(env, "drop/", 50);
+  } catch (error) {
+    console.error("No fue posible enumerar B2 durante el reinicio.", error);
+    return {
+      complete: false,
+      scanned: 0,
+      deleted: 0,
+      deleteFailures: 1,
+      remainingVersions: -1,
+      truncated: false
+    };
+  }
+
+  let deleted = 0;
+  let deleteFailures = 0;
+
+  for (const entry of listing.entries) {
+    try {
+      await deleteB2Version(env, entry.key, entry.versionId);
+      deleted += 1;
+    } catch (error) {
+      deleteFailures += 1;
+      console.error("No fue posible eliminar una versión de B2 durante el reinicio.", entry.key, error);
+    }
+  }
+
+  let verification;
+
+  try {
+    verification = await listB2VersionsByPrefix(env, "drop/", 2);
+  } catch (error) {
+    console.error("No fue posible verificar B2 después del reinicio.", error);
+    return {
+      complete: false,
+      scanned: listing.entries.length,
+      deleted,
+      deleteFailures: deleteFailures + 1,
+      remainingVersions: -1,
+      truncated: listing.truncated
+    };
+  }
+
+  const remainingVersions = verification.entries.length;
+  const complete = !listing.truncated
+    && deleteFailures === 0
+    && !verification.truncated
+    && remainingVersions === 0;
+
+  return {
+    complete,
+    scanned: listing.entries.length,
+    deleted,
+    deleteFailures,
+    remainingVersions,
+    truncated: listing.truncated || verification.truncated
+  };
+}
+
+export async function resetAdminSystem(env: Env) {
   const rooms = await listActiveRooms(env.DB);
   let closed = 0;
   let roomDeleted = 0;
@@ -261,12 +330,30 @@ export async function resetAdminSystem(env) {
   }
 
   const items = await deleteAllItems(env);
+  const storage = await purgeB2Storage(env);
   await env.DB.prepare(`DELETE FROM rate_limits`).run();
-  await recordCleanupState(env.DB, items.failed);
+  const [remainingItems, remainingRooms] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM drop_items`).first<{ count: number }>(),
+    env.DB.prepare(`SELECT COUNT(*) AS count FROM rooms WHERE status = 'active'`).first<{ count: number }>()
+  ]);
+  const remainingItemCount = Number(remainingItems?.count || 0);
+  const remainingRoomCount = Number(remainingRooms?.count || 0);
+  const storageFailures = storage.complete
+    ? 0
+    : Math.max(1, storage.deleteFailures, storage.remainingVersions > 0 ? storage.remainingVersions : 0);
+  const failed = Number(items.failed || 0) + remainingItemCount + remainingRoomCount + storageFailures;
+  await recordCleanupState(env.DB, failed);
 
   return {
     rooms: { scanned: rooms.length, closed, deleted: roomDeleted, failed: roomFailures },
     items,
-    failed: Number(items.failed || 0)
+    storage,
+    verification: {
+      remainingItems: remainingItemCount,
+      activeRooms: remainingRoomCount,
+      remainingStorageVersions: storage.remainingVersions,
+      storageComplete: storage.complete
+    },
+    failed
   };
 }

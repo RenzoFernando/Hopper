@@ -110,10 +110,8 @@ export function AdminPage() {
     }
   };
 
-  const runAction = async (action: ActionName) => {
+  const runAction = async (action: ActionName, currentPin = "") => {
     if (busyActionRef.current) return;
-    if (action === "reset" && !window.confirm("¿Reiniciar Hopper? Se eliminará todo el contenido temporal, se cerrarán las salas y se invalidarán las sesiones. El PIN, la configuración y las estadísticas se conservarán.")) return;
-    if (action === "delete-stats" && !window.confirm("¿Borrar las estadísticas agregadas de Hopper? El contenido temporal no se ve afectado.")) return;
     busyActionRef.current = action;
     setBusyAction(action);
     try {
@@ -126,11 +124,11 @@ export function AdminPage() {
         showToast(`Reconciliación: ${result.orphanDeleted || 0} versiones huérfanas eliminadas.`, "success");
         await refreshAll();
       } else if (action === "delete-stats") {
-        await adminApi.deleteStatistics();
+        await adminApi.deleteStatistics(currentPin);
         showToast("Estadísticas borradas.", "success");
         await refreshAll(false);
       } else {
-        await adminApi.resetSystem();
+        await adminApi.resetSystem(currentPin);
         sessionStore.clearPersonal();
         sessionStore.clearRoom();
         showToast("Sistema reiniciado. Volviendo al inicio…", "success");
@@ -144,8 +142,8 @@ export function AdminPage() {
     }
   };
 
-  const changePin = async (pin: string, confirmation: string) => {
-    await adminApi.changePin(pin, confirmation);
+  const changePin = async (currentPin: string, pin: string, confirmation: string) => {
+    await adminApi.changePin(currentPin, pin, confirmation);
     sessionStore.clearPersonal();
     window.setTimeout(goHome, 450);
     return true;
@@ -159,7 +157,7 @@ export function AdminPage() {
         <AdminMetrics usage={usageData} />
         <div className="admin-columns"><AdminHealth health={healthData?.health} /><AdminLimits usage={usageData} /></div>
         <AdminRooms rooms={roomsData?.rooms ?? []} now={now} busyRoom={busyRoom} onOpen={(room) => { void openRoom(room); }} onClose={(room) => { void closeRoom(room); }} />
-        <MaintenanceActions busyAction={busyAction} onAction={(action) => { void runAction(action); }} onChangePin={changePin} />
+        <MaintenanceActions busyAction={busyAction} onAction={(action, currentPin) => { void runAction(action, currentPin); }} onChangePin={changePin} />
       </main>
       <ToastRegion toasts={toasts} />
     </div>

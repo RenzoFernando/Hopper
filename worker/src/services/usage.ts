@@ -1,4 +1,5 @@
-import { USAGE_RETENTION_DAYS } from "./constants.js";
+import type { D1Database } from "../types/env.ts";
+import { USAGE_RETENTION_DAYS } from "../lib/constants.ts";
 
 const USAGE_FIELDS = new Set([
   "uploads_count",
@@ -15,20 +16,32 @@ const USAGE_FIELDS = new Set([
   "rooms_created"
 ]);
 
-function usageDate(date = new Date()) {
+function usageDate(date: Date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizeDelta(value) {
+function normalizeDelta(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
 }
 
-export async function incrementUsage(db, deltas, date = new Date()) {
-  const entries = Object.entries(deltas || {})
-    .filter(([field]) => USAGE_FIELDS.has(field))
-    .map(([field, value]) => [field, normalizeDelta(value)])
-    .filter(([, value]) => value > 0);
+export async function incrementUsage(
+  db: D1Database,
+  deltas: Record<string, unknown>,
+  date: Date = new Date()
+): Promise<void> {
+  const entries: Array<[string, number]> = [];
+
+  for (const [field, value] of Object.entries(deltas)) {
+    if (!USAGE_FIELDS.has(field)) {
+      continue;
+    }
+
+    const normalized = normalizeDelta(value);
+    if (normalized > 0) {
+      entries.push([field, normalized]);
+    }
+  }
 
   if (entries.length === 0) {
     return;
@@ -48,7 +61,7 @@ export async function incrementUsage(db, deltas, date = new Date()) {
   `).bind(day, ...values).run();
 }
 
-export async function recordTransfer(db, { type, bytes = 0, spaceType = "personal" } = {}) {
+export async function recordTransfer(db: D1Database, { type, bytes = 0, spaceType = "personal" }: { type?: string; bytes?: number; spaceType?: string } = {}) {
   const isRoom = spaceType === "room";
   const isText = type === "text";
   const size = normalizeDelta(bytes);
@@ -63,24 +76,24 @@ export async function recordTransfer(db, { type, bytes = 0, spaceType = "persona
   });
 }
 
-export async function recordDeletion(db, bytes = 0) {
+export async function recordDeletion(db: D1Database, bytes: number = 0) {
   await incrementUsage(db, {
     deleted_count: 1,
     deleted_bytes: normalizeDelta(bytes)
   });
 }
 
-export async function recordUploadFailure(db, recovered = false) {
+export async function recordUploadFailure(db: D1Database, recovered = false) {
   await incrementUsage(db, recovered
     ? { recovered_failures: 1 }
     : { failed_uploads: 1 });
 }
 
-export async function recordCleanupFailure(db, count = 1) {
+export async function recordCleanupFailure(db: D1Database, count: number = 1) {
   await incrementUsage(db, { cleanup_failures: normalizeDelta(count) || 1 });
 }
 
-function emptyUsage(day = usageDate()) {
+function emptyUsage(day: string = usageDate()) {
   return {
     date: day,
     uploadsCount: 0,
@@ -98,7 +111,7 @@ function emptyUsage(day = usageDate()) {
   };
 }
 
-function mapUsage(row) {
+function mapUsage(row: Record<string, unknown> | null | undefined) {
   if (!row) {
     return emptyUsage();
   }
@@ -120,7 +133,7 @@ function mapUsage(row) {
   };
 }
 
-export async function getTodayUsage(db) {
+export async function getTodayUsage(db: D1Database) {
   const day = usageDate();
   const row = await db.prepare(`
     SELECT *
@@ -131,7 +144,7 @@ export async function getTodayUsage(db) {
   return row ? mapUsage(row) : emptyUsage(day);
 }
 
-export async function getRecentUsage(db, days = 7) {
+export async function getRecentUsage(db: D1Database, days: number = 7) {
   const safeDays = Math.max(1, Math.min(90, Math.floor(Number(days) || 7)));
   const from = new Date(Date.now() - (safeDays - 1) * 86400000).toISOString().slice(0, 10);
   const row = await db.prepare(`
@@ -156,12 +169,12 @@ export async function getRecentUsage(db, days = 7) {
   return mapUsage(row);
 }
 
-export async function clearUsageStatistics(db) {
+export async function clearUsageStatistics(db: D1Database) {
   const result = await db.prepare(`DELETE FROM usage_daily`).run();
   return { deletedRows: Number(result.meta?.changes || 0) };
 }
 
-export async function cleanupUsageStatistics(db) {
+export async function cleanupUsageStatistics(db: D1Database) {
   const cutoff = new Date(Date.now() - USAGE_RETENTION_DAYS * 86400000).toISOString().slice(0, 10);
   const result = await db.prepare(`
     DELETE FROM usage_daily
@@ -170,7 +183,7 @@ export async function cleanupUsageStatistics(db) {
   return { deletedRows: Number(result.meta?.changes || 0) };
 }
 
-export async function getMaintenanceState(db) {
+export async function getMaintenanceState(db: D1Database) {
   const row = await db.prepare(`
     SELECT
       last_cleanup_at AS lastCleanupAt,
@@ -195,7 +208,7 @@ export async function getMaintenanceState(db) {
   };
 }
 
-export async function recordCleanupState(db, failed = 0) {
+export async function recordCleanupState(db: D1Database, failed: number = 0) {
   const now = new Date().toISOString();
   await db.prepare(`
     UPDATE maintenance_state
@@ -204,7 +217,7 @@ export async function recordCleanupState(db, failed = 0) {
   `).bind(now, Math.max(0, Math.floor(Number(failed) || 0))).run();
 }
 
-export async function recordReconcileState(db, { orphanCount = 0, orphanBytes = 0, missingCount = 0 } = {}) {
+export async function recordReconcileState(db: D1Database, { orphanCount = 0, orphanBytes = 0, missingCount = 0 }: { orphanCount?: number; orphanBytes?: number; missingCount?: number } = {}) {
   const now = new Date().toISOString();
   await db.prepare(`
     UPDATE maintenance_state

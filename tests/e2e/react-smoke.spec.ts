@@ -183,13 +183,23 @@ test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => 
   await page.locator("#cleanup-button").click();
   await expect(page.locator("#toast-region")).toContainText("Limpieza completada");
 
+  await page.locator("#delete-stats-button").click();
+  await expect(page.locator("#admin-reauth-dialog")).toBeVisible();
+  await page.locator("#admin-reauth-pin").fill("1234");
+  const statisticsRequest = page.waitForRequest((request) => request.url().endsWith("/api/admin/statistics") && request.method() === "DELETE");
+  await page.locator("#admin-reauth-submit").click();
+  const deleteRequest = await statisticsRequest;
+  expect(deleteRequest.postDataJSON()).toEqual({ currentPin: "1234", confirmation: "DELETE_STATISTICS" });
+
   await page.locator("#change-pin-button").click();
   await expect(page.locator("#change-pin-dialog")).toBeVisible();
+  await page.locator("#change-pin-current").fill("1234");
   await page.locator("#change-pin-new").fill("4321");
   await page.locator("#change-pin-confirm").fill("4321");
   const pinRequest = page.waitForRequest((request) => request.url().endsWith("/api/admin/pin") && request.method() === "POST");
   await page.locator("#change-pin-submit").click();
-  await pinRequest;
+  const request = await pinRequest;
+  expect(request.postDataJSON()).toEqual({ currentPin: "1234", pin: "4321", confirmation: "4321" });
   await expect(page).toHaveURL(/\/$/);
 });
 

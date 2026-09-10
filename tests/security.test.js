@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRecoveryUrl } from "../cloudflare/src/recovery.js";
+import { buildRecoveryUrl } from "../worker/src/services/recovery.ts";
 import {
   createSessionToken,
   ipv4MatchesCidr,
   isValidPin,
   verifySessionToken
-} from "../cloudflare/src/security.js";
+} from "../worker/src/services/security.ts";
 
 const SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef";
 

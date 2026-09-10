@@ -4,12 +4,12 @@ import { readFileSync } from "node:fs";
 import {
   ROOM_SESSION_TTL_SECONDS,
   STORAGE_INTERNAL_LIMIT_BYTES
-} from "../cloudflare/src/constants.js";
+} from "../worker/src/lib/constants.ts";
 import {
   createTextItem,
   initializeFileUpload,
   listActiveItems
-} from "../cloudflare/src/items.js";
+} from "../worker/src/services/items.ts";
 import {
   closeRoom,
   createRoom,
@@ -19,11 +19,11 @@ import {
   requireRoomRequest,
   touchRoomActivity,
   verifyRoomSessionToken
-} from "../cloudflare/src/rooms.js";
-import { getTodayUsage } from "../cloudflare/src/usage.js";
+} from "../worker/src/services/rooms.ts";
+import { getTodayUsage } from "../worker/src/services/usage.ts";
 import { TestD1 } from "./d1-test-helper.js";
 
-const schema = readFileSync(new URL("../cloudflare/schema.sql", import.meta.url), "utf8");
+const schema = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 const secret = "hopper-test-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 
 function createEnv() {

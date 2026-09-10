@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS recovery_tokens (
 CREATE INDEX IF NOT EXISTS idx_recovery_tokens_expires_at
 ON recovery_tokens (expires_at);
 
+CREATE INDEX IF NOT EXISTS idx_recovery_tokens_created_at
+ON recovery_tokens (created_at DESC);
+
 CREATE TABLE IF NOT EXISTS blocked_clients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target TEXT NOT NULL UNIQUE,
@@ -139,6 +142,9 @@ ON drop_items (status, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_drop_items_expires_at
 ON drop_items (expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_drop_items_space_room_status_created
+ON drop_items (space_type, room_id, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS usage_daily (
   date TEXT PRIMARY KEY,

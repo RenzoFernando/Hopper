@@ -1,49 +1,77 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { ensureEvolutionSchema } from "../cloudflare/src/schema.js";
 import { TestD1 } from "./d1-test-helper.js";
 
-const bootstrapSchema = readFileSync(new URL("../cloudflare/schema.sql", import.meta.url), "utf8");
+const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 
-const legacySchema = `
-CREATE TABLE drop_items (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL CHECK (type IN ('text', 'file')),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'ready')),
-  content TEXT,
-  name TEXT,
-  size INTEGER NOT NULL DEFAULT 0 CHECK (size >= 0),
-  mime_type TEXT,
-  storage_key TEXT UNIQUE,
-  created_at TEXT NOT NULL,
-  expires_at TEXT NOT NULL,
-  ttl_minutes INTEGER NOT NULL CHECK (ttl_minutes IN (15, 30, 60, 360)),
-  updated_at TEXT NOT NULL
-);
-`;
+test("la migración baseline crea el esquema actual y los índices de Fase 4", async () => {
+  const db = new TestD1(baseline);
 
-test("migra una D1 existente para aceptar 5 minutos y scopes sin perder datos", async () => {
-  const db = new TestD1(legacySchema);
+  try {
+    const tables = await db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+      ORDER BY name
+    `).all();
+    const names = new Set((tables.results || []).map((row) => row.name));
+
+    for (const name of [
+      "blocked_clients",
+      "drop_items",
+      "maintenance_state",
+      "pin_credentials",
+      "rate_limits",
+      "recovery_tokens",
+      "rooms",
+      "security_events",
+      "security_state",
+      "session_state",
+      "usage_daily"
+    ]) {
+      assert.equal(names.has(name), true, `Falta la tabla ${name}`);
+    }
+
+    const indexes = await db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'index'
+    `).all();
+    const indexNames = new Set((indexes.results || []).map((row) => row.name));
+    assert.equal(indexNames.has("idx_drop_items_space_room_status_created"), true);
+    assert.equal(indexNames.has("idx_recovery_tokens_created_at"), true);
+  } finally {
+    db.close();
+  }
+});
+
+test("reaplicar el baseline sobre el esquema vigente conserva los datos existentes", async () => {
+  const db = new TestD1(baseline);
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
 
   try {
     await db.prepare(`
       INSERT INTO drop_items (
-        id, type, status, content, size, created_at, expires_at, ttl_minutes, updated_at
-      ) VALUES (?1, 'text', 'ready', 'antes', 0, ?2, ?3, 15, ?2)
-    `).bind(crypto.randomUUID(), now, new Date(Date.now() + 900_000).toISOString()).run();
-    db.exec(bootstrapSchema);
-    await ensureEvolutionSchema({ DB: db });
-    const migrated = await db.prepare("SELECT content, ttl_minutes AS ttl, space_type AS scope, room_id AS roomId FROM drop_items LIMIT 1").first();
-    assert.deepEqual(migrated, { content: "antes", ttl: 15, scope: "personal", roomId: null });
-    await db.prepare(`
-      INSERT INTO drop_items (
-        id, type, status, content, size, created_at, expires_at, ttl_minutes, updated_at, space_type, room_id
-      ) VALUES (?1, 'text', 'ready', 'después', 0, ?2, ?3, 5, ?2, 'personal', NULL)
-    `).bind(crypto.randomUUID(), now, new Date(Date.now() + 300_000).toISOString()).run();
-    const row = await db.prepare("SELECT COUNT(*) AS count FROM drop_items WHERE ttl_minutes = 5").first();
-    assert.equal(row.count, 1);
+        id, type, status, content, size, created_at, expires_at,
+        ttl_minutes, updated_at, space_type, room_id
+      ) VALUES (?1, 'text', 'ready', 'conservar', 0, ?2, ?3, 5, ?2, 'personal', NULL)
+    `).bind(id, now, new Date(Date.now() + 300_000).toISOString()).run();
+
+    db.exec(baseline);
+    const row = await db.prepare(`
+      SELECT id, content, ttl_minutes AS ttl, space_type AS scope
+      FROM drop_items
+      WHERE id = ?1
+    `).bind(id).first();
+
+    assert.deepEqual(row, {
+      id,
+      content: "conservar",
+      ttl: 5,
+      scope: "personal"
+    });
   } finally {
     db.close();
   }

@@ -1,3 +1,4 @@
+import type { ClientInfo, D1Database, Env } from "../types/env.ts";
 import {
   DEFAULT_ROOM_MAX_BYTES,
   DEFAULT_ROOM_MAX_FILE_BYTES,
@@ -7,20 +8,45 @@ import {
   ROOM_INACTIVITY_SECONDS,
   ROOM_SESSION_TTL_SECONDS,
   ROOM_TTL_OPTIONS
-} from "./constants.js";
+} from "../lib/constants.ts";
 import {
   base64UrlDecodeBytes,
   base64UrlEncodeBytes,
   base64UrlEncodeText,
   randomBytes,
   sha256Bytes,
-  timingSafeEqualBytes
-} from "./crypto.js";
-import { bearerToken, HttpError, normalizeText } from "./http.js";
-import { deleteItemsForRoom } from "./items.js";
-import { incrementUsage, recordCleanupFailure } from "./usage.js";
+  timingSafeEqualBytes,
+  toArrayBuffer
+} from "../lib/crypto.ts";
+import { bearerToken, HttpError, normalizeText } from "../lib/http.ts";
+import { deleteItemsForRoom } from "./items.ts";
+import type { ItemContext } from "./items.ts";
+import { incrementUsage, recordCleanupFailure } from "./usage.ts";
 
-function normalizeRoomCode(value) {
+export interface Room {
+  id: string;
+  status: string;
+  version: number;
+  createdAt: string;
+  expiresAt: string;
+  closedAt: string | null;
+  maxBytes: number;
+  maxFileBytes: number;
+  maxItems: number;
+  usedBytes: number;
+  itemCount: number;
+}
+
+export interface RoomSessionPayload {
+  typ: "room";
+  rid: string;
+  ver: number;
+  iat: number;
+  exp: number;
+  nonce: string;
+}
+
+function normalizeRoomCode(value: unknown): string {
   const code = normalizeText(value).toUpperCase();
 
   if (!/^[A-Z]{2}-\d{4}$/.test(code)) {
@@ -30,7 +56,7 @@ function normalizeRoomCode(value) {
   return code;
 }
 
-export function generateRoomCode(bytes = randomBytes(6)) {
+export function generateRoomCode(bytes: Uint8Array = randomBytes(6)): string {
   if (!(bytes instanceof Uint8Array) || bytes.length < 6) {
     throw new TypeError("Se requieren al menos 6 bytes aleatorios.");
   }
@@ -41,7 +67,7 @@ export function generateRoomCode(bytes = randomBytes(6)) {
   return `${first}${second}-${digits}`;
 }
 
-async function importRoomKey(secret, namespace) {
+async function importRoomKey(secret: string, namespace: string): Promise<CryptoKey> {
   if (typeof secret !== "string" || secret.length < 32) {
     throw new Error("SESSION_SECRET debe tener al menos 32 caracteres.");
   }
@@ -49,32 +75,32 @@ async function importRoomKey(secret, namespace) {
   const keyBytes = await sha256Bytes(`hopper-${namespace}-key-v1:${secret}`);
   return crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    toArrayBuffer(keyBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
   );
 }
 
-async function hmacBytes(secret, namespace, value) {
+async function hmacBytes(secret: string, namespace: string, value: string): Promise<Uint8Array> {
   const key = await importRoomKey(secret, namespace);
   return new Uint8Array(
     await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(String(value)))
   );
 }
 
-export async function hashRoomCode(code, secret) {
+export async function hashRoomCode(code: unknown, secret: string): Promise<string> {
   const normalized = normalizeRoomCode(code);
   return base64UrlEncodeBytes(await hmacBytes(secret, "room-code", `hopper-room-code-v1:${normalized}`));
 }
 
-async function signRoomTokenBody(body, secret) {
+async function signRoomTokenBody(body: string, secret: string): Promise<string> {
   return base64UrlEncodeBytes(
     await hmacBytes(secret, "room-session", `hopper-room-session-v1:${body}`)
   );
 }
 
-export async function createRoomSessionToken(secret, room, now = Date.now()) {
+export async function createRoomSessionToken(secret: string, room: Pick<Room, "id" | "version">, now = Date.now()): Promise<string> {
   const issuedAt = Math.floor(now / 1000);
   const payload = {
     typ: "room",
@@ -89,7 +115,7 @@ export async function createRoomSessionToken(secret, room, now = Date.now()) {
   return `${body}.${signature}`;
 }
 
-export async function verifyRoomSessionToken(token, secret, now = Date.now()) {
+export async function verifyRoomSessionToken(token: unknown, secret: string, now = Date.now()): Promise<RoomSessionPayload | null> {
   const parts = normalizeText(token).split(".");
 
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -111,33 +137,43 @@ export async function verifyRoomSessionToken(token, secret, now = Date.now()) {
     return null;
   }
 
-  let payload;
+  let payload: unknown;
 
   try {
-    payload = JSON.parse(new TextDecoder().decode(base64UrlDecodeBytes(parts[0])));
+    payload = JSON.parse(new TextDecoder().decode(base64UrlDecodeBytes(parts[0]))) as unknown;
   } catch {
     return null;
   }
 
   const nowSeconds = Math.floor(now / 1000);
 
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const session = payload as Partial<RoomSessionPayload>;
+
   if (
-    payload?.typ !== "room"
-    || !/^[0-9a-f-]{36}$/i.test(String(payload?.rid || ""))
-    || !Number.isInteger(payload?.ver)
-    || !Number.isInteger(payload?.iat)
-    || !Number.isInteger(payload?.exp)
-    || payload.exp <= nowSeconds
-    || payload.iat > nowSeconds + 60
-    || payload.exp - payload.iat > ROOM_SESSION_TTL_SECONDS + 5
+    session.typ !== "room"
+    || !/^[0-9a-f-]{36}$/i.test(String(session.rid || ""))
+    || !Number.isInteger(session.ver)
+    || !Number.isInteger(session.iat)
+    || !Number.isInteger(session.exp)
+    || typeof session.ver !== "number"
+    || typeof session.iat !== "number"
+    || typeof session.exp !== "number"
+    || typeof session.nonce !== "string"
+    || session.exp <= nowSeconds
+    || session.iat > nowSeconds + 60
+    || session.exp - session.iat > ROOM_SESSION_TTL_SECONDS + 5
   ) {
     return null;
   }
 
-  return payload;
+  return session as RoomSessionPayload;
 }
 
-function mapRoom(row) {
+function mapRoom(row: Record<string, unknown> | null | undefined): Room | null {
   if (!row) {
     return null;
   }
@@ -148,7 +184,7 @@ function mapRoom(row) {
     version: Number(row.version || 1),
     createdAt: String(row.created_at || row.createdAt || ""),
     expiresAt: String(row.expires_at || row.expiresAt || ""),
-    closedAt: row.closed_at || row.closedAt || null,
+    closedAt: row.closed_at || row.closedAt ? String(row.closed_at || row.closedAt) : null,
     maxBytes: Number(row.max_bytes || row.maxBytes || DEFAULT_ROOM_MAX_BYTES),
     maxFileBytes: Number(row.max_file_bytes || row.maxFileBytes || DEFAULT_ROOM_MAX_FILE_BYTES),
     maxItems: Number(row.max_items || row.maxItems || DEFAULT_ROOM_MAX_ITEMS),
@@ -157,17 +193,17 @@ function mapRoom(row) {
   };
 }
 
-async function clientHash(client) {
+async function clientHash(client: ClientInfo) {
   const digest = await sha256Bytes(client?.ip || "unknown");
   return base64UrlEncodeBytes(digest).slice(0, 32);
 }
 
-function roomExpiryFrom(now = Date.now()) {
+function roomExpiryFrom(now = Date.now()): string {
   return new Date(now + ROOM_INACTIVITY_SECONDS * 1000).toISOString();
 }
 
 
-export async function getRoomById(db, id) {
+export async function getRoomById(db: D1Database, id: string): Promise<Room | null> {
   const row = await db.prepare(`
     SELECT
       r.*,
@@ -178,12 +214,12 @@ export async function getRoomById(db, id) {
     WHERE r.id = ?1
     GROUP BY r.id
     LIMIT 1
-  `).bind(String(id || "")).first();
+  `).bind(id).first<Record<string, unknown>>();
 
   return mapRoom(row);
 }
 
-export async function listActiveRooms(db) {
+export async function listActiveRooms(db: D1Database) {
   const now = new Date().toISOString();
   const result = await db.prepare(`
     SELECT
@@ -196,12 +232,12 @@ export async function listActiveRooms(db) {
     GROUP BY r.id
     ORDER BY r.created_at ASC
     LIMIT ?2
-  `).bind(now, MAX_ACTIVE_ROOMS).all();
+  `).bind(now, MAX_ACTIVE_ROOMS).all<Record<string, unknown>>();
 
-  return (result.results || []).map(mapRoom);
+  return (result.results || []).map(mapRoom).filter((room): room is Room => room !== null);
 }
 
-export async function getRoomCapacity(db) {
+export async function getRoomCapacity(db: D1Database) {
   const now = new Date().toISOString();
   const row = await db.prepare(`
     SELECT COUNT(*) AS count
@@ -217,7 +253,7 @@ export async function getRoomCapacity(db) {
   };
 }
 
-export async function touchRoomActivity(env, roomId, now = Date.now()) {
+export async function touchRoomActivity(env: Env, roomId: string, now = Date.now()): Promise<Room | null> {
   const nowIso = new Date(now).toISOString();
   const expiresAt = roomExpiryFrom(now);
   const updated = await env.DB.prepare(`
@@ -233,14 +269,14 @@ export async function touchRoomActivity(env, roomId, now = Date.now()) {
   return getRoomById(env.DB, roomId);
 }
 
-export async function createRoom(env, _payload, client) {
+export async function createRoom(env: Env, _payload: unknown, client: ClientInfo) {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
   const countRow = await env.DB.prepare(`
     SELECT COUNT(*) AS count
     FROM rooms
     WHERE status = 'active' AND expires_at > ?1
-  `).bind(nowIso).first();
+  `).bind(nowIso).first<{ count: number }>();
 
   if (Number(countRow?.count || 0) >= MAX_ACTIVE_ROOMS) {
     throw new HttpError(409, "room-limit", "No hay salas disponibles en este momento.");
@@ -298,6 +334,11 @@ export async function createRoom(env, _payload, client) {
 
   await incrementUsage(env.DB, { rooms_created: 1 });
   const room = await getRoomById(env.DB, id);
+
+  if (!room) {
+    throw new HttpError(500, "room-create-incomplete", "La sala se creó, pero no pudo confirmarse su estado.");
+  }
+
   const token = await createRoomSessionToken(env.SESSION_SECRET, room);
 
   return {
@@ -308,7 +349,7 @@ export async function createRoom(env, _payload, client) {
   };
 }
 
-export async function joinRoom(env, code) {
+export async function joinRoom(env: Env, code: unknown) {
   const normalized = normalizeRoomCode(code);
   const codeHash = await hashRoomCode(normalized, env.SESSION_SECRET);
   const now = new Date().toISOString();
@@ -317,7 +358,7 @@ export async function joinRoom(env, code) {
     FROM rooms
     WHERE code_hash = ?1 AND status = 'active' AND expires_at > ?2
     LIMIT 1
-  `).bind(codeHash, now).first();
+  `).bind(codeHash, now).first<{ id: string }>();
 
   if (!row) {
     throw new HttpError(404, "room-not-available", "La sala no está disponible o el código no es válido.");
@@ -338,7 +379,7 @@ export async function joinRoom(env, code) {
   };
 }
 
-export async function issueRoomSession(env, roomId, { touch = true } = {}) {
+export async function issueRoomSession(env: Env, roomId: string, { touch = true }: { touch?: boolean } = {}) {
   let room = await getRoomById(env.DB, roomId);
 
   if (!room || room.status !== "active" || Date.parse(room.expiresAt) <= Date.now()) {
@@ -360,7 +401,7 @@ export async function issueRoomSession(env, roomId, { touch = true } = {}) {
   };
 }
 
-export async function requireRoomRequest(request, env) {
+export async function requireRoomRequest(request: Request, env: Env) {
   const session = await verifyRoomSessionToken(bearerToken(request), env.SESSION_SECRET);
 
   if (!session) {
@@ -378,22 +419,20 @@ export async function requireRoomRequest(request, env) {
     throw new HttpError(401, "invalid-room-session", "La sala cerró o la sesión ya no es válida.");
   }
 
-  return {
-    session,
-    room,
-    context: {
-      spaceType: "room",
-      roomId: room.id,
-      roomExpiresAt: room.expiresAt,
-      maxFileBytes: room.maxFileBytes,
-      maxBytes: room.maxBytes,
-      maxItems: room.maxItems,
-      ttlOptions: ROOM_TTL_OPTIONS
-    }
+  const context: ItemContext = {
+    spaceType: "room",
+    roomId: room.id,
+    roomExpiresAt: room.expiresAt,
+    maxFileBytes: room.maxFileBytes,
+    maxBytes: room.maxBytes,
+    maxItems: room.maxItems,
+    ttlOptions: ROOM_TTL_OPTIONS
   };
+
+  return { session, room, context };
 }
 
-export async function closeRoom(env, roomId) {
+export async function closeRoom(env: Env, roomId: string) {
   const room = await getRoomById(env.DB, roomId);
 
   if (!room || room.status !== "active") {
@@ -422,7 +461,7 @@ export async function closeRoom(env, roomId) {
   return { closed: true, ...cleanup };
 }
 
-export async function cleanupExpiredRooms(env) {
+export async function cleanupExpiredRooms(env: Env) {
   const now = new Date().toISOString();
   const result = await env.DB.prepare(`
     SELECT id
@@ -430,7 +469,7 @@ export async function cleanupExpiredRooms(env) {
     WHERE status = 'active' AND expires_at <= ?1
     ORDER BY expires_at ASC
     LIMIT ?2
-  `).bind(now, MAX_ACTIVE_ROOMS).all();
+  `).bind(now, MAX_ACTIVE_ROOMS).all<{ id: string }>();
   let closed = 0;
   let deleted = 0;
   let failed = 0;

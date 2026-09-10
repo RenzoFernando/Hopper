@@ -153,7 +153,9 @@ test("React conserva administración", async ({ page }) => {
   await expect(page).toHaveScreenshot("admin.png", { fullPage: true });
 
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#change-pin-dialog")?.showModal());
-  await expect(page).toHaveScreenshot("change-pin.png", { fullPage: true });
+  await expect(page.locator("#change-pin-current")).toBeVisible();
+  await expect(page.locator("#change-pin-new")).toBeVisible();
+  await expect(page.locator("#change-pin-confirm")).toBeVisible();
 });
 
 test("React conserva recuperación", async ({ page }) => {

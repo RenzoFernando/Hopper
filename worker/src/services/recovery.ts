@@ -1,22 +1,33 @@
+import type { ClientInfo, D1Database, Env } from "../types/env.ts";
 import {
   RECOVERY_COOLDOWN_SECONDS,
   RECOVERY_TTL_SECONDS
-} from "./constants.js";
+} from "../lib/constants.ts";
 import {
   base64UrlEncodeBytes,
   randomBytes,
   sha256Bytes
-} from "./crypto.js";
-import { HttpError, normalizeText } from "./http.js";
+} from "../lib/crypto.ts";
+import { HttpError, normalizeText } from "../lib/http.ts";
 import {
   getSecurityState,
   isValidPin,
   logSecurityEvent,
   resetSecurityState,
   writePinCredentials
-} from "./security.js";
+} from "./security.ts";
 
-function escapeHtml(value) {
+interface RecoveryRecord {
+  id: string;
+  tokenHash: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+  requestedIp: string | null;
+  usedIp: string | null;
+}
+
+function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -25,7 +36,7 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function resolvePublicAppUrl(env) {
+function resolvePublicAppUrl(env: Env): string {
   const candidate = normalizeText(env.PUBLIC_APP_URL);
 
   if (!candidate) {
@@ -48,14 +59,14 @@ function resolvePublicAppUrl(env) {
   }
 }
 
-export function buildRecoveryUrl(env, token) {
+export function buildRecoveryUrl(env: Env, token: string): string {
   const cleanFrontendUrls = normalizeText(env.CLEAN_FRONTEND_URLS).toLowerCase() === "true";
   const url = new URL(cleanFrontendUrls ? "recover" : "recover.html", resolvePublicAppUrl(env));
   url.hash = cleanFrontendUrls ? token : `token=${encodeURIComponent(token)}`;
   return url.toString();
 }
 
-export function validateRecoveryToken(value) {
+export function validateRecoveryToken(value: unknown): string {
   const token = normalizeText(value);
 
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
@@ -65,11 +76,11 @@ export function validateRecoveryToken(value) {
   return token;
 }
 
-async function recoveryTokenHash(token) {
+async function recoveryTokenHash(token: string): Promise<string> {
   return base64UrlEncodeBytes(await sha256Bytes(token));
 }
 
-async function getRecoveryRecord(db, token) {
+async function getRecoveryRecord(db: D1Database, token: string): Promise<RecoveryRecord | null> {
   const tokenHash = await recoveryTokenHash(token);
   const row = await db.prepare(`
     SELECT
@@ -82,12 +93,12 @@ async function getRecoveryRecord(db, token) {
       used_ip AS usedIp
     FROM recovery_tokens
     WHERE token_hash = ?1
-  `).bind(tokenHash).first();
+  `).bind(tokenHash).first<RecoveryRecord>();
 
   return row || null;
 }
 
-export function recoveryRecordStatus(record, now = Date.now()) {
+export function recoveryRecordStatus(record: RecoveryRecord | null | undefined, now = Date.now()): "invalid" | "used" | "expired" | "valid" {
   if (!record) {
     return "invalid";
   }
@@ -105,7 +116,7 @@ export function recoveryRecordStatus(record, now = Date.now()) {
   return "valid";
 }
 
-async function sendRecoveryEmail(env, recoveryUrl, client, tokenId) {
+async function sendRecoveryEmail(env: Env, recoveryUrl: string, client: ClientInfo, tokenId: string): Promise<void> {
   const apiKey = normalizeText(env.RESEND_API_KEY);
   const recipient = normalizeText(env.RECOVERY_EMAIL);
   const sender = normalizeText(env.RESEND_FROM_EMAIL) || "Hopper <onboarding@resend.dev>";
@@ -157,7 +168,7 @@ async function sendRecoveryEmail(env, recoveryUrl, client, tokenId) {
   }
 }
 
-export async function issueRecovery(env, client, { enforceCooldown = true } = {}) {
+export async function issueRecovery(env: Env, client: ClientInfo, { enforceCooldown = true }: { enforceCooldown?: boolean } = {}) {
   const state = await getSecurityState(env.DB);
 
   if (!state.locked) {
@@ -170,7 +181,7 @@ export async function issueRecovery(env, client, { enforceCooldown = true } = {}
       FROM recovery_tokens
       ORDER BY created_at DESC
       LIMIT 1
-    `).first();
+    `).first<{ createdAt: string }>();
     const latestAt = latest?.createdAt ? Date.parse(latest.createdAt) : NaN;
 
     if (Number.isFinite(latestAt) && Date.now() - latestAt < RECOVERY_COOLDOWN_SECONDS * 1000) {
@@ -212,7 +223,7 @@ export async function issueRecovery(env, client, { enforceCooldown = true } = {}
   return { ok: true, status: "sent" };
 }
 
-export async function verifyRecoveryToken(env, token, client) {
+export async function verifyRecoveryToken(env: Env, token: unknown, client: ClientInfo) {
   const normalizedToken = validateRecoveryToken(token);
   const record = await getRecoveryRecord(env.DB, normalizedToken);
   const status = recoveryRecordStatus(record);
@@ -221,7 +232,7 @@ export async function verifyRecoveryToken(env, token, client) {
   return { ok: status === "valid", status };
 }
 
-export async function resetPinWithRecovery(env, token, pin, confirmation, client) {
+export async function resetPinWithRecovery(env: Env, token: unknown, pin: unknown, confirmation: unknown, client: ClientInfo) {
   const normalizedToken = validateRecoveryToken(token);
   const normalizedPin = normalizeText(pin);
   const normalizedConfirmation = normalizeText(confirmation);

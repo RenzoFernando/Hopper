@@ -14,7 +14,7 @@ export const adminApi = {
   },
   reconcile: () => request("/api/admin/reconcile-storage", adminReconcileSchema, { method: "POST", auth: "personal", body: {} }),
   cleanup: () => request("/api/admin/cleanup", adminCleanupSchema, { method: "POST", auth: "personal", body: {} }),
-  deleteStatistics: () => request("/api/admin/statistics", operationResponseSchema, { method: "DELETE", auth: "personal" }),
-  changePin: (pin: string, confirmation: string) => request("/api/admin/pin", adminStatusSchema, { method: "POST", auth: "personal", body: { pin, confirmation } }),
-  resetSystem: () => request("/api/admin/reset-system", adminStatusSchema, { method: "POST", auth: "personal", body: {} })
+  deleteStatistics: (currentPin: string) => request("/api/admin/statistics", operationResponseSchema, { method: "DELETE", auth: "personal", body: { currentPin, confirmation: "DELETE_STATISTICS" } }),
+  changePin: (currentPin: string, pin: string, confirmation: string) => request("/api/admin/pin", adminStatusSchema, { method: "POST", auth: "personal", body: { currentPin, pin, confirmation } }),
+  resetSystem: (currentPin: string) => request("/api/admin/reset-system", adminStatusSchema, { method: "POST", auth: "personal", body: { currentPin, confirmation: "RESET_SYSTEM" } })
 };

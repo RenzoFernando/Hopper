@@ -1,21 +1,44 @@
-import { bytesToHex, rfc3986Encode, sha256Bytes } from "./crypto.js";
-import { HttpError } from "./http.js";
+import type { Env } from "../types/env.ts";
+import { bytesToHex, rfc3986Encode, sha256Bytes, toArrayBuffer } from "../lib/crypto.ts";
+import { HttpError } from "../lib/http.ts";
 
-function encodePathSegment(value) {
+export interface B2VersionEntry {
+  key: string;
+  versionId: string;
+  deleteMarker: boolean;
+  isLatest: boolean;
+  size: number;
+  lastModified: string | null;
+  etag: string | null;
+}
+
+type QueryParameterValue = string | number | boolean | null | undefined;
+type QueryParameters = Record<string, QueryParameterValue>;
+
+interface SignedB2UrlOptions {
+  method: string;
+  objectName?: string;
+  expiresSeconds: number;
+  contentType?: string;
+  queryParameters?: QueryParameters;
+  now?: Date;
+}
+
+function encodePathSegment(value: unknown): string {
   return rfc3986Encode(String(value));
 }
 
-function encodeObjectKey(value) {
+function encodeObjectKey(value: string): string {
   return String(value)
     .split("/")
     .map(encodePathSegment)
     .join("/");
 }
 
-export function canonicalQueryString(parameters) {
+export function canonicalQueryString(parameters: QueryParameters): string {
   return Object.entries(parameters)
     .filter(([, value]) => value !== undefined && value !== null)
-    .map(([key, value]) => [rfc3986Encode(key), rfc3986Encode(value)])
+    .map(([key, value]) => [rfc3986Encode(key), rfc3986Encode(value)] as const)
     .sort(([firstKey, firstValue], [secondKey, secondValue]) => {
       if (firstKey !== secondKey) {
         return firstKey < secondKey ? -1 : 1;
@@ -31,14 +54,15 @@ export function canonicalQueryString(parameters) {
     .join("&");
 }
 
-function awsTimestamp(date) {
+function awsTimestamp(date: Date): string {
   return date.toISOString().replace(/[:-]|\.\d{3}/g, "");
 }
 
-async function hmacSha256(key, value) {
+async function hmacSha256(key: Uint8Array | string, value: string): Promise<Uint8Array> {
+  const keyBytes = key instanceof Uint8Array ? key : new TextEncoder().encode(String(key));
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
-    key instanceof Uint8Array ? key : new TextEncoder().encode(String(key)),
+    toArrayBuffer(keyBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
@@ -48,14 +72,14 @@ async function hmacSha256(key, value) {
   );
 }
 
-async function signingKey(secret, date, region) {
+async function signingKey(secret: string, date: string, region: string): Promise<Uint8Array> {
   const dateKey = await hmacSha256(`AWS4${secret}`, date);
   const regionKey = await hmacSha256(dateKey, region);
   const serviceKey = await hmacSha256(regionKey, "s3");
   return hmacSha256(serviceKey, "aws4_request");
 }
 
-export function parseB2Endpoint(value) {
+export function parseB2Endpoint(value: unknown) {
   let url;
 
   try {
@@ -89,7 +113,7 @@ export function parseB2Endpoint(value) {
   };
 }
 
-function validBucketName(value) {
+function validBucketName(value: unknown): string {
   const bucket = String(value || "").trim();
 
   if (
@@ -106,7 +130,7 @@ function validBucketName(value) {
   return bucket;
 }
 
-function signingConfig(env) {
+function signingConfig(env: Env) {
   const bucket = validBucketName(env.B2_BUCKET_NAME);
   const accessKeyId = String(env.B2_KEY_ID || "").trim();
   const secretAccessKey = String(env.B2_APPLICATION_KEY || "").trim();
@@ -128,14 +152,14 @@ function signingConfig(env) {
   };
 }
 
-export async function createSignedB2Url(env, {
+export async function createSignedB2Url(env: Env, {
   method,
   objectName = "",
   expiresSeconds,
   contentType = "",
   queryParameters = {},
   now = new Date()
-}) {
+}: SignedB2UrlOptions): Promise<string> {
   const {
     endpoint,
     host,
@@ -189,7 +213,7 @@ export async function createSignedB2Url(env, {
   return `${endpoint}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
-function xmlDecode(value) {
+function xmlDecode(value: string): string {
   return String(value || "")
     .replaceAll("&lt;", "<")
     .replaceAll("&gt;", ">")
@@ -198,14 +222,14 @@ function xmlDecode(value) {
     .replaceAll("&amp;", "&");
 }
 
-function tagValue(block, tag) {
+function tagValue(block: string, tag: string): string {
   const match = String(block).match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i"));
   return match ? xmlDecode(match[1]) : "";
 }
 
-export function parseB2VersionList(xml) {
+export function parseB2VersionList(xml: unknown) {
   const source = String(xml || "");
-  const entries = [];
+  const entries: B2VersionEntry[] = [];
   const blockPattern = /<(Version|DeleteMarker)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/gi;
   let match;
 
@@ -237,7 +261,7 @@ export function parseB2VersionList(xml) {
   };
 }
 
-async function requireB2Ok(response, message, code = "b2-error") {
+async function requireB2Ok(response: Response, message: string, code = "b2-error"): Promise<Response> {
   if (response.ok) {
     return response;
   }
@@ -254,7 +278,7 @@ async function requireB2Ok(response, message, code = "b2-error") {
   throw new HttpError(502, code, message);
 }
 
-export async function getB2ObjectMetadata(env, objectName) {
+export async function getB2ObjectMetadata(env: Env, objectName: string) {
   const normalizedObjectName = String(objectName);
   const listed = await listB2ObjectVersions(env, normalizedObjectName);
   const exactEntries = listed.entries.filter((entry) => entry.key === normalizedObjectName);
@@ -273,7 +297,7 @@ export async function getB2ObjectMetadata(env, objectName) {
   };
 }
 
-async function listB2ObjectVersions(env, objectName) {
+async function listB2ObjectVersions(env: Env, objectName: string) {
   const url = await createSignedB2Url(env, {
     method: "GET",
     expiresSeconds: 60,
@@ -293,7 +317,7 @@ async function listB2ObjectVersions(env, objectName) {
   };
 }
 
-export async function deleteB2Version(env, objectName, versionId) {
+export async function deleteB2Version(env: Env, objectName: string, versionId: string): Promise<void> {
   const url = await createSignedB2Url(env, {
     method: "DELETE",
     objectName,
@@ -310,15 +334,15 @@ export async function deleteB2Version(env, objectName, versionId) {
 }
 
 
-export async function listB2VersionsByPrefix(env, prefix = "drop/", maxPages = 20) {
-  const entries = [];
+export async function listB2VersionsByPrefix(env: Env, prefix = "drop/", maxPages = 20) {
+  const entries: B2VersionEntry[] = [];
   let keyMarker = "";
   let versionIdMarker = "";
   let truncated = false;
   let pages = 0;
 
   do {
-    const queryParameters = {
+    const queryParameters: Record<string, string> = {
       versions: "",
       prefix: String(prefix || ""),
       "max-keys": "1000"
@@ -350,7 +374,7 @@ export async function listB2VersionsByPrefix(env, prefix = "drop/", maxPages = 2
   return { entries, truncated, pages };
 }
 
-export async function deleteB2Object(env, objectName) {
+export async function deleteB2Object(env: Env, objectName: string): Promise<void> {
   const listed = await listB2ObjectVersions(env, String(objectName));
   const versions = listed.entries.slice(0, 8);
 
@@ -367,7 +391,7 @@ export async function deleteB2Object(env, objectName) {
   }
 }
 
-export async function checkB2Access(env) {
+export async function checkB2Access(env: Env) {
   const objectName = `drop/__hopper_storage_check__/${crypto.randomUUID()}.txt`;
   let uploaded = false;
 
@@ -401,7 +425,7 @@ export async function checkB2Access(env) {
     };
   } catch (error) {
     if (uploaded) {
-      await deleteB2Object(env, objectName).catch((cleanupError) => {
+      await deleteB2Object(env, objectName).catch((cleanupError: unknown) => {
         console.error("No fue posible retirar el archivo temporal de comprobación de B2.", cleanupError);
       });
     }

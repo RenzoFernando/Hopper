@@ -5,7 +5,7 @@ import {
   createSignedB2Url,
   parseB2Endpoint,
   parseB2VersionList
-} from "../cloudflare/src/b2.js";
+} from "../worker/src/services/b2.ts";
 
 test("valida y extrae la región del endpoint S3 de Backblaze B2", () => {
   assert.deepEqual(

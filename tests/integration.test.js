@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import worker from "../cloudflare/src/index.js";
-import { createSessionToken, verifyConfiguredPin } from "../cloudflare/src/security.js";
+import worker from "../worker/src/index.ts";
+import { createSessionToken, verifyConfiguredPin, writePinCredentials } from "../worker/src/services/security.ts";
 import { TestD1 } from "./d1-test-helper.js";
 
-const schema = readFileSync(new URL("../cloudflare/schema.sql", import.meta.url), "utf8");
+const schema = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 const origin = "https://renzofernando.github.io";
 const secret = "hopper-integration-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 
@@ -224,15 +224,38 @@ test("Administración cambia el PIN y reinicia el estado temporal sin perder el 
   const env = {
     DB: db,
     SESSION_SECRET: secret,
-    ALLOWED_ORIGINS: origin
+    ALLOWED_ORIGINS: origin,
+    B2_BUCKET_NAME: "hopper-test",
+    B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com",
+    B2_KEY_ID: "004testkeyid",
+    B2_APPLICATION_KEY: "integration-b2-application-key-abcdefghijklmnopqrstuvwxyz"
   };
+  const originalFetch = globalThis.fetch;
 
   try {
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      const method = String(init.method || input?.method || "GET").toUpperCase();
+
+      if (url.hostname === "s3.us-east-005.backblazeb2.com" && method === "GET" && url.searchParams.has("versions")) {
+        return new Response("<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListVersionsResult><IsTruncated>false</IsTruncated></ListVersionsResult>", {
+          status: 200,
+          headers: { "Content-Type": "application/xml" }
+        });
+      }
+
+      if (url.hostname === "s3.us-east-005.backblazeb2.com" && method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+
+      throw new Error(`Fetch inesperado en reinicio: ${method} ${url}`);
+    };
+    await writePinCredentials(db, "1234", env);
     const initialToken = await createSessionToken(secret, 1);
     const changePinResponse = await worker.fetch(request("/api/admin/pin", {
       method: "POST",
       token: initialToken,
-      body: { pin: "2468", confirmation: "2468" }
+      body: { currentPin: "1234", pin: "2468", confirmation: "2468" }
     }), env);
     assert.equal(changePinResponse.status, 200);
     assert.equal((await json(changePinResponse)).status, "updated");
@@ -268,7 +291,7 @@ test("Administración cambia el PIN y reinicia el estado temporal sin perder el 
     const resetResponse = await worker.fetch(request("/api/admin/reset-system", {
       method: "POST",
       token: personalToken,
-      body: {}
+      body: { currentPin: "2468", confirmation: "RESET_SYSTEM" }
     }), env);
     assert.equal(resetResponse.status, 200);
     const reset = await json(resetResponse);
@@ -289,6 +312,7 @@ test("Administración cambia el PIN y reinicia el estado temporal sin perder el 
     const sessionAfterReset = await db.prepare("SELECT version FROM session_state WHERE id = 1").first();
     assert.ok(Number(sessionAfterReset.version) > Number(sessionAfterPinChange.version));
   } finally {
+    globalThis.fetch = originalFetch;
     db.close();
   }
 });

@@ -1,18 +1,35 @@
+import type { ClientInfo, D1Database, Env } from "../types/env.ts";
 import {
   MAX_FAILED_ATTEMPTS,
   SESSION_TTL_SECONDS
-} from "./constants.js";
+} from "../lib/constants.ts";
 import {
   base64UrlDecodeBytes,
   base64UrlEncodeBytes,
   base64UrlEncodeText,
   randomBytes,
   sha256Bytes,
-  timingSafeEqualBytes
-} from "./crypto.js";
-import { bearerToken, HttpError, normalizeText } from "./http.js";
+  timingSafeEqualBytes,
+  toArrayBuffer
+} from "../lib/crypto.ts";
+import { bearerToken, HttpError, normalizeText } from "../lib/http.ts";
 
-async function importHmacKey(secret, namespace) {
+interface PinCredentials {
+  salt: string;
+  pinHash: string;
+  algorithm: string;
+}
+
+export interface PersonalSessionPayload {
+  typ: "personal";
+  scp: string[];
+  iat: number;
+  exp: number;
+  ver: number;
+  nonce: string;
+}
+
+async function importHmacKey(secret: string, namespace: string): Promise<CryptoKey> {
   if (typeof secret !== "string" || secret.length < 32) {
     throw new Error("SESSION_SECRET debe tener al menos 32 caracteres.");
   }
@@ -20,24 +37,24 @@ async function importHmacKey(secret, namespace) {
   const keyBytes = await sha256Bytes(`hopper-${namespace}-key-v1:${secret}`);
   return crypto.subtle.importKey(
     "raw",
-    keyBytes,
+    toArrayBuffer(keyBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
   );
 }
 
-export function isValidPin(pin) {
+export function isValidPin(pin: unknown): boolean {
   return /^\d{4}$/.test(normalizeText(pin));
 }
 
-async function derivePinHash(pin, salt, secret) {
+async function derivePinHash(pin: string, salt: string, secret: string): Promise<Uint8Array> {
   const key = await importHmacKey(secret, "pin");
   const payload = new TextEncoder().encode(`hopper-pin-v1:${salt}:${pin}`);
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, payload));
 }
 
-async function createPinCredentialValues(pin, env) {
+async function createPinCredentialValues(pin: string, env: Env) {
   const salt = base64UrlEncodeBytes(randomBytes(16));
   const pinHash = await derivePinHash(pin, salt, env.SESSION_SECRET);
 
@@ -48,12 +65,12 @@ async function createPinCredentialValues(pin, env) {
   };
 }
 
-export async function getPinCredentials(env) {
+export async function getPinCredentials(env: Env) {
   const row = await env.DB.prepare(`
     SELECT salt, pin_hash AS pinHash, algorithm
     FROM pin_credentials
     WHERE id = 1
-  `).first();
+  `).first<PinCredentials>();
 
   if (!row) {
     throw new HttpError(503, "pin-not-configured", "Hopper todavía no tiene un PIN configurado.");
@@ -62,7 +79,7 @@ export async function getPinCredentials(env) {
   return row;
 }
 
-export async function verifyConfiguredPin(env, candidate) {
+export async function verifyConfiguredPin(env: Env, candidate: unknown): Promise<boolean> {
   const credentials = await getPinCredentials(env);
 
   if (credentials.algorithm !== "hmac-sha256-v1") {
@@ -78,7 +95,7 @@ export async function verifyConfiguredPin(env, candidate) {
   }
 
   const candidateHash = await derivePinHash(
-    candidate,
+    normalizeText(candidate),
     String(credentials.salt || ""),
     env.SESSION_SECRET
   );
@@ -86,7 +103,7 @@ export async function verifyConfiguredPin(env, candidate) {
   return timingSafeEqualBytes(candidateHash, expectedHash);
 }
 
-export async function writePinCredentials(db, pin, env) {
+export async function writePinCredentials(db: D1Database, pin: string, env: Env): Promise<void> {
   if (!isValidPin(pin)) {
     throw new HttpError(400, "invalid-pin-format", "El PIN debe tener exactamente 4 dígitos numéricos.");
   }
@@ -110,7 +127,7 @@ export async function writePinCredentials(db, pin, env) {
   ).run();
 }
 
-async function signSessionBody(body, secret) {
+async function signSessionBody(body: string, secret: string): Promise<string> {
   const key = await importHmacKey(secret, "session");
   const signature = new Uint8Array(
     await crypto.subtle.sign(
@@ -122,9 +139,11 @@ async function signSessionBody(body, secret) {
   return base64UrlEncodeBytes(signature);
 }
 
-export async function createSessionToken(secret, sessionVersion, now = Date.now()) {
+export async function createSessionToken(secret: string, sessionVersion: number, now = Date.now()): Promise<string> {
   const issuedAt = Math.floor(now / 1000);
   const payload = {
+    typ: "personal",
+    scp: ["personal"],
     iat: issuedAt,
     exp: issuedAt + SESSION_TTL_SECONDS,
     ver: Number(sessionVersion),
@@ -135,7 +154,7 @@ export async function createSessionToken(secret, sessionVersion, now = Date.now(
   return `${body}.${signature}`;
 }
 
-export async function verifySessionToken(token, secret, now = Date.now()) {
+export async function verifySessionToken(token: unknown, secret: string, now = Date.now()): Promise<PersonalSessionPayload | null> {
   const [body, signature, extra] = String(token || "").split(".");
 
   if (!body || !signature || extra !== undefined) {
@@ -144,13 +163,13 @@ export async function verifySessionToken(token, secret, now = Date.now()) {
 
   let expected;
   let candidate;
-  let payload;
+  let payload: unknown;
 
   try {
     expected = base64UrlDecodeBytes(await signSessionBody(body, secret));
     candidate = base64UrlDecodeBytes(signature);
     const json = new TextDecoder().decode(base64UrlDecodeBytes(body));
-    payload = JSON.parse(json);
+    payload = JSON.parse(json) as unknown;
   } catch {
     return null;
   }
@@ -161,21 +180,34 @@ export async function verifySessionToken(token, secret, now = Date.now()) {
 
   const nowSeconds = Math.floor(now / 1000);
 
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const session = payload as Partial<PersonalSessionPayload>;
+
   if (
-    !Number.isInteger(payload?.iat)
-    || !Number.isInteger(payload?.exp)
-    || !Number.isInteger(payload?.ver)
-    || payload.exp <= nowSeconds
-    || payload.iat > nowSeconds + 60
-    || payload.exp - payload.iat > SESSION_TTL_SECONDS + 5
+    session.typ !== "personal"
+    || !Array.isArray(session.scp)
+    || !session.scp.includes("personal")
+    || !Number.isInteger(session.iat)
+    || !Number.isInteger(session.exp)
+    || !Number.isInteger(session.ver)
+    || typeof session.iat !== "number"
+    || typeof session.exp !== "number"
+    || typeof session.ver !== "number"
+    || typeof session.nonce !== "string"
+    || session.exp <= nowSeconds
+    || session.iat > nowSeconds + 60
+    || session.exp - session.iat > SESSION_TTL_SECONDS + 5
   ) {
     return null;
   }
 
-  return payload;
+  return session as PersonalSessionPayload;
 }
 
-export async function getSecurityState(db) {
+export async function getSecurityState(db: D1Database) {
   const row = await db.prepare(`
     SELECT
       failed_attempts AS failedAttempts,
@@ -188,7 +220,7 @@ export async function getSecurityState(db) {
   `).first();
 
   if (!row) {
-    throw new Error("La base D1 no está inicializada. Ejecuta cloudflare/schema.sql.");
+    throw new Error("La base D1 no está inicializada. Ejecuta las migraciones de worker/migrations.");
   }
 
   return {
@@ -200,7 +232,7 @@ export async function getSecurityState(db) {
   };
 }
 
-export async function getSessionVersion(db) {
+export async function getSessionVersion(db: D1Database) {
   const row = await db.prepare(`
     SELECT version
     FROM session_state
@@ -208,13 +240,13 @@ export async function getSessionVersion(db) {
   `).first();
 
   if (!row) {
-    throw new Error("La base D1 no está inicializada. Ejecuta cloudflare/schema.sql.");
+    throw new Error("La base D1 no está inicializada. Ejecuta las migraciones de worker/migrations.");
   }
 
   return Number(row.version) || 1;
 }
 
-export async function logSecurityEvent(db, type, client, details = {}) {
+export async function logSecurityEvent(db: D1Database, type: string, client: ClientInfo, details: Record<string, unknown> = {}): Promise<void> {
   const payload = {
     ip: client?.ip || "",
     country: client?.country || "",
@@ -228,7 +260,7 @@ export async function logSecurityEvent(db, type, client, details = {}) {
   `).bind(type, new Date().toISOString(), JSON.stringify(payload)).run();
 }
 
-function parseIpv4(value) {
+function parseIpv4(value: unknown): number | null {
   const parts = String(value || "").split(".");
 
   if (parts.length !== 4) {
@@ -244,7 +276,7 @@ function parseIpv4(value) {
   return (((numbers[0] * 256 + numbers[1]) * 256 + numbers[2]) * 256) + numbers[3];
 }
 
-export function ipv4MatchesCidr(ip, cidr) {
+export function ipv4MatchesCidr(ip: string, cidr: string): boolean {
   const [network, prefixText, extra] = String(cidr || "").split("/");
   const prefix = Number(prefixText);
   const ipValue = parseIpv4(ip);
@@ -269,7 +301,7 @@ export function ipv4MatchesCidr(ip, cidr) {
   return Math.floor(ipValue / divisor) === Math.floor(networkValue / divisor);
 }
 
-export async function isClientBlocked(db, ip) {
+export async function isClientBlocked(db: D1Database, ip: string): Promise<boolean> {
   if (!ip) {
     return false;
   }
@@ -278,7 +310,7 @@ export async function isClientBlocked(db, ip) {
     SELECT target, kind
     FROM blocked_clients
     ORDER BY id ASC
-  `).all();
+  `).all<{ target: string; kind: string }>();
   const rows = Array.isArray(result?.results) ? result.results : [];
 
   return rows.some((row) => {
@@ -297,27 +329,27 @@ export async function isClientBlocked(db, ip) {
   });
 }
 
-export async function ensureClientAllowed(db, client) {
+export async function ensureClientAllowed(db: D1Database, client: ClientInfo) {
   if (await isClientBlocked(db, client.ip)) {
     await logSecurityEvent(db, "blocked-client-request", client);
     throw new HttpError(403, "client-blocked", "Acceso denegado.");
   }
 }
 
-async function rateLimitKey(scope, client) {
+async function rateLimitKey(scope: string, client: ClientInfo): Promise<string> {
   const ip = client?.ip || "unknown";
   const digest = await sha256Bytes(ip);
   return `${scope}:${base64UrlEncodeBytes(digest).slice(0, 32)}`;
 }
 
-export async function enforceRateLimit(db, client, scope, limit, windowSeconds) {
+export async function enforceRateLimit(db: D1Database, client: ClientInfo, scope: string, limit: number, windowSeconds: number): Promise<void> {
   const key = await rateLimitKey(scope, client);
   const now = Date.now();
   const row = await db.prepare(`
     SELECT window_started_at AS windowStartedAt, count
     FROM rate_limits
     WHERE key = ?1
-  `).bind(key).first();
+  `).bind(key).first<{ windowStartedAt: string; count: number }>();
   const startedAt = row?.windowStartedAt ? Date.parse(row.windowStartedAt) : NaN;
   const windowExpired = !Number.isFinite(startedAt) || startedAt + windowSeconds * 1000 <= now;
   const count = windowExpired ? 1 : Number(row?.count || 0) + 1;
@@ -333,7 +365,7 @@ export async function enforceRateLimit(db, client, scope, limit, windowSeconds) 
       expires_at = excluded.expires_at
   `).bind(
     key,
-    windowExpired ? nowIso : row.windowStartedAt,
+    windowExpired ? nowIso : String(row?.windowStartedAt || nowIso),
     count,
     expiresAt
   ).run();
@@ -343,14 +375,14 @@ export async function enforceRateLimit(db, client, scope, limit, windowSeconds) 
   }
 }
 
-export async function cleanupRateLimits(db) {
+export async function cleanupRateLimits(db: D1Database) {
   await db.prepare(`
     DELETE FROM rate_limits
     WHERE expires_at <= ?1
   `).bind(new Date().toISOString()).run();
 }
 
-export async function registerFailedAttempt(db, client) {
+export async function registerFailedAttempt(db: D1Database, client: ClientInfo) {
   const now = new Date().toISOString();
   const clientDetails = JSON.stringify(client);
   const results = await db.batch([
@@ -422,7 +454,7 @@ export async function registerFailedAttempt(db, client) {
   };
 }
 
-export async function registerSuccessfulPin(db, client) {
+export async function registerSuccessfulPin(db: D1Database, client: ClientInfo) {
   const now = new Date().toISOString();
   const results = await db.batch([
     db.prepare(`
@@ -452,7 +484,7 @@ export async function registerSuccessfulPin(db, client) {
   };
 }
 
-export async function resetSecurityState(db, client, eventType) {
+export async function resetSecurityState(db: D1Database, client: ClientInfo, eventType: string): Promise<void> {
   const now = new Date().toISOString();
 
   await db.batch([
@@ -482,7 +514,23 @@ export async function resetSecurityState(db, client, eventType) {
   await logSecurityEvent(db, eventType, client);
 }
 
-export async function hasValidAdminCliToken(request, env) {
+export async function requireCurrentPin(
+  env: Env,
+  currentPin: unknown,
+  client: ClientInfo,
+  eventType = "admin-reauth"
+) {
+  const pin = normalizeText(currentPin);
+
+  if (!isValidPin(pin) || !(await verifyConfiguredPin(env, pin))) {
+    await logSecurityEvent(env.DB, `${eventType}-failed`, client);
+    throw new HttpError(403, "reauthentication-failed", "El PIN actual no es correcto.");
+  }
+
+  await logSecurityEvent(env.DB, `${eventType}-success`, client);
+}
+
+export async function hasValidAdminCliToken(request: Request, env: Env) {
   const expected = normalizeText(env.ADMIN_CLI_TOKEN);
   const candidate = bearerToken(request);
 
@@ -498,9 +546,8 @@ export async function hasValidAdminCliToken(request, env) {
   return timingSafeEqualBytes(expectedHash, candidateHash);
 }
 
-export async function requireAuthorizedRequest(request, env, client) {
+export async function requireAuthorizedRequest(request: Request, env: Env, client: ClientInfo) {
   await ensureClientAllowed(env.DB, client);
-  await enforceRateLimit(env.DB, client, "api", 180, 60);
 
   const token = bearerToken(request);
   const session = await verifySessionToken(token, env.SESSION_SECRET);

@@ -5,7 +5,7 @@ import {
   isPreviewableImage,
   normalizeTtlMinutes,
   sanitizeFilename
-} from "../cloudflare/src/items.js";
+} from "../worker/src/services/items.ts";
 
 test("normaliza únicamente los TTL disponibles", () => {
   assert.equal(normalizeTtlMinutes("5"), 5);

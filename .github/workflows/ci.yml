@@ -4,7 +4,7 @@ on:
   pull_request:
   push:
     branches:
-      - main
+      - master
 
 permissions:
   contents: read
@@ -30,6 +30,15 @@ jobs:
           else
             npm install --no-audit --no-fund
           fi
+
+      - name: Dependencias del Worker
+        run: npm install --prefix worker --no-audit --no-fund
+
+      - name: TypeScript del Worker
+        run: npm --prefix worker run typecheck
+
+      - name: Tests de seguridad del Worker
+        run: npm --prefix worker test
 
       - name: ESLint
         run: npm run lint

@@ -16,6 +16,7 @@ yarn-error.log*
 pnpm-debug.log*
 *service-account*.json
 cloudflare/.dev.vars
+worker/.dev.vars
 cloudflare/.wrangler/
 .wrangler/
 .hopper-admin.json

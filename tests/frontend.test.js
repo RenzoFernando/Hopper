@@ -111,7 +111,7 @@ test("la instalación PWA permanece disponible en la portada móvil", () => {
 test("las salas públicas usan TTL fijo y no muestran controles para cambiarlo", () => {
   const roomHtml = read("room.html");
   const roomJs = read("js/room.js");
-  const constants = read("cloudflare/src/constants.js");
+  const constants = read("worker/src/lib/constants.ts");
   assert.doesNotMatch(roomHtml, /id="ttl-select"/);
   assert.match(roomJs, /defaultTtlMinutes:\s*5/);
   assert.match(roomJs, /ttlOptions:\s*\[5\]/);

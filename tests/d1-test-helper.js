@@ -67,7 +67,10 @@ class TestD1 {
     this.database.exec("BEGIN");
 
     try {
-      const results = statements.map((statement) => statement.run());
+      const results = statements.map((statement) => {
+        const isRead = /^\s*(SELECT|PRAGMA|WITH)\b/i.test(statement.sql);
+        return isRead ? statement.all() : statement.run();
+      });
       this.database.exec("COMMIT");
       return results;
     } catch (error) {

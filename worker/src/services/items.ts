@@ -1,3 +1,4 @@
+import type { Env } from "../types/env.ts";
 import {
   DEFAULT_MAX_FILE_BYTES,
   DOWNLOAD_URL_TTL_SECONDS,
@@ -9,21 +10,50 @@ import {
   STORAGE_WARNING_BYTES,
   TTL_OPTIONS,
   UPLOAD_URL_TTL_SECONDS
-} from "./constants.js";
-import { HttpError, normalizeText } from "./http.js";
+} from "../lib/constants.ts";
+import { HttpError, normalizeText } from "../lib/http.ts";
 import {
   createSignedB2Url,
   deleteB2Object,
   getB2ObjectMetadata
-} from "./b2.js";
+} from "./b2.ts";
 import {
   recordCleanupFailure,
   recordDeletion,
   recordTransfer,
   recordUploadFailure
-} from "./usage.js";
+} from "./usage.ts";
 
-function personalContext() {
+export interface ItemContext {
+  spaceType: "personal" | "room";
+  roomId: string | null;
+  roomExpiresAt: string | null;
+  maxFileBytes: number | null;
+  maxBytes: number | null;
+  maxItems: number | null;
+  ttlOptions: readonly number[];
+}
+
+interface DropItem {
+  id: string;
+  type: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+  ttlMinutes: number;
+  spaceType?: string;
+  roomId?: string | null;
+  etag?: string | null;
+  content?: string;
+  name?: string;
+  size?: number;
+  mimeType?: string;
+  storageKey?: string;
+  previewable?: boolean;
+  audio?: boolean;
+}
+
+function personalContext(): ItemContext {
   return {
     spaceType: "personal",
     roomId: null,
@@ -35,7 +65,7 @@ function personalContext() {
   };
 }
 
-function normalizeContext(context) {
+function normalizeContext(context: Partial<ItemContext> | null | undefined): ItemContext {
   if (context?.spaceType === "room" && /^[0-9a-f-]{36}$/i.test(String(context.roomId || ""))) {
     return {
       spaceType: "room",
@@ -51,7 +81,7 @@ function normalizeContext(context) {
   return personalContext();
 }
 
-export function normalizeTtlMinutes(value, options = TTL_OPTIONS) {
+export function normalizeTtlMinutes(value: unknown, options: readonly unknown[] = TTL_OPTIONS): number {
   const minutes = Number(value);
   const allowed = Array.isArray(options) ? options.map(Number) : TTL_OPTIONS;
 
@@ -62,7 +92,7 @@ export function normalizeTtlMinutes(value, options = TTL_OPTIONS) {
   return minutes;
 }
 
-export function sanitizeFilename(value) {
+export function sanitizeFilename(value: unknown): string {
   const source = normalizeText(value).normalize("NFKC");
   const withoutPaths = source.replace(/[\\/]+/g, "-");
   const cleaned = withoutPaths
@@ -75,26 +105,26 @@ export function sanitizeFilename(value) {
   return cleaned || "archivo";
 }
 
-function normalizeMimeType(value) {
+function normalizeMimeType(value: unknown): string {
   const mimeType = normalizeText(value).toLowerCase().slice(0, 160);
   return mimeType || "application/octet-stream";
 }
 
-function personalMaxFileBytes(env) {
+function personalMaxFileBytes(env: Env) {
   const configured = Number(env.MAX_FILE_BYTES);
   return Number.isFinite(configured) && configured > 0
     ? Math.floor(configured)
     : DEFAULT_MAX_FILE_BYTES;
 }
 
-function maxFileBytes(env, context) {
+function maxFileBytes(env: Env, context: Partial<ItemContext> | null | undefined): number {
   const scope = normalizeContext(context);
   return scope.spaceType === "room" && scope.maxFileBytes
     ? scope.maxFileBytes
     : personalMaxFileBytes(env);
 }
 
-function validateFileMetadata(env, payload, context) {
+function validateFileMetadata(env: Env, payload: { name?: unknown; size?: unknown; mimeType?: unknown; ttlMinutes?: unknown }, context: Partial<ItemContext> | null | undefined) {
   const scope = normalizeContext(context);
   const name = sanitizeFilename(payload?.name);
   const size = Number(payload?.size);
@@ -112,7 +142,7 @@ function validateFileMetadata(env, payload, context) {
   return { name, size, mimeType, ttlMinutes };
 }
 
-function validateItemId(value) {
+function validateItemId(value: unknown): string {
   const id = normalizeText(value);
 
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
@@ -122,12 +152,12 @@ function validateItemId(value) {
   return id;
 }
 
-function rowToDropItem(row) {
+function rowToDropItem(row: Record<string, unknown> | null | undefined): DropItem | null {
   if (!row) {
     return null;
   }
 
-  const item = {
+  const item: DropItem = {
     id: String(row.id || ""),
     type: String(row.type || ""),
     status: String(row.status || ""),
@@ -153,7 +183,7 @@ function rowToDropItem(row) {
   return item;
 }
 
-function publicItem(item) {
+function publicItem(item: DropItem | null): DropItem | null {
   if (!item) {
     return item;
   }
@@ -172,7 +202,17 @@ function publicItem(item) {
   return visible;
 }
 
-function assertScope(item, context) {
+function storageKeyFor(item: DropItem): string {
+  const storageKey = String(item.storageKey || "");
+
+  if (item.type !== "file" || !storageKey) {
+    throw new HttpError(500, "invalid-storage-state", "El archivo temporal no tiene una referencia de almacenamiento válida.");
+  }
+
+  return storageKey;
+}
+
+function assertScope(item: DropItem, context: Partial<ItemContext> | null | undefined): void {
   const scope = normalizeContext(context);
   const matches = scope.spaceType === "room"
     ? item?.spaceType === "room" && item?.roomId === scope.roomId
@@ -183,13 +223,13 @@ function assertScope(item, context) {
   }
 }
 
-async function deleteDropItemRow(env, id) {
+async function deleteDropItemRow(env: Env, id: unknown): Promise<void> {
   await env.DB.prepare(`DELETE FROM drop_items WHERE id = ?1`)
     .bind(validateItemId(id))
     .run();
 }
 
-export async function getDropItem(env, id) {
+export async function getDropItem(env: Env, id: unknown): Promise<DropItem | null> {
   const row = await env.DB.prepare(`
     SELECT
       id,
@@ -214,12 +254,12 @@ export async function getDropItem(env, id) {
   return rowToDropItem(row);
 }
 
-export function isExpired(item, now = Date.now()) {
+export function isExpired(item: Pick<DropItem, "expiresAt"> | null | undefined, now: number = Date.now()): boolean {
   const expiresAt = Date.parse(item?.expiresAt || "");
   return !Number.isFinite(expiresAt) || expiresAt <= now;
 }
 
-export function isPreviewableImage(item) {
+export function isPreviewableImage(item: DropItem | null | undefined): boolean {
   return item?.type === "file" && [
     "image/jpeg",
     "image/png",
@@ -229,11 +269,11 @@ export function isPreviewableImage(item) {
   ].includes(String(item?.mimeType || "").toLowerCase());
 }
 
-export function isAudio(item) {
+export function isAudio(item: DropItem | null | undefined): boolean {
   return item?.type === "file" && String(item?.mimeType || "").toLowerCase().startsWith("audio/");
 }
 
-function scopeFilter(context, alias = "") {
+function scopeFilter(context: Partial<ItemContext> | null | undefined, alias: string = ""): { sql: string; values: Array<string | null> } {
   const scope = normalizeContext(context);
   const prefix = alias ? `${alias}.` : "";
 
@@ -250,7 +290,7 @@ function scopeFilter(context, alias = "") {
   };
 }
 
-export async function listActiveItems(env, context = personalContext()) {
+export async function listActiveItems(env: Env, context: ItemContext = personalContext()) {
   const now = new Date().toISOString();
   const filter = scopeFilter(context);
   const result = await env.DB.prepare(`
@@ -275,10 +315,10 @@ export async function listActiveItems(env, context = personalContext()) {
     LIMIT ?${filter.values.length + 2}
   `).bind(now, ...filter.values, MAX_LIST_ITEMS).all();
 
-  return (result.results || []).map(rowToDropItem).map(publicItem);
+  return (result.results || []).map(rowToDropItem).filter((item): item is DropItem => item !== null).map(publicItem);
 }
 
-function effectiveExpiry(ttlMinutes, context, base = Date.now()) {
+function effectiveExpiry(ttlMinutes: number, context: Partial<ItemContext> | null | undefined, base: number = Date.now()): Date {
   const requested = base + ttlMinutes * 60_000;
   const scope = normalizeContext(context);
   const roomExpiry = Date.parse(scope.roomExpiresAt || "");
@@ -290,7 +330,7 @@ function effectiveExpiry(ttlMinutes, context, base = Date.now()) {
   );
 }
 
-async function enforceRoomItemLimit(env, context) {
+async function enforceRoomItemLimit(env: Env, context: Partial<ItemContext> | null | undefined): Promise<void> {
   const scope = normalizeContext(context);
 
   if (scope.spaceType !== "room" || !scope.maxItems) {
@@ -308,7 +348,7 @@ async function enforceRoomItemLimit(env, context) {
   }
 }
 
-export async function getEstimatedStorageUsage(env) {
+export async function getEstimatedStorageUsage(env: Env) {
   const row = await env.DB.prepare(`
     SELECT COALESCE(SUM(size), 0) AS bytes
     FROM drop_items
@@ -331,7 +371,7 @@ export async function getEstimatedStorageUsage(env) {
   };
 }
 
-async function enforceStorageGuardrail(env, additionalBytes, context) {
+async function enforceStorageGuardrail(env: Env, additionalBytes: number, context: Partial<ItemContext> | null | undefined): Promise<void> {
   const scope = normalizeContext(context);
   const globalUsage = await getEstimatedStorageUsage(env);
 
@@ -356,7 +396,7 @@ async function enforceStorageGuardrail(env, additionalBytes, context) {
   }
 }
 
-export async function createTextItem(env, payload, context = personalContext()) {
+export async function createTextItem(env: Env, payload: { content?: unknown; ttlMinutes?: unknown }, context: ItemContext = personalContext()) {
   const scope = normalizeContext(context);
   const content = String(payload?.content ?? "");
   const ttlMinutes = normalizeTtlMinutes(payload?.ttlMinutes, scope.ttlOptions);
@@ -415,7 +455,7 @@ export async function createTextItem(env, payload, context = personalContext()) 
   return publicItem(await getDropItem(env, id));
 }
 
-export async function initializeFileUpload(env, payload, context = personalContext()) {
+export async function initializeFileUpload(env: Env, payload: { name?: unknown; size?: unknown; mimeType?: unknown; ttlMinutes?: unknown }, context: ItemContext = personalContext()) {
   const scope = normalizeContext(context);
   const file = validateFileMetadata(env, payload, scope);
   const id = crypto.randomUUID();
@@ -511,7 +551,7 @@ export async function initializeFileUpload(env, payload, context = personalConte
   }
 }
 
-export async function completeFileUpload(env, id, context = personalContext()) {
+export async function completeFileUpload(env: Env, id: unknown, context: ItemContext = personalContext()) {
   const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
 
@@ -529,7 +569,7 @@ export async function completeFileUpload(env, id, context = personalContext()) {
     throw new HttpError(410, "upload-expired", "La ventana de subida de este archivo ya venció.");
   }
 
-  const metadata = await getB2ObjectMetadata(env, item.storageKey);
+  const metadata = await getB2ObjectMetadata(env, storageKeyFor(item));
 
   if (!metadata) {
     throw new HttpError(409, "upload-not-found", "Backblaze B2 todavía no confirma la subida del archivo.");
@@ -538,7 +578,7 @@ export async function completeFileUpload(env, id, context = personalContext()) {
   const actualSize = Number(metadata.size || 0);
 
   if (actualSize !== item.size) {
-    await deleteB2Object(env, item.storageKey).catch(() => {});
+    await deleteB2Object(env, storageKeyFor(item)).catch(() => {});
     await deleteDropItemRow(env, item.id).catch(() => {});
     await recordUploadFailure(env.DB).catch(() => {});
     throw new HttpError(409, "upload-size-mismatch", "La subida quedó incompleta y fue descartada.");
@@ -579,7 +619,7 @@ export async function completeFileUpload(env, id, context = personalContext()) {
   return publicItem(readyItem);
 }
 
-export async function cancelFileUpload(env, id, context = personalContext()) {
+export async function cancelFileUpload(env: Env, id: unknown, context: ItemContext = personalContext()): Promise<void> {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item) {
@@ -589,13 +629,13 @@ export async function cancelFileUpload(env, id, context = personalContext()) {
   assertScope(item, context);
 
   if (item.type === "file" && item.storageKey) {
-    await deleteB2Object(env, item.storageKey);
+    await deleteB2Object(env, storageKeyFor(item));
   }
 
   await deleteDropItemRow(env, item.id);
 }
 
-export async function createItemDownloadUrl(env, id, mode = "download", context = personalContext()) {
+export async function createItemDownloadUrl(env: Env, id: unknown, mode: string = "download", context: ItemContext = personalContext()) {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item || item.type !== "file" || item.status !== "ready") {
@@ -622,7 +662,7 @@ export async function createItemDownloadUrl(env, id, mode = "download", context 
   );
   const url = await createSignedB2Url(env, {
     method: "GET",
-    objectName: item.storageKey,
+    objectName: storageKeyFor(item),
     expiresSeconds: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds),
     queryParameters: mode === "download"
       ? { "response-content-type": "application/octet-stream" }
@@ -637,7 +677,7 @@ export async function createItemDownloadUrl(env, id, mode = "download", context 
   };
 }
 
-export async function resetItemTtl(env, id, ttlValue, context = personalContext()) {
+export async function resetItemTtl(env: Env, id: unknown, ttlValue: unknown, context: ItemContext = personalContext()) {
   const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
 
@@ -659,9 +699,9 @@ export async function resetItemTtl(env, id, ttlValue, context = personalContext(
   return publicItem(await getDropItem(env, item.id));
 }
 
-async function deleteItemRecord(env, item, { countDeletion = true } = {}) {
+async function deleteItemRecord(env: Env, item: DropItem, { countDeletion = true }: { countDeletion?: boolean } = {}): Promise<void> {
   if (item.type === "file" && item.storageKey) {
-    await deleteB2Object(env, item.storageKey);
+    await deleteB2Object(env, storageKeyFor(item));
   }
 
   await deleteDropItemRow(env, item.id);
@@ -671,7 +711,7 @@ async function deleteItemRecord(env, item, { countDeletion = true } = {}) {
   }
 }
 
-export async function deleteItem(env, id, context = personalContext()) {
+export async function deleteItem(env: Env, id: unknown, context: ItemContext = personalContext()): Promise<void> {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item) {
@@ -682,7 +722,7 @@ export async function deleteItem(env, id, context = personalContext()) {
   await deleteItemRecord(env, item);
 }
 
-async function runWithConcurrency(values, limit, worker) {
+async function runWithConcurrency<T>(values: readonly T[], limit: number, worker: (value: T) => Promise<void>): Promise<void> {
   let index = 0;
   const runners = Array.from({ length: Math.min(limit, values.length) }, async () => {
     while (index < values.length) {
@@ -695,7 +735,7 @@ async function runWithConcurrency(values, limit, worker) {
   await Promise.all(runners);
 }
 
-export async function deleteAllItems(env) {
+export async function deleteAllItems(env: Env) {
   let cursorCreatedAt = "";
   let cursorId = "";
   let scanned = 0;
@@ -724,7 +764,7 @@ export async function deleteAllItems(env) {
       ORDER BY created_at ASC, id ASC
       LIMIT 100
     `).bind(cursorCreatedAt, cursorId).all();
-    const items = (result.results || []).map(rowToDropItem);
+    const items = (result.results || []).map(rowToDropItem).filter((item): item is DropItem => item !== null);
 
     if (items.length === 0) {
       break;
@@ -760,7 +800,7 @@ export async function deleteAllItems(env) {
   return { scanned, deleted, failed: Math.max(failed, remainingCount), remaining: remainingCount };
 }
 
-export async function cleanupExpiredItems(env) {
+export async function cleanupExpiredItems(env: Env) {
   const now = new Date().toISOString();
   const result = await env.DB.prepare(`
     SELECT
@@ -783,7 +823,7 @@ export async function cleanupExpiredItems(env) {
     ORDER BY expires_at ASC
     LIMIT ?2
   `).bind(now, MAX_CLEANUP_ITEMS).all();
-  const expired = (result.results || []).map(rowToDropItem);
+  const expired = (result.results || []).map(rowToDropItem).filter((item): item is DropItem => item !== null);
   let deleted = 0;
   let failed = 0;
 
@@ -804,7 +844,7 @@ export async function cleanupExpiredItems(env) {
   return { scanned: expired.length, expired: expired.length, deleted, failed };
 }
 
-export async function deleteItemsForRoom(env, roomId) {
+export async function deleteItemsForRoom(env: Env, roomId: string) {
   const result = await env.DB.prepare(`
     SELECT
       id,
@@ -825,7 +865,7 @@ export async function deleteItemsForRoom(env, roomId) {
     WHERE space_type = 'room' AND room_id = ?1
     ORDER BY created_at ASC
   `).bind(String(roomId || "")).all();
-  const items = (result.results || []).map(rowToDropItem);
+  const items = (result.results || []).map(rowToDropItem).filter((item): item is DropItem => item !== null);
   let deleted = 0;
   let failed = 0;
 

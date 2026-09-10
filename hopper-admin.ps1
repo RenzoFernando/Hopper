@@ -1,4 +1,4 @@
-﻿param(
+param(
   [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url", "pages-preview", "phase3-preview-cors", "phase3-preview-cors-reset")]
   [string]$Action = "menu"
 )
@@ -8,7 +8,8 @@ Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
 $deployConfigPath = Join-Path $PSScriptRoot ".hopper-wrangler.json"
-$schemaPath = Join-Path $PSScriptRoot "cloudflare\schema.sql"
+$migrationsPath = Join-Path $PSScriptRoot "worker\migrations"
+$workerPackagePath = Join-Path $PSScriptRoot "worker\package.json"
 $frontendConfigPath = Join-Path $PSScriptRoot "js\config.js"
 
 $script:DatabaseName = ""
@@ -354,17 +355,60 @@ function Invoke-D1Command {
   Invoke-Wrangler d1 execute $script:DatabaseName --remote --command $Sql --yes
 }
 
-function Invoke-D1File {
-  param([string]$Path)
-  Invoke-Wrangler d1 execute $script:DatabaseName --remote --file $Path --yes
-}
-
 function Initialize-Schema {
   if (-not $script:DatabaseName) {
     Select-Database
   }
 
-  Invoke-D1File $schemaPath
+  if (-not $script:DatabaseId) {
+    throw "No se encontró el ID de la base D1 seleccionada."
+  }
+
+  if (-not (Test-Path $migrationsPath)) {
+    throw "No se encontró worker\migrations."
+  }
+
+  $migrationConfig = [ordered]@{
+    name = if ($script:WorkerName) { $script:WorkerName } else { "hopper-api" }
+    main = "worker/src/index.ts"
+    compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
+    d1_databases = @(
+      [ordered]@{
+        binding = "DB"
+        database_name = $script:DatabaseName
+        database_id = $script:DatabaseId
+        migrations_dir = "worker/migrations"
+      }
+    )
+  }
+
+  $migrationConfig | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
+
+  try {
+    Invoke-Wrangler d1 migrations apply $script:DatabaseName --remote --config $deployConfigPath
+  } finally {
+    Remove-Item $deployConfigPath -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Ensure-WorkerDependencies {
+  if (-not (Test-Path $workerPackagePath)) {
+    throw "No se encontró worker\package.json."
+  }
+
+  $honoPath = Join-Path $PSScriptRoot "worker\node_modules\hono\package.json"
+  $zodPath = Join-Path $PSScriptRoot "worker\node_modules\zod\package.json"
+
+  if ((Test-Path $honoPath) -and (Test-Path $zodPath)) {
+    return
+  }
+
+  Write-Host "Instalando dependencias del Worker..."
+  & npm install --prefix worker --no-audit --no-fund
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "No fue posible instalar las dependencias del Worker."
+  }
 }
 
 function Read-SecretText {
@@ -460,7 +504,7 @@ function New-DeployConfig {
 
   return [ordered]@{
     name = $script:WorkerName
-    main = "cloudflare/src/index.js"
+    main = "worker/src/index.ts"
     compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
     workers_dev = $true
     vars = [ordered]@{
@@ -477,6 +521,7 @@ function New-DeployConfig {
         binding = "DB"
         database_name = $script:DatabaseName
         database_id = $script:DatabaseId
+        migrations_dir = "worker/migrations"
       }
     )
     triggers = [ordered]@{
@@ -490,6 +535,8 @@ function Deploy-Worker {
     [string[]]$AdditionalAllowedOrigins = @(),
     [switch]$SkipSchema
   )
+
+  Ensure-WorkerDependencies
 
   if (-not $SkipSchema) {
     Initialize-Schema
@@ -1153,7 +1200,7 @@ do {
   if ($script:B2BucketName) { Write-Host "B2: $script:B2BucketName" }
   if ($script:WorkerUrl) { Write-Host "Worker: $script:WorkerUrl" }
   Write-Host "[1] Configuración inicial guiada"
-  Write-Host "[2] Inicializar o actualizar esquema D1"
+  Write-Host "[2] Aplicar migraciones D1"
   Write-Host "[3] Desplegar Worker"
   Write-Host "[4] Ver estado"
   Write-Host "[5] Cambiar PIN"
