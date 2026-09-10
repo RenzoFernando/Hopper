@@ -4,18 +4,9 @@ import { resolve } from "node:path";
 const distDir = resolve("dist");
 const modernDir = resolve(distDir, "modern");
 
-for (const page of ["index.html", "room.html", "admin.html", "recover.html"]) {
-  await cp(resolve(modernDir, page), resolve(distDir, page));
-}
-
-for (const directory of ["assets", "css", "js"]) {
-  await mkdir(resolve(distDir, directory), { recursive: true });
-  await cp(resolve(directory), resolve(distDir, directory), { recursive: true, force: true });
-}
-
-for (const file of ["manifest.webmanifest", "service-worker.js", "share-target.html"]) {
-  await cp(resolve(file), resolve(distDir, file));
-}
+await cp(resolve(modernDir, "index.html"), resolve(distDir, "index.html"));
+await mkdir(resolve(distDir, "assets"), { recursive: true });
+await cp(resolve("assets"), resolve(distDir, "assets"), { recursive: true, force: true });
 
 const configSource = await readFile(resolve("js", "config.js"), "utf8");
 const workerMatch = configSource.match(/workerBaseUrl\s*:\s*"([^"]*)"/);

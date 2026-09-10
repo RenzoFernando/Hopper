@@ -135,8 +135,9 @@ async function seedPersonalSession(page: Page) {
 
 test("login, texto, archivo y logout funcionan en React", async ({ page }) => {
   await installApiMock(page);
-  await page.goto("/index.html");
+  await page.goto("/");
   await page.locator("#pin-input").fill("1234");
+  await expect(page).toHaveURL(/\/space$/);
   await expect(page.locator("#workspace-screen")).toBeVisible();
 
   await page.locator("#text-input").fill("Texto desde React");
@@ -148,12 +149,13 @@ test("login, texto, archivo y logout funcionan en React", async ({ page }) => {
   await expect(page.locator("#item-list")).toContainText("prueba.txt");
 
   await page.locator("#logout-button").click();
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#auth-screen")).toBeVisible();
 });
 
 test("crear y entrar a una sala conserva el flujo legado", async ({ page }) => {
   await installApiMock(page);
-  await page.goto("/index.html");
+  await page.goto("/");
   await expect(page.locator("#public-create-room")).toBeEnabled();
   await page.locator("#public-create-room").click();
   await expect(page.locator("#room-created-dialog")).toBeVisible();
@@ -162,7 +164,7 @@ test("crear y entrar a una sala conserva el flujo legado", async ({ page }) => {
 
   await page.locator("#public-room-code").fill("ab1234");
   await page.locator("#public-room-join").click();
-  await expect(page).toHaveURL(/room\.html#AB-1234$/);
+  await expect(page).toHaveURL(/\/room\/AB-1234$/);
   await expect(page.locator("#workspace-screen")).toBeVisible();
   await expect(page.locator("#room-name")).toHaveText("AB-1234");
 
@@ -174,7 +176,7 @@ test("crear y entrar a una sala conserva el flujo legado", async ({ page }) => {
 test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => {
   await seedPersonalSession(page);
   await installApiMock(page);
-  await page.goto("/admin.html");
+  await page.goto("/admin");
   await expect(page.locator("#usage-storage")).not.toHaveText("—");
   await expect(page.locator("#admin-room-count")).toHaveText("1 / 2");
 
@@ -188,16 +190,111 @@ test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => 
   const pinRequest = page.waitForRequest((request) => request.url().endsWith("/api/admin/pin") && request.method() === "POST");
   await page.locator("#change-pin-submit").click();
   await pinRequest;
-  await expect(page).toHaveURL(/index\.html$|\/$/);
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("recuperación verifica, limpia el hash y actualiza el PIN", async ({ page }) => {
   await installApiMock(page);
-  await page.goto("/recover.html#token=token-de-prueba");
-  await expect(page).toHaveURL(/recover\.html$/);
+  await page.goto("/recover#token-de-prueba");
+  await expect(page).toHaveURL(/\/recover$/);
   await expect(page.locator("#recovery-form")).toBeVisible();
   await page.locator("#new-pin").fill("2468");
   await page.locator("#confirm-pin").fill("2468");
   await page.locator("#recovery-submit").click();
   await expect(page.locator("#recovery-result-title")).toHaveText("PIN actualizado");
+});
+
+
+
+
+test("los enlaces de navegación cambian también la pantalla y los textos HTTP(S) se abren como enlaces", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.goto("/space");
+  await expect(page.locator("#workspace-screen")).toBeVisible();
+
+  await page.getByRole("link", { name: "Administración", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("heading", { name: "Administración", exact: true })).toBeVisible();
+
+  await page.getByRole("link", { name: "Mi espacio", exact: true }).click();
+  await expect(page).toHaveURL(/\/space$/);
+  await expect(page.locator("#workspace-screen")).toBeVisible();
+
+  await page.locator("#text-input").fill("Documentación https://example.com/hopper.");
+  await page.locator("#send-button").click();
+  const item = page.locator("#item-list .item-card").filter({ hasText: "Documentación" }).first();
+  await expect(item.getByRole("link", { name: "https://example.com/hopper" })).toHaveAttribute("href", "https://example.com/hopper");
+  await expect(item.getByRole("link", { name: "Abrir enlace" })).toHaveAttribute("href", "https://example.com/hopper");
+});
+
+test("rutas legacy redirigen a las rutas limpias", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+
+  await page.goto("/admin.html");
+  await expect(page).toHaveURL(/\/admin$/);
+
+  await page.goto("/room.html#AB-1234");
+  await expect(page).toHaveURL(/\/room\/AB-1234$/);
+
+  await page.goto("/recover.html#token=token-de-prueba");
+  await expect(page).toHaveURL(/\/recover$/);
+
+  await page.goto("/share-target.html?received=1");
+  await expect(page).toHaveURL(/\/share\?received=1$/);
+});
+
+test("Share Target React confirma y limpia el payload antes de navegar", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.goto("/share");
+
+  await page.evaluate(async () => {
+    const request = indexedDB.open("hopper-share-target-v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("payloads")) request.result.createObjectStore("payloads");
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("payloads", "readwrite");
+      tx.objectStore("payloads").put({
+        title: "Desde Android",
+        text: "Texto compartido",
+        url: "",
+        files: [new File(["hola"], "prueba.txt", { type: "text/plain" })],
+        createdAt: Date.now()
+      }, "pending");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+
+  await page.reload();
+  await expect(page.locator("#share-summary")).toContainText("Texto");
+  await expect(page.locator("#share-summary")).toContainText("prueba.txt");
+  await page.locator("#share-send").click();
+  await expect(page.locator("#share-message")).toHaveText("Contenido enviado y confirmado.");
+  await expect(page).toHaveURL(/\/space$/);
+
+  const pending = await page.evaluate(async () => {
+    const request = indexedDB.open("hopper-share-target-v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const value = await new Promise<unknown>((resolve, reject) => {
+      const tx = db.transaction("payloads", "readonly");
+      const get = tx.objectStore("payloads").get("pending");
+      get.onsuccess = () => resolve(get.result ?? null);
+      get.onerror = () => reject(get.error);
+    });
+    db.close();
+    return value;
+  });
+  expect(pending).toBeNull();
 });

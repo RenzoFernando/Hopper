@@ -49,6 +49,9 @@ test("el generador PowerShell conserva toda la configuración moderna del fronte
   assert.match(script, /roomDefaultTtlMinutes:\s*\$script:RoomDefaultTtlMinutes/);
   assert.match(script, /roomMaxFileBytes:\s*\$script:RoomMaxFileBytes/);
   assert.match(script, /uploadConcurrency:\s*\$script:UploadConcurrency/);
+  assert.match(script, /\$previewOrigins = if \(\$script:Phase3PreviewCorsEnabled\)/);
+  assert.match(script, /\$origins = @\([\s\S]*?\$previewOrigins[\s\S]*?\$AdditionalAllowedOrigins/);
+  assert.match(script, /Backblaze no confirmó todos los orígenes CORS requeridos/);
 });
 
 test("el manifest PWA y el shell solo referencian recursos locales existentes", () => {

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 function configuredValue(source: string, key: string) {
   const stringMatch = source.match(new RegExp(`${key}\\s*:\\s*"([^"]*)"`));
@@ -25,17 +26,59 @@ function readAppConfig() {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectRegister: null,
+      registerType: "prompt",
+      manifestFilename: "manifest.webmanifest",
+      manifest: {
+        id: "/",
+        name: "Hopper",
+        short_name: "Hopper",
+        description: "Transferencia temporal de texto, archivos y audio.",
+        lang: "es",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        background_color: "#202123",
+        theme_color: "#202123",
+        icons: [
+          { src: "/assets/icons/hopper-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/assets/icons/hopper-512.png", sizes: "512x512", type: "image/png" },
+          { src: "/assets/icons/hopper.svg", sizes: "any", type: "image/svg+xml" }
+        ],
+        share_target: {
+          action: "/share",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            title: "title",
+            text: "text",
+            url: "url",
+            files: [{ name: "files", accept: ["*/*"] }]
+          }
+        }
+      },
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,svg,ico,webmanifest}"]
+      },
+      devOptions: {
+        enabled: true,
+        type: "module"
+      }
+    })
+  ],
   define: {
     __HOPPER_APP_CONFIG__: JSON.stringify(readAppConfig())
   },
   build: {
     rollupOptions: {
       input: {
-        index: resolve(import.meta.dirname, "modern/index.html"),
-        room: resolve(import.meta.dirname, "modern/room.html"),
-        admin: resolve(import.meta.dirname, "modern/admin.html"),
-        recover: resolve(import.meta.dirname, "modern/recover.html")
+        index: resolve(import.meta.dirname, "modern/index.html")
       }
     }
   }

@@ -1,5 +1,5 @@
 ﻿param(
-  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url", "pages-preview")]
+  [ValidateSet("menu", "setup", "init", "deploy", "status", "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url", "pages-preview", "phase3-preview-cors", "phase3-preview-cors-reset")]
   [string]$Action = "menu"
 )
 
@@ -28,6 +28,9 @@ $script:UploadConcurrency = 2
 $script:SessionSecretConfigured = $false
 $script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
+$script:CleanFrontendUrls = $false
+$script:Phase3PreviewCorsEnabled = $false
+$script:Phase3PreviewOrigin = "https://phase-3.hopper-preview.pages.dev"
 
 function Invoke-Wrangler {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
@@ -86,6 +89,8 @@ function Load-Config {
   $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
   $script:B2SecretConfigured = [bool]$config.b2SecretConfigured
   $script:RecoveryConfigured = [bool]$config.recoveryConfigured
+  $script:CleanFrontendUrls = [bool]$config.cleanFrontendUrls
+  $script:Phase3PreviewCorsEnabled = [bool]$config.phase3PreviewCorsEnabled
 }
 
 function Save-Config {
@@ -102,6 +107,8 @@ function Save-Config {
     sessionSecretConfigured = $script:SessionSecretConfigured
     b2SecretConfigured = $script:B2SecretConfigured
     recoveryConfigured = $script:RecoveryConfigured
+    cleanFrontendUrls = $script:CleanFrontendUrls
+    phase3PreviewCorsEnabled = $script:Phase3PreviewCorsEnabled
   }
 
   $payload | ConvertTo-Json | Set-Content $configPath -Encoding UTF8
@@ -432,6 +439,8 @@ export { appConfig };
 }
 
 function New-DeployConfig {
+  param([string[]]$AdditionalAllowedOrigins = @())
+
   if (
     -not $script:DatabaseId -or
     -not $script:WorkerName -or
@@ -442,15 +451,23 @@ function New-DeployConfig {
     throw "Faltan valores de configuración. Ejecuta primero la configuración guiada."
   }
 
+  $previewOrigins = if ($script:Phase3PreviewCorsEnabled) { @($script:Phase3PreviewOrigin) } else { @() }
+  $allowedOrigins = @(
+    $script:AllowedOrigin
+    $previewOrigins
+    $AdditionalAllowedOrigins
+  ) | Where-Object { $_ } | Select-Object -Unique
+
   return [ordered]@{
     name = $script:WorkerName
     main = "cloudflare/src/index.js"
     compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
     workers_dev = $true
     vars = [ordered]@{
-      ALLOWED_ORIGINS = $script:AllowedOrigin
+      ALLOWED_ORIGINS = ($allowedOrigins -join ",")
       ALLOW_LOCALHOST = "true"
       PUBLIC_APP_URL = $script:PublicAppUrl
+      CLEAN_FRONTEND_URLS = if ($script:CleanFrontendUrls) { "true" } else { "false" }
       MAX_FILE_BYTES = [string]$script:MaxFileBytes
       B2_BUCKET_NAME = $script:B2BucketName
       B2_ENDPOINT = $script:B2Endpoint
@@ -469,8 +486,16 @@ function New-DeployConfig {
 }
 
 function Deploy-Worker {
-  Initialize-Schema
-  $config = New-DeployConfig
+  param(
+    [string[]]$AdditionalAllowedOrigins = @(),
+    [switch]$SkipSchema
+  )
+
+  if (-not $SkipSchema) {
+    Initialize-Schema
+  }
+
+  $config = New-DeployConfig -AdditionalAllowedOrigins $AdditionalAllowedOrigins
   $config | ConvertTo-Json -Depth 8 | Set-Content $deployConfigPath -Encoding UTF8
 
   try {
@@ -616,6 +641,8 @@ function Get-B2MasterAuthorization {
 }
 
 function Configure-B2Cors {
+  param([string[]]$AdditionalAllowedOrigins = @())
+
   if (-not $script:B2BucketName -or -not $script:B2Endpoint -or -not $script:AllowedOrigin) {
     throw "Primero configura el bucket, el endpoint y la URL pública de Hopper."
   }
@@ -660,10 +687,19 @@ function Configure-B2Cors {
     throw "Object Lock está habilitado. Hopper necesita poder eliminar archivos temporales; usa un bucket sin Object Lock."
   }
 
+  $previewOrigins = if ($script:Phase3PreviewCorsEnabled) { @($script:Phase3PreviewOrigin) } else { @() }
   $origins = @(
-    $script:AllowedOrigin,
-    "http://localhost:5500",
+    $script:AllowedOrigin
+    $previewOrigins
+    $AdditionalAllowedOrigins
+    "http://localhost:5500"
     "http://127.0.0.1:5500"
+    "http://localhost:4173"
+    "http://127.0.0.1:4173"
+    "http://localhost:4175"
+    "http://127.0.0.1:4175"
+    "http://localhost:5173"
+    "http://127.0.0.1:5173"
   ) | Where-Object { $_ } | Select-Object -Unique
   $corsRules = @(
     [ordered]@{
@@ -689,10 +725,18 @@ function Configure-B2Cors {
     )
   }
 
-  Invoke-B2NativeRequest `
+  $updatedBucket = Invoke-B2NativeRequest `
     "$($apiUrl.TrimEnd('/'))/b2api/v4/b2_update_bucket" `
     ([string]$authorization.authorizationToken) `
-    $updateBody | Out-Null
+    $updateBody
+
+  $appliedRule = @($updatedBucket.corsRules | Where-Object { $_.corsRuleName -eq "hopperDirectTransfer" }) | Select-Object -First 1
+  $appliedOrigins = @($appliedRule.allowedOrigins)
+  $missingOrigins = @($origins | Where-Object { $appliedOrigins -notcontains $_ })
+
+  if (-not $appliedRule -or $missingOrigins.Count -gt 0) {
+    throw "Backblaze no confirmó todos los orígenes CORS requeridos: $($missingOrigins -join ', ')."
+  }
 
   Write-Host "CORS y regla de seguridad de ciclo de vida configurados para Hopper."
 }
@@ -812,6 +856,10 @@ function Show-Status {
     Write-Host "Endpoint: $script:B2Endpoint"
   }
 
+  if ($script:Phase3PreviewCorsEnabled) {
+    Write-Host "Preview Fase 3 autorizado en CORS: $script:Phase3PreviewOrigin"
+  }
+
   if ($script:WorkerUrl) {
     try {
       $health = Invoke-RestMethod -Uri "$($script:WorkerUrl.TrimEnd('/'))/health" -Method Get
@@ -898,11 +946,72 @@ function Invoke-Cleanup {
 
 function Update-PublicUrl {
   $uri = Read-ValidatedUrl "Nueva URL pública de Hopper" $script:PublicAppUrl
+  $previousPublicAppUrl = $script:PublicAppUrl
+  $previousAllowedOrigin = $script:AllowedOrigin
+  $previousCleanFrontendUrls = $script:CleanFrontendUrls
+  $previousPreviewCorsEnabled = $script:Phase3PreviewCorsEnabled
+
   $script:PublicAppUrl = $uri.AbsoluteUri.TrimEnd("/") + "/"
   $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
+  $script:CleanFrontendUrls = $true
+  $script:Phase3PreviewCorsEnabled = $false
   Save-Config
-  Deploy-Worker
-  Configure-B2Cors
+
+  try {
+    Deploy-Worker
+    Configure-B2Cors
+  } catch {
+    $failure = $_
+    $script:PublicAppUrl = $previousPublicAppUrl
+    $script:AllowedOrigin = $previousAllowedOrigin
+    $script:CleanFrontendUrls = $previousCleanFrontendUrls
+    $script:Phase3PreviewCorsEnabled = $previousPreviewCorsEnabled
+    Save-Config
+
+    try {
+      Write-Warning "El cambio de URL pública no se completó. Restaurando la configuración anterior del Worker."
+      Deploy-Worker -SkipSchema
+    } catch {
+      Write-Warning "No fue posible restaurar automáticamente el Worker. Revisa el despliegue antes de continuar."
+    }
+
+    throw $failure
+  }
+}
+
+function Set-Phase3PreviewCors {
+  param([bool]$Enabled)
+
+  $previousState = $script:Phase3PreviewCorsEnabled
+  $label = if ($Enabled) { "habilitando" } else { "retirando" }
+  Write-Host "Fase 3: $label acceso del preview en Worker y B2 sin cambiar la URL pública."
+  $script:Phase3PreviewCorsEnabled = $Enabled
+
+  try {
+    Deploy-Worker -SkipSchema
+    Configure-B2Cors
+  } catch {
+    $failure = $_
+    $script:Phase3PreviewCorsEnabled = $previousState
+    Save-Config
+
+    try {
+      Write-Warning "La actualización de CORS no se completó. Restaurando la configuración anterior del Worker."
+      Deploy-Worker -SkipSchema
+    } catch {
+      Write-Warning "No fue posible restaurar automáticamente el Worker. Ejecuta de nuevo la acción de CORS correspondiente antes de continuar."
+    }
+
+    throw $failure
+  }
+
+  Save-Config
+
+  if ($Enabled) {
+    Write-Host "CORS de preview habilitado para $script:Phase3PreviewOrigin. La URL pública y los enlaces de recuperación permanecen en producción actual."
+  } else {
+    Write-Host "CORS de preview retirado. Worker y B2 vuelven a aceptar únicamente producción y los orígenes locales configurados."
+  }
 }
 
 function Invoke-PagesPreview {
@@ -968,8 +1077,8 @@ function Invoke-PagesPreview {
     throw "El build terminó con código $LASTEXITCODE."
   }
 
-  Write-Host "Desplegando únicamente la rama de preview phase-2..."
-  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-2
+  Write-Host "Desplegando únicamente la rama de preview phase-3..."
+  Invoke-Wrangler pages deploy dist --project-name $projectName --branch phase-3
   Write-Host "Preview desplegado. La URL pública actual, el Worker, D1 y B2 no fueron modificados."
 }
 
@@ -1020,13 +1129,15 @@ function Invoke-Action {
     "cleanup" { Invoke-Cleanup }
     "url" { Update-PublicUrl }
     "pages-preview" { Invoke-PagesPreview }
+    "phase3-preview-cors" { Set-Phase3PreviewCors $true }
+    "phase3-preview-cors-reset" { Set-Phase3PreviewCors $false }
   }
 }
 
 Ensure-CloudflareLogin
 Load-Config
 
-if ($Action -ne "pages-preview") {
+if ($Action -notin @("pages-preview", "phase3-preview-cors", "phase3-preview-cors-reset")) {
   Select-Database
 }
 
@@ -1057,6 +1168,8 @@ do {
   Write-Host "[14] Ejecutar limpieza ahora"
   Write-Host "[15] Cambiar URL pública"
   Write-Host "[16] Crear o desplegar preview de Cloudflare Pages"
+  Write-Host "[17] Habilitar CORS para preview de Fase 3"
+  Write-Host "[18] Retirar CORS del preview de Fase 3"
   Write-Host "[0] Salir"
 
   $choice = Read-Host "Opción"
@@ -1078,6 +1191,8 @@ do {
     "14" { Invoke-Action "cleanup" }
     "15" { Invoke-Action "url" }
     "16" { Invoke-Action "pages-preview" }
+    "17" { Invoke-Action "phase3-preview-cors" }
+    "18" { Invoke-Action "phase3-preview-cors-reset" }
     "0" { return }
     default { Write-Host "Opción inválida." }
   }

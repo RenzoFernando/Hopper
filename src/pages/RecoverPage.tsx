@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { recoveryApi } from "../api/recovery";
 import { AppFooter } from "../components/layout/AppFooter";
 import { AppHeader } from "../components/layout/AppHeader";
+import { recoveryTokenFromHash } from "../lib/navigation";
 import { isVisualTestRuntime } from "../lib/runtime";
 
 function resultForStatus(status: string | undefined) {
@@ -30,8 +31,7 @@ export function RecoverPage() {
     if (visual || initialized.current) return;
     initialized.current = true;
     const verify = async () => {
-      const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const token = params.get("token") || "";
+      const token = recoveryTokenFromHash(window.location.hash);
       tokenRef.current = token;
       if (token) history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
       if (!token) { showResult("Enlace no válido", "El enlace no contiene un token de recuperación."); return; }
@@ -83,7 +83,7 @@ export function RecoverPage() {
         <p className="eyebrow">RECUPERACIÓN</p><h1 id="recovery-title">Restablecer PIN</h1><p className="auth-copy">El enlace es temporal y solo puede utilizarse una vez.</p>
         <div className="loading-state recovery-loading" id="recovery-loading" hidden={state !== "loading"}><span className="spinner" aria-hidden="true" /><span>Verificando enlace…</span></div>
         <form className="recovery-form" id="recovery-form" hidden={state !== "form"} noValidate onSubmit={(event) => { void submit(event); }}><label htmlFor="new-pin">Nuevo PIN</label><input ref={newPinRef} id="new-pin" type="password" inputMode="numeric" maxLength={4} autoComplete="new-password" placeholder="••••" value={pin} disabled={submitting} onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))} /><label htmlFor="confirm-pin">Confirmar PIN</label><input id="confirm-pin" type="password" inputMode="numeric" maxLength={4} autoComplete="new-password" placeholder="••••" value={confirmation} disabled={submitting} onChange={(event) => setConfirmation(event.target.value.replace(/\D/g, "").slice(0, 4))} /><button className="primary-button" id="recovery-submit" type="submit" disabled={submitting}>{submitting ? "Guardando…" : "Guardar nuevo PIN"}</button></form>
-        <div className="recovery-result" id="recovery-result" hidden={state !== "result"}><h2 id="recovery-result-title">{result.title}</h2><p id="recovery-result-copy">{result.copy}</p><a className="secondary-link" href="./">Volver a Hopper</a></div>
+        <div className="recovery-result" id="recovery-result" hidden={state !== "result"}><h2 id="recovery-result-title">{result.title}</h2><p id="recovery-result-copy">{result.copy}</p><a className="secondary-link" href="/">Volver a Hopper</a></div>
         <p className={`form-message ${kind ? `is-${kind}` : ""}`.trim()} id="recovery-message" aria-live="polite">{message}</p>
       </section></main>
     </div>

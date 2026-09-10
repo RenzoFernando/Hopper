@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { adminApi } from "../api/admin";
 import { sessionStore } from "../api/client";
 import { roomsApi } from "../api/rooms";
@@ -19,6 +20,7 @@ import type { Room } from "../schemas/room";
 type ActionName = "cleanup" | "reconcile" | "delete-stats" | "reset";
 
 export function AdminPage() {
+  const navigate = useNavigate();
   const visual = isVisualTestRuntime();
   const hasSession = visual || sessionStore.hasPersonal();
   const [busyRoom, setBusyRoom] = useState("");
@@ -33,7 +35,10 @@ export function AdminPage() {
   const { data: healthData, error: healthError, refetch: refetchHealth } = useQuery({ queryKey: ["admin-health"], queryFn: adminApi.health, enabled: hasSession && !visual });
   const { data: roomsData, error: roomsError, refetch: refetchRooms } = useQuery({ queryKey: ["admin-rooms"], queryFn: adminApi.rooms, enabled: hasSession && !visual });
 
-  const goHome = useCallback(() => window.location.replace("./"), []);
+  const goHome = useCallback(() => {
+    sessionStore.clearPersonal();
+    navigate("/", { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     if (!visual && !sessionStore.hasPersonal()) goHome();
@@ -79,7 +84,8 @@ export function AdminPage() {
     setBusyRoom(room.id);
     try {
       await adminApi.openRoom(room.id);
-      window.location.assign("room.html");
+      const code = sessionStore.getRoomCodes()[room.id]?.code || "";
+      navigate(code ? `/room/${encodeURIComponent(code)}` : "/room");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "No fue posible abrir la sala.", "error");
     } finally {

@@ -1,28 +1,28 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { authApi } from "../api/auth";
 import { sessionStore } from "../api/client";
 import { roomsApi } from "../api/rooms";
+import { PinForm } from "../components/auth/PinForm";
 import { AppFooter } from "../components/layout/AppFooter";
 import { AppHeader } from "../components/layout/AppHeader";
-import { PinForm } from "../components/auth/PinForm";
 import { RoomAccess } from "../components/rooms/RoomAccess";
 import { RoomCreatedDialog } from "../components/rooms/RoomCreatedDialog";
-import { useLegacyPwa } from "../hooks/useLegacyPwa";
+import { usePwa } from "../hooks/usePwa";
+import { roomPath } from "../lib/navigation";
 import { isCompleteRoomCode } from "../lib/room-code";
 import { isVisualTestRuntime } from "../lib/runtime";
-import { SpacePage } from "./SpacePage";
 
 type MessageKind = "" | "success" | "error";
-type SyncVariant = "" | "busy" | "offline" | "ok";
 
 function messageFor(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
 export function HomePage() {
+  const navigate = useNavigate();
   const visual = isVisualTestRuntime();
-  const [authenticated, setAuthenticated] = useState(false);
   const [pin, setPin] = useState("");
   const [pinSubmitting, setPinSubmitting] = useState(false);
   const pinSubmittingRef = useRef(false);
@@ -39,12 +39,11 @@ export function HomePage() {
   const [roomSubmitting, setRoomSubmitting] = useState(false);
   const roomSubmittingRef = useRef(false);
   const [createdRoomCode, setCreatedRoomCode] = useState("");
-  const [sync, setSync] = useState<{ label: string; variant: SyncVariant }>({ label: "Sincronizado", variant: "" });
-  const pwa = useLegacyPwa();
+  const pwa = usePwa();
   const configured = sessionStore.hasConfiguredWorker();
 
   const security = useQuery({ queryKey: ["security-status"], queryFn: authApi.securityStatus, enabled: !visual && configured, retry: 1 });
-  const capacity = useQuery({ queryKey: ["room-capacity"], queryFn: roomsApi.capacity, enabled: !visual && configured && !authenticated, refetchInterval: authenticated ? false : 10_000, refetchOnWindowFocus: true, retry: 1 });
+  const capacity = useQuery({ queryKey: ["room-capacity"], queryFn: roomsApi.capacity, enabled: !visual && configured, refetchInterval: 10_000, refetchOnWindowFocus: true, retry: 1 });
 
   useEffect(() => {
     if (visual) return;
@@ -56,48 +55,20 @@ export function HomePage() {
     if (security.data) {
       setLocked(Boolean(security.data.locked));
       if (security.data.locked) {
-        setAuthenticated(false);
         setPinMessage("El acceso está bloqueado.");
         setPinKind("error");
       } else if (sessionStore.hasPersonal()) {
-        setAuthenticated(true);
-        setPinMessage("");
-        setPinKind("");
+        navigate("/space", { replace: true });
       } else {
-        setAuthenticated(false);
         setPinMessage("");
         setPinKind("");
       }
     }
     if (security.error) {
-      setAuthenticated(false);
       setPinMessage(messageFor(security.error, "No fue posible conectar con Hopper."));
       setPinKind("error");
     }
-  }, [configured, security.data, security.error, visual]);
-
-  useEffect(() => {
-    const expired = () => {
-      sessionStore.clearPersonal();
-      setAuthenticated(false);
-      setLocked(false);
-      setPin("");
-      setPinMessage("La sesión venció. Ingresa el PIN de nuevo.");
-      setPinKind("error");
-    };
-    window.addEventListener("hopper:session-expired", expired);
-    return () => window.removeEventListener("hopper:session-expired", expired);
-  }, []);
-
-  const unauthorize = useCallback(() => {
-    sessionStore.clearPersonal();
-    setAuthenticated(false);
-    setLocked(false);
-    setPin("");
-    setPinMessage("La sesión venció. Ingresa el PIN de nuevo.");
-    setPinKind("error");
-  }, []);
-  const syncChange = useCallback((label: string, variant: SyncVariant) => setSync({ label, variant }), []);
+  }, [configured, navigate, security.data, security.error, visual]);
 
   const submitPin = async (pinValue = pin) => {
     if (pinSubmittingRef.current) return;
@@ -114,7 +85,7 @@ export function HomePage() {
       const result = await authApi.login(pinValue);
       if (result.status === "authorized") {
         setPin("");
-        setAuthenticated(true);
+        navigate("/space", { replace: true });
         return;
       }
       if (result.status === "locked") {
@@ -186,9 +157,7 @@ export function HomePage() {
     setRoomKind("");
     try {
       await roomsApi.join(roomCode);
-      const url = new URL("room.html", window.location.href);
-      url.hash = roomCode;
-      window.location.assign(url.toString());
+      navigate(roomPath(roomCode));
     } catch (error) {
       setRoomMessage(messageFor(error, "No fue posible entrar a la sala."));
       setRoomKind("error");
@@ -198,31 +167,18 @@ export function HomePage() {
     }
   };
 
-  const logout = () => {
-    sessionStore.clearPersonal();
-    setAuthenticated(false);
-    setLocked(false);
-    setPin("");
-    setPinMessage("");
-    setPinKind("");
-    void capacity.refetch();
-  };
-
   const enterCreatedRoom = () => {
-    if (!createdRoomCode) return;
-    const url = new URL("room.html", window.location.href);
-    url.hash = createdRoomCode;
-    window.location.assign(url.toString());
+    if (createdRoomCode) navigate(roomPath(createdRoomCode));
   };
 
   return <>
     <div className="app-shell">
-      <AppHeader variant="home" authenticated={authenticated} syncLabel={sync.label} syncVariant={sync.variant} installVisible={pwa.installVisible} updateVisible={pwa.updateVisible} onInstall={() => { void pwa.install(); }} onUpdate={pwa.update} onLogout={logout} />
+      <AppHeader variant="home" installVisible={pwa.installVisible} updateVisible={pwa.updateVisible} onInstall={() => { void pwa.install(); }} onUpdate={pwa.update} />
       <main className="app-main" id="app-main">
-        <section className="auth-screen screen" id="auth-screen" hidden={authenticated} aria-labelledby="auth-title">
+        <section className="auth-screen screen" id="auth-screen" aria-labelledby="auth-title">
           <div className="auth-layout">
             <div className="auth-content">
-              <img className="auth-logo" src="assets/favicon.svg" alt="" />
+              <img className="auth-logo" src="/assets/favicon.svg" alt="" />
               <p className="eyebrow">HOPPER</p><h1 id="auth-title">Pasa cosas. Rápido.</h1><p className="auth-copy">Un espacio temporal para mover texto y archivos entre dispositivos.</p>
               <PinForm pin={pin} loading={pinSubmitting} locked={locked} disabled={!configured && !visual} message={pinMessage} messageKind={pinKind} recoveryMessage={recoveryMessage} recoveryKind={recoveryKind} recoveryLoading={recoveryLoading} onPinChange={(value) => { setPin(value); setPinMessage(""); setPinKind(""); }} onSubmit={(value) => { void submitPin(value); }} onRecovery={() => { void requestRecovery(); }} />
             </div>
@@ -230,7 +186,6 @@ export function HomePage() {
             <RoomAccess available={capacity.data?.available ?? null} maximum={capacity.data?.maximum ?? 2} code={roomCode} submitting={roomSubmitting} message={roomMessage} messageKind={roomKind} onCodeChange={(value) => { setRoomCode(value); setRoomMessage(""); setRoomKind(""); }} onCreate={() => { void createRoom(); }} onJoin={() => { void joinRoom(); }} />
           </div>
         </section>
-        <SpacePage active={authenticated} onUnauthorized={unauthorize} onSyncChange={syncChange} />
       </main>
       <RoomCreatedDialog code={createdRoomCode} onClose={() => setCreatedRoomCode("")} onEnter={enterCreatedRoom} />
     </div>

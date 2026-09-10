@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { buildRecoveryUrl } from "../cloudflare/src/recovery.js";
 import {
   createSessionToken,
   ipv4MatchesCidr,
@@ -43,3 +44,15 @@ test("evalúa redes IPv4 CIDR", () => {
   assert.equal(ipv4MatchesCidr("203.0.113.8", "0.0.0.0/0"), true);
   assert.equal(ipv4MatchesCidr("invalid", "192.168.1.0/24"), false);
 });
+
+
+test("genera enlaces de recuperación legacy o limpios según el corte de frontend", () => {
+  const token = "A".repeat(43);
+  const base = { PUBLIC_APP_URL: "https://hopper.example/" };
+  expectRecoveryUrl(buildRecoveryUrl(base, token), `https://hopper.example/recover.html#token=${token}`);
+  expectRecoveryUrl(buildRecoveryUrl({ ...base, CLEAN_FRONTEND_URLS: "true" }, token), `https://hopper.example/recover#${token}`);
+});
+
+function expectRecoveryUrl(actual, expected) {
+  assert.equal(actual, expected);
+}

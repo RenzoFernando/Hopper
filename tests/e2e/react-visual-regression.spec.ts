@@ -10,26 +10,6 @@ async function openModern(page: Page, path: string, width = 1440, height = 1000)
   await page.evaluate(() => document.fonts.ready);
 }
 
-async function openLegacyShareTarget(page: Page) {
-  await page.setViewportSize({ width: 900, height: 1000 });
-  await page.route("**/js/**", (route) => route.abort());
-  await page.route("**/service-worker.js", (route) => route.abort());
-  await page.goto("/share-target.html");
-  await page.evaluate(() => document.fonts.ready);
-}
-
-async function showWorkspace(page: Page) {
-  await page.evaluate(() => {
-    const publicScreen = document.querySelector<HTMLElement>("#auth-screen");
-    const workspaceScreen = document.querySelector<HTMLElement>("#workspace-screen");
-    const publicNav = document.querySelector<HTMLElement>("#public-nav");
-    const headerSession = document.querySelector<HTMLElement>("#header-session");
-    if (publicScreen) publicScreen.hidden = true;
-    if (workspaceScreen) workspaceScreen.hidden = false;
-    if (publicNav) publicNav.hidden = true;
-    if (headerSession) headerSession.hidden = false;
-  });
-}
 
 async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
   await page.evaluate((itemKind) => {
@@ -84,7 +64,7 @@ async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
 }
 
 test("React conserva inicio móvil", async ({ page }) => {
-  await openModern(page, "/index.html", 390, 844);
+  await openModern(page, "/", 390, 844);
   await expect(page).toHaveScreenshot("home-mobile.png", {
     fullPage: true,
     ...(process.platform === "win32" ? { maxDiffPixelRatio: 0.05 } : {})
@@ -92,13 +72,12 @@ test("React conserva inicio móvil", async ({ page }) => {
 });
 
 test("React conserva inicio escritorio", async ({ page }) => {
-  await openModern(page, "/index.html", 1440, 1000);
+  await openModern(page, "/", 1440, 1000);
   await expect(page).toHaveScreenshot("home-desktop.png", { fullPage: true });
 });
 
 test("React conserva Mi espacio", async ({ page }) => {
-  await openModern(page, "/index.html");
-  await showWorkspace(page);
+  await openModern(page, "/space");
   await expect(page).toHaveScreenshot("space-empty.png", { fullPage: true });
 
   await setRecentItem(page, "text");
@@ -112,8 +91,7 @@ test("React conserva Mi espacio", async ({ page }) => {
 });
 
 test("React conserva selección y progreso", async ({ page }) => {
-  await openModern(page, "/index.html");
-  await showWorkspace(page);
+  await openModern(page, "/space");
   await page.evaluate(() => {
     const selected = document.querySelector<HTMLElement>("#selected-files");
     if (!selected) return;
@@ -143,7 +121,7 @@ test("React conserva selección y progreso", async ({ page }) => {
 });
 
 test("React conserva salas", async ({ page }) => {
-  await openModern(page, "/index.html");
+  await openModern(page, "/");
   await page.evaluate(() => {
     const dialog = document.querySelector<HTMLDialogElement>("#room-created-dialog");
     const code = document.querySelector<HTMLElement>("#room-created-code");
@@ -152,7 +130,7 @@ test("React conserva salas", async ({ page }) => {
   });
   await expect(page).toHaveScreenshot("room-created.png", { fullPage: true });
 
-  await openModern(page, "/room.html#AB-1234");
+  await openModern(page, "/room/AB-1234");
   await expect(page).toHaveScreenshot("room-entry.png", { fullPage: true });
 
   await page.evaluate(() => {
@@ -171,7 +149,7 @@ test("React conserva salas", async ({ page }) => {
 });
 
 test("React conserva administración", async ({ page }) => {
-  await openModern(page, "/admin.html", 1440, 1200);
+  await openModern(page, "/admin", 1440, 1200);
   await expect(page).toHaveScreenshot("admin.png", { fullPage: true });
 
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#change-pin-dialog")?.showModal());
@@ -179,12 +157,12 @@ test("React conserva administración", async ({ page }) => {
 });
 
 test("React conserva recuperación", async ({ page }) => {
-  await openModern(page, "/recover.html#token=baseline", 900, 900);
+  await openModern(page, "/recover#baseline", 900, 900);
   await expect(page).toHaveScreenshot("recover.png", { fullPage: true });
 });
 
 test("compatibilidad Share Target conserva estados", async ({ page }) => {
-  await openLegacyShareTarget(page);
+  await openModern(page, "/share", 900, 1000);
   await page.evaluate(() => {
     const summary = document.querySelector<HTMLElement>("#share-summary");
     if (summary) summary.innerHTML = '<div class="share-item">captura.png · 284 KB</div>';

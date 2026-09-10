@@ -46,8 +46,8 @@ function ShareIcon() {
 
 function Brand({ homeLabel }: { homeLabel: string }) {
   return (
-    <a className="brand" href="./" aria-label={homeLabel}>
-      <img className="brand-mark" src="assets/favicon.svg" alt="" />
+    <a className="brand" href="/" aria-label={homeLabel}>
+      <img className="brand-mark" src="/assets/favicon.svg" alt="" />
       <span className="brand-name">HOPPER</span>
     </a>
   );
@@ -80,7 +80,7 @@ export function AppHeader({
         </nav>
         <div className="header-session" id="header-session" hidden={!authenticated}>
           <span className={`sync-state ${syncVariant ? `is-${syncVariant}` : ""}`.trim()} id="sync-state" aria-live="polite">{syncLabel}</span>
-          <a className="header-link" href="admin.html">Administración</a>
+          <a className="header-link" href="/admin">Administración</a>
           <button className="header-link header-button" id="install-button-session" type="button" hidden={!installVisible} onClick={onInstall}>Instalar</button>
           <button className="icon-button info-icon-button" id="update-button-session" type="button" aria-label="Actualizar Hopper" title="Actualizar" hidden={!updateVisible} onClick={onUpdate}><RefreshIcon /></button>
           <button className="icon-button logout-button" id="logout-button" type="button" aria-label="Salir" title="Salir" onClick={onLogout}><LogoutIcon /></button>
@@ -108,7 +108,7 @@ export function AppHeader({
       <header className="site-header">
         <Brand homeLabel="Volver a Hopper" />
         <div className="header-session">
-          <a className="header-link" href="./">Mi espacio</a>
+          <a className="header-link" href="/space">Mi espacio</a>
           <button className={`icon-button refresh-button${adminRefreshing ? " is-spinning" : ""}`} id="admin-refresh-button" type="button" aria-label="Actualizar panel" title="Actualizar" disabled={adminRefreshing} onClick={onRefreshAdmin}><RefreshIcon /></button>
         </div>
       </header>

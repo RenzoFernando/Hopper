@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TransferApi } from "../../features/transfers/types";
 import { formatBytes, formatCountdown, fileTypeLabel, textPreview, ttlLabel } from "../../lib/format";
+import { extractHttpUrls, splitHttpText } from "../../lib/links";
 import type { HopperItem } from "../../schemas/item";
-import { AudioIcon, CopyIcon, DeleteIcon, DownloadIcon, FileIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
+import { AudioIcon, CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
 
 type Props = {
   item: HopperItem;
@@ -22,6 +23,10 @@ type Props = {
 
 function ActionButton({ label, className = "is-info", onClick, children }: { label: string; className?: string; onClick: () => void; children: ReactNode }) {
   return <button type="button" className={`action-button ${className}`.trim()} aria-label={label} title={label} onClick={onClick}>{children}</button>;
+}
+
+function ActionLink({ label, href, children }: { label: string; href: string; children: ReactNode }) {
+  return <a className="action-button is-info" href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label}>{children}</a>;
 }
 
 export function ItemCard(props: Props) {
@@ -61,7 +66,12 @@ export function ItemCard(props: Props) {
   };
 
   const createdDate = new Date(item.createdAt);
-  const detail = item.type === "text" ? `${String(item.content || "").length.toLocaleString("es-CO")} caracteres` : formatBytes(item.size || 0);
+  const textContent = item.type === "text" ? String(item.content || "") : "";
+  const textLinks = item.type === "text" ? extractHttpUrls(textContent) : [];
+  const textLinkSet = new Set(textLinks);
+  const previewText = item.type === "text" ? textPreview(textContent) : "";
+  const previewParts = item.type === "text" ? splitHttpText(previewText) : [];
+  const detail = item.type === "text" ? `${textContent.length.toLocaleString("es-CO")} caracteres` : formatBytes(item.size || 0);
   const created = Number.isNaN(createdDate.getTime()) ? "Temporal" : createdDate.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -72,7 +82,7 @@ export function ItemCard(props: Props) {
         </div>
         <div className="item-copy">
           <h3 className="item-title">{item.type === "text" ? "Texto" : item.name}</h3>
-          <p className="item-preview">{item.type === "text" ? textPreview(item.content || "") : `${fileTypeLabel(item.name || "", item.mimeType || "")} · ${item.mimeType || "application/octet-stream"}`}</p>
+          <p className="item-preview">{item.type === "text" ? previewParts.map((part, index) => part.href && textLinkSet.has(part.href) ? <a className="item-preview-link" href={part.href} target="_blank" rel="noopener noreferrer" key={`${part.href}-${index}`}>{part.text}</a> : <span key={`text-${index}`}>{part.text}</span>) : `${fileTypeLabel(item.name || "", item.mimeType || "")} · ${item.mimeType || "application/octet-stream"}`}</p>
           <div className="item-meta"><span>{detail}</span><span>{created}</span></div>
           {item.audio && <div className="audio-row">
             <button type="button" className="audio-load-button" data-action="load-audio" data-item-id={item.id} hidden={Boolean(audioUrl)} disabled={audioLoading} onClick={() => { void loadAudio(); }}><PlayIcon /><span>Reproducir audio</span></button>
@@ -88,7 +98,7 @@ export function ItemCard(props: Props) {
             {props.ttlOptions.map((minutes) => <option value={minutes} key={minutes}>{ttlLabel(minutes)}</option>)}
           </select>}
         </div>
-        {item.type === "text" ? <ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton> : <>
+        {item.type === "text" ? <>{textLinks[0] && <ActionLink label="Abrir enlace" href={textLinks[0]}><ExternalLinkIcon /></ActionLink>}<ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton></> : <>
           {item.previewable && <ActionButton label="Ver" onClick={() => invoke(() => props.onPreview(item))}><PreviewIcon /></ActionButton>}
           <ActionButton label="Descargar" onClick={() => invoke(() => props.onDownload(item))}><DownloadIcon /></ActionButton>
         </>}

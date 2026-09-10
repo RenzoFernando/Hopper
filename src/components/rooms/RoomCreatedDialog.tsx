@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { copyTextToClipboard } from "../../lib/clipboard";
+import { roomUrl } from "../../lib/navigation";
 import { renderQr } from "../../lib/qrcode";
 
 type Props = { code: string; onClose: () => void; onEnter: () => void };
@@ -12,11 +13,7 @@ export function RoomCreatedDialog({ code, onClose, onEnter }: Props) {
   useEffect(() => {
     if (code) {
       if (!dialogRef.current?.open) dialogRef.current?.showModal();
-      if (canvasRef.current) {
-        const url = new URL("room.html", window.location.href);
-        url.hash = code;
-        renderQr(canvasRef.current, url.toString(), 260);
-      }
+      if (canvasRef.current) renderQr(canvasRef.current, roomUrl(code), 260);
     } else if (dialogRef.current?.open) dialogRef.current.close();
   }, [code]);
 

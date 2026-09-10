@@ -48,9 +48,10 @@ function resolvePublicAppUrl(env) {
   }
 }
 
-function buildRecoveryUrl(env, token) {
-  const url = new URL("recover.html", resolvePublicAppUrl(env));
-  url.hash = `token=${encodeURIComponent(token)}`;
+export function buildRecoveryUrl(env, token) {
+  const cleanFrontendUrls = normalizeText(env.CLEAN_FRONTEND_URLS).toLowerCase() === "true";
+  const url = new URL(cleanFrontendUrls ? "recover" : "recover.html", resolvePublicAppUrl(env));
+  url.hash = cleanFrontendUrls ? token : `token=${encodeURIComponent(token)}`;
   return url.toString();
 }
 

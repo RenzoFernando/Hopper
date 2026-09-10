@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { isVisualTestRuntime } from "../lib/runtime";
 
 type InstallPromptEvent = Event & {
@@ -6,7 +6,27 @@ type InstallPromptEvent = Event & {
   userChoice: Promise<unknown>;
 };
 
-export function useLegacyPwa() {
+type PwaController = {
+  installVisible: boolean;
+  updateVisible: boolean;
+  install: () => Promise<void>;
+  update: () => void;
+};
+
+const PwaContext = createContext<PwaController | null>(null);
+
+function serviceWorkerTarget() {
+  if (import.meta.env.PROD) {
+    return { url: "/sw.js", options: { scope: "/", updateViaCache: "none" as const } };
+  }
+
+  return {
+    url: "/dev-sw.js?dev-sw",
+    options: { scope: "/", type: "module" as const, updateViaCache: "none" as const }
+  };
+}
+
+function usePwaController(): PwaController {
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [updateVisible, setUpdateVisible] = useState(false);
@@ -14,7 +34,9 @@ export function useLegacyPwa() {
   useEffect(() => {
     if (isVisualTestRuntime() || !("serviceWorker" in navigator)) return;
     let alive = true;
-    navigator.serviceWorker.register("./service-worker.js", { scope: "./", updateViaCache: "none" })
+    const target = serviceWorkerTarget();
+
+    navigator.serviceWorker.register(target.url, target.options)
       .then((next) => {
         if (!alive) return;
         setRegistration(next);
@@ -27,6 +49,7 @@ export function useLegacyPwa() {
         });
       })
       .catch(() => setInstallPrompt(null));
+
     const controllerChange = () => window.location.reload();
     navigator.serviceWorker.addEventListener("controllerchange", controllerChange);
     return () => {
@@ -61,5 +84,16 @@ export function useLegacyPwa() {
     registration.waiting.postMessage({ type: "SKIP_WAITING" });
   }, [registration]);
 
-  return { installVisible: Boolean(installPrompt), updateVisible, install, update };
+  return useMemo(() => ({ installVisible: Boolean(installPrompt), updateVisible, install, update }), [install, installPrompt, update, updateVisible]);
+}
+
+export function PwaProvider({ children }: { children: ReactNode }) {
+  const controller = usePwaController();
+  return <PwaContext.Provider value={controller}>{children}</PwaContext.Provider>;
+}
+
+export function usePwa() {
+  const value = useContext(PwaContext);
+  if (!value) throw new Error("usePwa debe utilizarse dentro de PwaProvider.");
+  return value;
 }
