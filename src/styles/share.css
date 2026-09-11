@@ -1,0 +1,165 @@
+.share-main {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding: 28px 20px;
+}
+
+.share-card {
+  width: min(100%, 460px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.share-card h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.035em;
+}
+
+.share-summary {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0;
+}
+
+.share-item {
+  padding: 10px 11px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  color: var(--text-soft);
+  font-size: 0.77rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-auth {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+
+.share-auth-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.share-auth-form {
+  display: grid;
+  gap: 7px;
+}
+
+.share-auth-form > label {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.share-auth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.share-auth-row input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.share-auth-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(47 111 94 / 0.1);
+  outline: none;
+}
+
+#share-pin {
+  letter-spacing: 0.2em;
+  text-align: center;
+}
+
+#share-room-code {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.share-auth-message {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.share-auth-message.is-error {
+  color: var(--danger);
+}
+
+.share-auth-message.is-success {
+  color: var(--accent);
+}
+
+.share-auth-divider {
+  position: relative;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+}
+
+.share-auth-divider::before {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border);
+  content: "";
+}
+
+.share-auth-divider span {
+  position: relative;
+  z-index: 1;
+  padding: 0 8px;
+  background: var(--surface-subtle);
+}
+
+.share-card .field-label + .field-label {
+  margin-top: 10px;
+}
+
+.share-progress {
+  min-height: 18px;
+  margin: 13px 0 0;
+  color: var(--text-faint);
+  font-size: 0.74rem;
+}
+
+.share-actions {
+  margin-top: 17px;
+}
+
+.compact-document-page .recovery-main {
+  flex: 1 1 auto;
+}
+
+.app-page .project-footer {
+  min-height: 40px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+

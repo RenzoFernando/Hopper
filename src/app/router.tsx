@@ -1,7 +1,5 @@
 import { useLayoutEffect, type ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { recoveryTokenFromHash, roomCodeFromLegacyHash, roomPath } from "../lib/navigation";
-import { isCompleteRoomCode } from "../lib/room-code";
+import { Route, Routes } from "react-router-dom";
 import { AdminPage } from "../pages/AdminPage";
 import { HomePage } from "../pages/HomePage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -28,23 +26,6 @@ function PageFrame({ bodyClass, title, description, children }: PageFrameProps) 
   return children;
 }
 
-function LegacyRoomRoute() {
-  const location = useLocation();
-  const code = roomCodeFromLegacyHash(location.hash);
-  return <Navigate replace to={isCompleteRoomCode(code) ? roomPath(code) : "/room"} />;
-}
-
-function LegacyRecoverRoute() {
-  const location = useLocation();
-  const token = recoveryTokenFromHash(location.hash);
-  return <Navigate replace to={token ? `/recover#${encodeURIComponent(token)}` : "/recover"} />;
-}
-
-function LegacyShareRoute() {
-  const location = useLocation();
-  return <Navigate replace to={`/share${location.search}`} />;
-}
-
 export function AppRouter() {
   return (
     <Routes>
@@ -56,12 +37,6 @@ export function AppRouter() {
       <Route path="/recover" element={<PageFrame bodyClass="document-page compact-document-page" title="Recuperar acceso — Hopper" description="Recuperación segura del PIN de Hopper."><RecoverPage /></PageFrame>} />
       <Route path="/share" element={<PageFrame bodyClass="document-page compact-document-page" title="Compartir — Hopper" description="Enviar contenido compartido a Hopper."><ShareTargetPage /></PageFrame>} />
       <Route path="/404" element={<PageFrame bodyClass="document-page compact-document-page" title="404 — Hopper" description="La ruta solicitada no existe en Hopper."><NotFoundPage /></PageFrame>} />
-
-      <Route path="/index.html" element={<Navigate replace to="/" />} />
-      <Route path="/admin.html" element={<Navigate replace to="/admin" />} />
-      <Route path="/room.html" element={<LegacyRoomRoute />} />
-      <Route path="/recover.html" element={<LegacyRecoverRoute />} />
-      <Route path="/share-target.html" element={<LegacyShareRoute />} />
       <Route path="*" element={<PageFrame bodyClass="document-page compact-document-page" title="404 — Hopper" description="La ruta solicitada no existe en Hopper."><NotFoundPage /></PageFrame>} />
     </Routes>
   );

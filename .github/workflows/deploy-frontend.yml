@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - master
     paths:
       - "assets/**"
       - "config/production.json"
@@ -47,9 +47,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Exigir corte aprobado
-        run: |
-          node -e "const c=require('./config/production.json'); if(!c.cutoverComplete) { console.error('Fase 5 todavía no está aprobada para producción.'); process.exit(1); }"
 
       - name: Dependencias
         run: npm ci
@@ -74,7 +71,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          command: pages deploy dist --project-name=hopper-transfer --branch=main
+          command: pages deploy dist --project-name=hopper-transfer --branch=master
 
       - name: URL desplegada
         env:

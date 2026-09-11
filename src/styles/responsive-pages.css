@@ -1,0 +1,212 @@
+@media (max-height: 760px) and (min-width: 761px) {
+  :root {
+    --header-height: 56px;
+  }
+
+  .workspace-inner {
+    padding-top: 10px;
+    padding-bottom: 10px;
+    gap: 9px;
+  }
+
+  .composer-card {
+    padding: 12px 14px;
+  }
+
+  .composer-heading {
+    margin-bottom: 8px;
+  }
+
+  #text-input {
+    min-height: 66px;
+    max-height: 88px;
+  }
+
+  .drop-zone {
+    min-height: 42px;
+    margin-top: 7px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .composer-actions {
+    margin-top: 8px;
+  }
+
+  .selected-files {
+    max-height: 82px;
+  }
+
+  .recent-header {
+    min-height: 31px;
+    padding-bottom: 5px;
+  }
+
+  .app-page .project-footer {
+    min-height: 36px;
+    font-size: 0.68rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .public-nav {
+    gap: 2px;
+  }
+
+  .public-nav .header-link:first-child {
+    font-size: 0.72rem;
+  }
+
+  .header-session {
+    gap: 4px;
+  }
+
+  .header-session .header-link {
+    padding: 0 7px;
+  }
+
+  .room-header-code {
+    font-size: 0.72rem;
+  }
+
+  .room-expiry {
+    display: none;
+  }
+
+  .audio-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .audio-row audio {
+    width: 100%;
+  }
+
+  .admin-main {
+    padding: 20px 14px 28px;
+  }
+
+  .admin-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric-card-wide {
+    grid-column: 1 / -1;
+  }
+
+  .admin-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-heading-actions,
+  .admin-room {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .room-create-controls {
+    width: 100%;
+  }
+
+  .room-create-controls label {
+    flex: 1 1 auto;
+  }
+
+  .room-create-controls select,
+  .room-create-controls .primary-button {
+    width: 100%;
+  }
+
+  .admin-room-actions,
+  .maintenance-actions {
+    justify-content: flex-start;
+  }
+
+  .admin-room-actions .compact-button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .public-nav #update-button {
+    display: none !important;
+  }
+
+  .public-nav .header-link:first-child {
+    max-width: 120px;
+    text-align: center;
+  }
+
+  .header-session .sync-state {
+    display: none;
+  }
+
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-card-wide {
+    grid-column: auto;
+  }
+
+  .metric-card {
+    min-height: 88px;
+  }
+
+  .room-create-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .share-auth-row {
+    grid-template-columns: 1fr;
+  }
+
+  .share-auth-row .secondary-button {
+    width: 100%;
+  }
+
+  .share-actions > * {
+    flex: 1 1 0;
+  }
+}
+.auth-layout {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  align-items: center;
+}
+
+.auth-divider {
+  position: absolute;
+  top: 50%;
+  left: 70%;
+  z-index: 3;
+  width: 2px;
+  height: clamp(260px, 42vh, 360px);
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: linear-gradient(
+          to bottom,
+          transparent 0%,
+          var(--border-strong) 14%,
+          #aeb1b0 50%,
+          var(--border-strong) 86%,
+          transparent 100%
+  );
+  pointer-events: none;
+}
+
+.auth-layout .auth-content {
+  grid-column: 1;
+  width: min(100%, 430px);
+  justify-self: center;
+}
+

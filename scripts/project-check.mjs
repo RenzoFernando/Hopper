@@ -1,0 +1,110 @@
+import { access, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { resolve } from "node:path";
+
+const root = resolve(".");
+const production = JSON.parse((await readFile(resolve(root, "config/production.json"), "utf8")).replace(/^\uFEFF/, ""));
+const required = [
+  "index.html",
+  "config/production.json",
+  "public/_headers",
+  "src/main.tsx",
+  "src/sw.ts",
+  "src/styles/styles.css",
+  "src/styles/foundation.css",
+  "src/styles/auth.css",
+  "src/styles/transfers.css",
+  "src/styles/recovery.css",
+  "src/styles/responsive-core.css",
+  "src/styles/navigation.css",
+  "src/styles/admin.css",
+  "src/styles/share.css",
+  "src/styles/responsive-pages.css",
+  "src/styles/rooms.css",
+  "worker/wrangler.jsonc",
+  "worker/migrations/0001_baseline.sql",
+  ".github/workflows/ci.yml",
+  ".github/workflows/deploy-frontend.yml",
+  ".github/workflows/deploy-worker.yml"
+];
+
+for (const relative of required) {
+  await access(resolve(root, relative), constants.R_OK);
+}
+
+const index = await readFile(resolve(root, "index.html"), "utf8");
+if (!index.includes('id="root"') || !index.includes('/src/main.tsx')) {
+  throw new Error("index.html no es la entrada final de la SPA React.");
+}
+
+const vite = await readFile(resolve(root, "vite.config.ts"), "utf8");
+if (vite.includes("js/config.js") || vite.includes("modern/index.html")) {
+  throw new Error("vite.config.ts depende de una estructura retirada.");
+}
+
+const workerConfig = await readFile(resolve(root, "worker/wrangler.jsonc"), "utf8");
+if (!workerConfig.includes('"d1_databases"') || !workerConfig.includes('"migrations_dir"')) {
+  throw new Error("worker/wrangler.jsonc no contiene el binding D1 formal.");
+}
+if (workerConfig.includes("renzofernando.github.io") || workerConfig.includes("CLEAN_FRONTEND_URLS")) {
+  throw new Error("worker/wrangler.jsonc todavía contiene compatibilidad del frontend retirado.");
+}
+
+if (production.pagesProjectName !== "hopper-transfer") {
+  throw new Error("El proyecto de Cloudflare Pages debe ser hopper-transfer.");
+}
+if (production.productionBranch !== "master") {
+  throw new Error("La rama de producción debe ser master.");
+}
+if (production.publicAppUrl !== "https://hopper-transfer.pages.dev/") {
+  throw new Error("publicAppUrl debe apuntar al frontend actual de Cloudflare Pages.");
+}
+
+const obsolete = [
+  "admin.html",
+  "recover.html",
+  "room.html",
+  "share-target.html",
+  "service-worker.js",
+  "manifest.webmanifest",
+  "css",
+  "js",
+  "modern",
+  "public/assets",
+  ".hopper-phase5-rollback.json",
+  ".phase5-github-pages",
+  "scripts/serve-legacy.mjs",
+  "scripts/phase5-check.mjs",
+  "scripts/build-legacy-redirect.mjs",
+  ".github/workflows/preview-frontend.yml",
+  ".github/workflows/legacy-github-pages-redirect.yml",
+  "tests/e2e/phase-three-pwa.spec.ts",
+  "tests/e2e/visual-regression.spec.ts",
+  "tests/unit/layout-parity.test.tsx",
+  "tests/unit/style-freeze.test.ts",
+  "tests/unit/phase-five-production.test.ts",
+  "tests/unit/phase-three-navigation.test.ts"
+];
+
+for (const relative of obsolete) {
+  try {
+    await access(resolve(root, relative), constants.F_OK);
+    throw new Error(`Todavía existe un artefacto retirado: ${relative}`);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+try {
+  const localConfigSource = await readFile(resolve(root, ".hopper-admin.json"), "utf8");
+  const localConfig = JSON.parse(localConfigSource.replace(/^\uFEFF/, ""));
+  for (const property of ["legacyPublicAppUrl", "cutoverComplete", "legacyRedirectVerified", "cleanFrontendUrls"]) {
+    if (Object.hasOwn(localConfig, property)) {
+      throw new Error(`.hopper-admin.json todavía contiene el campo retirado: ${property}`);
+    }
+  }
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
+
+console.log("Estructura final de Hopper válida.");

@@ -1,22 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { extractHttpUrls, splitHttpText } from "../../src/lib/links";
-import { recoveryTokenFromHash, roomCodeFromLegacyHash, roomPath, roomUrl } from "../../src/lib/navigation";
+import { recoveryTokenFromHash, roomPath, roomUrl } from "../../src/lib/navigation";
 
-describe("navegación limpia de Fase 3", () => {
+describe("navegación limpia", () => {
   it("construye rutas y enlaces de sala limpios", () => {
     expect(roomPath("ab1234")).toBe("/room/AB-1234");
     expect(roomPath("incompleto")).toBe("/room");
     expect(roomUrl("AB-1234", "https://hopper.example")).toBe("https://hopper.example/room/AB-1234");
   });
 
-  it("acepta tokens de recuperación nuevos y legacy", () => {
+  it("lee el token de recuperación desde el fragmento actual", () => {
     expect(recoveryTokenFromHash("#abc_DEF-123")).toBe("abc_DEF-123");
-    expect(recoveryTokenFromHash("#token=abc_DEF-123")).toBe("abc_DEF-123");
-  });
-
-  it("recupera códigos desde enlaces legacy", () => {
-    expect(roomCodeFromLegacyHash("#ab1234")).toBe("AB-1234");
-    expect(roomCodeFromLegacyHash("#AB-1234")).toBe("AB-1234");
+    expect(recoveryTokenFromHash("")).toBe("");
   });
 
   it("detecta únicamente enlaces HTTP(S) y conserva puntuación", () => {
@@ -32,5 +27,4 @@ describe("navegación limpia de Fase 3", () => {
       { text: "." }
     ]);
   });
-
 });

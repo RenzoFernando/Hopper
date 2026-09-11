@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isCompleteRoomCode, normalizeRoomCode } from "../js/room-code.js";
+import { isCompleteRoomCode, normalizeRoomCode } from "../src/lib/room-code.ts";
 
 test("normaliza códigos de sala como dos letras, guion fijo y cuatro números", () => {
   assert.equal(normalizeRoomCode("r"), "R");

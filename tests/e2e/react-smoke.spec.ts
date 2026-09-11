@@ -238,22 +238,6 @@ test("los enlaces de navegación cambian también la pantalla y los textos HTTP(
   await expect(item.getByRole("link", { name: "Abrir enlace" })).toHaveAttribute("href", "https://example.com/hopper");
 });
 
-test("rutas legacy redirigen a las rutas limpias", async ({ page }) => {
-  await seedPersonalSession(page);
-  await installApiMock(page);
-
-  await page.goto("/admin.html");
-  await expect(page).toHaveURL(/\/admin$/);
-
-  await page.goto("/room.html#AB-1234");
-  await expect(page).toHaveURL(/\/room\/AB-1234$/);
-
-  await page.goto("/recover.html#token=token-de-prueba");
-  await expect(page).toHaveURL(/\/recover$/);
-
-  await page.goto("/share-target.html?received=1");
-  await expect(page).toHaveURL(/\/share\?received=1$/);
-});
 
 test("Share Target React confirma y limpia el payload antes de navegar", async ({ page }) => {
   await seedPersonalSession(page);

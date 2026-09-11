@@ -1,0 +1,111 @@
+@media (max-width: 760px) {
+  :root {
+    --header-height: 62px;
+  }
+
+  .site-header {
+    padding: 0 17px;
+  }
+
+  .sync-state {
+    display: none;
+  }
+
+  .workspace-inner {
+    padding: 14px 13px 15px;
+    gap: 12px;
+  }
+
+  .composer-card {
+    padding: 15px;
+    border-radius: 17px;
+  }
+
+  .composer-heading {
+    margin-bottom: 11px;
+  }
+
+  #text-input {
+    min-height: 82px;
+    max-height: 128px;
+  }
+
+  .drop-zone {
+    align-items: flex-start;
+  }
+
+  .drop-limit {
+    display: none;
+  }
+
+  .item-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .item-actions {
+    justify-content: flex-start;
+    padding-left: 50px;
+    flex-wrap: wrap;
+  }
+
+  .auth-screen,
+  .recovery-main {
+    padding: 24px 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .composer-actions {
+    align-items: stretch;
+  }
+
+  .ttl-field {
+    flex: 1 1 auto;
+  }
+
+  .ttl-field select {
+    width: 100%;
+  }
+
+  .send-button {
+    min-width: 104px;
+  }
+
+  .item-type-mark {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .item-actions {
+    padding-left: 46px;
+  }
+
+  .action-button,
+  .expiry-countdown,
+  .expiry-select {
+    min-height: 32px;
+  }
+
+  .project-footer {
+    padding: 4px 10px;
+  }
+
+  .project-footer span {
+    display: inline;
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

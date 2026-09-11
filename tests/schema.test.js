@@ -5,7 +5,7 @@ import { TestD1 } from "./d1-test-helper.js";
 
 const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 
-test("la migración baseline crea el esquema actual y los índices de Fase 4", async () => {
+test("la migración baseline crea el esquema actual y sus índices", async () => {
   const db = new TestD1(baseline);
 
   try {

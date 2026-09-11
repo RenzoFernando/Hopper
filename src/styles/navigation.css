@@ -1,0 +1,141 @@
+.public-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-link {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.header-link:hover,
+.header-link:focus-visible {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.header-button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.auth-secondary-link {
+  display: inline-block;
+  margin-top: 11px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 630;
+  text-decoration: none;
+}
+
+.auth-secondary-link:hover,
+.auth-secondary-link:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.selected-files {
+  max-height: 112px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.audio-row {
+  margin-top: 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-row audio {
+  width: min(100%, 360px);
+  height: 34px;
+}
+
+.audio-load-button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.73rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.audio-load-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.room-header-code,
+.room-expiry {
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.room-header-code {
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+.room-expiry {
+  min-width: 48px;
+  text-align: center;
+}
+
+.room-code-form input {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.room-code-form .primary-button {
+  margin-top: 2px;
+}
+
+.recent-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.document-page {
+  height: auto;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.document-shell {
+  flex: 1 0 auto;
+  min-height: calc(100dvh - 40px);
+  background: var(--page);
+}
+
+.document-shell .site-header {
+  position: relative;
+}
+
+.compact-document-page .document-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 40px);
+}
+

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - master
     paths:
       - "config/production.json"
       - "worker/**"
@@ -42,9 +42,6 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Exigir corte aprobado
-        run: |
-          node -e "const c=require('./config/production.json'); if(!c.cutoverComplete) { console.error('Fase 5 todavía no está aprobada para producción.'); process.exit(1); }"
 
       - name: Dependencias raíz
         run: npm ci

@@ -14,7 +14,7 @@ async function request(url, init = {}) {
     redirect: "manual",
     ...init,
     headers: {
-      "User-Agent": "Hopper-Phase5-Verification/1.0",
+      "User-Agent": "Hopper-Production-Verification/1.0",
       ...(init.headers || {})
     }
   });
@@ -54,7 +54,7 @@ const healthJson = await health.json();
 if (healthJson?.ok !== true) throw new Error("Worker /health no confirmó estado OK.");
 
 const deniedCors = await request(`${workerUrl}/api/security/status`, {
-  headers: { Origin: "https://fase5-origen-no-autorizado.invalid" }
+  headers: { Origin: "https://origen-no-autorizado.invalid" }
 });
 if (deniedCors.status !== 403) {
   throw new Error(`CORS no autorizado esperaba 403 y recibió ${deniedCors.status}.`);
@@ -62,4 +62,4 @@ if (deniedCors.status !== 403) {
 
 console.log(`Frontend: ${appUrl}`);
 console.log(`Worker: ${workerUrl}`);
-console.log("Fase 5: verificación HTTP de producción aprobada.");
+console.log("Verificación HTTP de producción aprobada.");

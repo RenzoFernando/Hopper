@@ -26,5 +26,5 @@ headers = headers
   .replaceAll("__HOPPER_B2_ORIGIN__", b2Origin);
 await writeFile(headersPath, headers, "utf8");
 
-// Elimina residuos de builds de la estructura temporal usada durante Fase 3.
+// Evita que residuos de builds antiguos terminen dentro del artefacto de Pages.
 await rm(resolve(distDir, "modern"), { recursive: true, force: true });

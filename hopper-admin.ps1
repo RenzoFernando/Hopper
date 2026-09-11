@@ -1,8 +1,8 @@
-﻿param(
+param(
   [ValidateSet(
-    "menu", "setup", "init", "deploy", "pages", "cutover", "finalize", "verify", "rollback",
-    "cleanup-refactor", "github", "status", "lock", "unlock", "change-pin", "block", "unblock",
-    "events", "email", "b2", "cors", "cleanup", "url"
+    "menu", "setup", "init", "deploy", "pages", "validate", "verify", "github", "status",
+    "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors",
+    "cleanup", "url"
   )]
   [string]$Action = "menu"
 )
@@ -12,7 +12,6 @@ Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
 $productionConfigPath = Join-Path $PSScriptRoot "config\production.json"
-$rollbackPath = Join-Path $PSScriptRoot ".hopper-phase5-rollback.json"
 $migrationsPath = Join-Path $PSScriptRoot "worker\migrations"
 $workerPackagePath = Join-Path $PSScriptRoot "worker\package.json"
 $workerConfigPath = Join-Path $PSScriptRoot "worker\wrangler.jsonc"
@@ -26,9 +25,8 @@ $script:WorkerName = ""
 $script:WorkerUrl = ""
 $script:PublicAppUrl = ""
 $script:AllowedOrigin = ""
-$script:LegacyPublicAppUrl = ""
 $script:PagesProjectName = "hopper-transfer"
-$script:ProductionBranch = "main"
+$script:ProductionBranch = "master"
 $script:MaxFileBytes = [long](512MB)
 $script:RoomMaxFileBytes = [long](100MB)
 $script:DefaultTtlMinutes = 5
@@ -38,9 +36,6 @@ $script:UploadConcurrency = 2
 $script:SessionSecretConfigured = $false
 $script:B2SecretConfigured = $false
 $script:RecoveryConfigured = $false
-$script:CleanFrontendUrls = $false
-$script:CutoverComplete = $false
-$script:LegacyRedirectVerified = $false
 $script:GitHubCliPath = ""
 $script:NpxCliPath = ""
 
@@ -104,7 +99,7 @@ function Invoke-WranglerProcess {
 
   try {
     # Windows PowerShell 5.1 convierte stderr redirigido de comandos nativos en
-    # NativeCommandError. Las advertencias de Wrangler no deben abortar el corte.
+    # NativeCommandError. Las advertencias de Wrangler no deben abortar la operación.
     $ErrorActionPreference = "Continue"
     $processOutput = & $npx --yes wrangler @Arguments 2>&1
     $processExitCode = $LASTEXITCODE
@@ -169,22 +164,9 @@ function Load-Config {
     $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
     $script:B2SecretConfigured = [bool]$config.b2SecretConfigured
     $script:RecoveryConfigured = [bool]$config.recoveryConfigured
-    $script:CleanFrontendUrls = [bool]$config.cleanFrontendUrls
 
     if ($config.pagesProjectName) {
       $script:PagesProjectName = [string]$config.pagesProjectName
-    }
-
-    if ($config.legacyPublicAppUrl) {
-      $script:LegacyPublicAppUrl = [string]$config.legacyPublicAppUrl
-    }
-
-    if ($null -ne $config.cutoverComplete) {
-      $script:CutoverComplete = [bool]$config.cutoverComplete
-    }
-
-    if ($null -ne $config.legacyRedirectVerified) {
-      $script:LegacyRedirectVerified = [bool]$config.legacyRedirectVerified
     }
   }
 
@@ -200,10 +182,6 @@ function Load-Config {
         $script:ProductionBranch = [string]$production.productionBranch
       }
 
-      if ($production.legacyPublicAppUrl) {
-        $script:LegacyPublicAppUrl = [string]$production.legacyPublicAppUrl
-      }
-
       if ($production.workerBaseUrl) {
         $script:WorkerUrl = ([string]$production.workerBaseUrl).TrimEnd("/")
       }
@@ -212,15 +190,11 @@ function Load-Config {
         $script:B2Endpoint = ([string]$production.b2Endpoint).TrimEnd("/")
       }
 
-      if ([bool]$production.cutoverComplete -and $production.publicAppUrl) {
+      if ($production.publicAppUrl) {
         $uri = [Uri]([string]$production.publicAppUrl)
         $script:PublicAppUrl = $uri.AbsoluteUri.TrimEnd("/") + "/"
         $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
-        $script:CleanFrontendUrls = $true
       }
-
-      $script:CutoverComplete = [bool]$production.cutoverComplete
-      $script:LegacyRedirectVerified = [bool]$production.legacyRedirectVerified
     } catch {
       throw "config\production.json no es válido."
     }
@@ -241,11 +215,7 @@ function Save-Config {
     sessionSecretConfigured = $script:SessionSecretConfigured
     b2SecretConfigured = $script:B2SecretConfigured
     recoveryConfigured = $script:RecoveryConfigured
-    cleanFrontendUrls = $script:CleanFrontendUrls
     pagesProjectName = $script:PagesProjectName
-    legacyPublicAppUrl = $script:LegacyPublicAppUrl
-    cutoverComplete = $script:CutoverComplete
-    legacyRedirectVerified = $script:LegacyRedirectVerified
   }
 
   Write-Utf8NoBom -Path $configPath -Content ($payload | ConvertTo-Json)
@@ -263,10 +233,7 @@ function Write-ProductionConfig {
     workerName = $script:WorkerName
     workerBaseUrl = $script:WorkerUrl.TrimEnd("/")
     publicAppUrl = $script:PublicAppUrl
-    legacyPublicAppUrl = $script:LegacyPublicAppUrl
     b2Endpoint = $script:B2Endpoint.TrimEnd("/")
-    cutoverComplete = $script:CutoverComplete
-    legacyRedirectVerified = $script:LegacyRedirectVerified
   }
 
   Write-Utf8NoBom -Path $productionConfigPath -Content ($payload | ConvertTo-Json)
@@ -534,8 +501,6 @@ function Invoke-D1Command {
 }
 
 function Sync-WorkerConfig {
-  param([string[]]$AdditionalAllowedOrigins = @())
-
   if (
     -not $script:DatabaseId -or
     -not $script:DatabaseName -or
@@ -547,11 +512,6 @@ function Sync-WorkerConfig {
     throw "Faltan valores para generar worker\wrangler.jsonc."
   }
 
-  $origins = @(
-    $script:AllowedOrigin
-    $AdditionalAllowedOrigins
-  ) | Where-Object { $_ } | Select-Object -Unique
-
   $payload = [ordered]@{
     '$schema' = "node_modules/wrangler/config-schema.json"
     name = $script:WorkerName
@@ -559,10 +519,9 @@ function Sync-WorkerConfig {
     compatibility_date = (Get-Date).ToString("yyyy-MM-dd")
     workers_dev = $true
     vars = [ordered]@{
-      ALLOWED_ORIGINS = ($origins -join ",")
+      ALLOWED_ORIGINS = $script:AllowedOrigin
       ALLOW_LOCALHOST = "false"
       PUBLIC_APP_URL = $script:PublicAppUrl
-      CLEAN_FRONTEND_URLS = if ($script:CleanFrontendUrls) { "true" } else { "false" }
       MAX_FILE_BYTES = [string]$script:MaxFileBytes
       ROOM_MAX_FILE_BYTES = [string]$script:RoomMaxFileBytes
       B2_BUCKET_NAME = $script:B2BucketName
@@ -680,10 +639,7 @@ function Set-WorkerSecretsBulk {
 }
 
 function Deploy-Worker {
-  param(
-    [string[]]$AdditionalAllowedOrigins = @(),
-    [switch]$SkipSchema
-  )
+  param([switch]$SkipSchema)
 
   Ensure-WorkerDependencies
 
@@ -691,7 +647,7 @@ function Deploy-Worker {
     Initialize-Schema
   }
 
-  Sync-WorkerConfig -AdditionalAllowedOrigins $AdditionalAllowedOrigins
+  Sync-WorkerConfig
 
   Push-Location (Join-Path $PSScriptRoot "worker")
   try {
@@ -837,7 +793,6 @@ function Get-B2MasterAuthorization {
 }
 
 function Configure-B2Cors {
-  param([string[]]$AdditionalAllowedOrigins = @())
 
   if (-not $script:B2BucketName -or -not $script:B2Endpoint -or -not $script:AllowedOrigin) {
     throw "Primero configura el bucket, el endpoint y la URL pública de Hopper."
@@ -885,7 +840,6 @@ function Configure-B2Cors {
 
   $origins = @(
     $script:AllowedOrigin
-    $AdditionalAllowedOrigins
     "http://localhost:4173"
     "http://127.0.0.1:4173"
     "http://localhost:4175"
@@ -1061,8 +1015,6 @@ function Show-Status {
       Write-Warning "El Worker no respondió al health check."
     }
   }
-
-  Write-Host "Corte Cloudflare: $script:CutoverComplete | redirect legacy verificado: $script:LegacyRedirectVerified"
 }
 
 function Set-ManualLock {
@@ -1145,7 +1097,6 @@ function Update-PublicUrl {
 
   $script:PublicAppUrl = $uri.AbsoluteUri.TrimEnd("/") + "/"
   $script:AllowedOrigin = $uri.GetLeftPart([UriPartial]::Authority)
-  $script:CleanFrontendUrls = $true
   Save-Config
   Write-ProductionConfig
 
@@ -1175,37 +1126,17 @@ function Invoke-ExternalCommand {
   }
 }
 
-function Remove-Phase5TransitionalArtifacts {
-  $obsolete = @(
-    "modern",
-    "scripts\serve-legacy.mjs",
-    ".github\workflows\preview-frontend.yml",
-    "tests\e2e\phase-three-pwa.spec.ts",
-    "tests\e2e\visual-regression.spec.ts",
-    "tests\unit\layout-parity.test.tsx",
-    "tests\unit\style-freeze.test.ts"
-  )
-
-  foreach ($relative in $obsolete) {
-    $path = Join-Path $PSScriptRoot $relative
-    if (Test-Path -LiteralPath $path) {
-      Remove-Item -LiteralPath $path -Recurse -Force
-      Write-Host "Retirado artefacto transitorio: $relative"
-    }
-  }
-}
-
 function Invoke-FullValidation {
   Write-Host ""
-  Write-Host "Validación completa de Fase 5"
+  Write-Host "Validación completa de Hopper"
 
-  Invoke-ExternalCommand "Validación estructural" { node scripts/phase5-check.mjs }
+  Invoke-ExternalCommand "Validación estructural" { node scripts/project-check.mjs }
   Invoke-ExternalCommand "TypeScript del Worker" { npm --prefix worker run typecheck }
   Invoke-ExternalCommand "Tests de seguridad del Worker" { npm --prefix worker test }
   Invoke-ExternalCommand "ESLint" { npm run lint }
   Invoke-ExternalCommand "TypeScript frontend" { npm run typecheck }
   Invoke-ExternalCommand "Vitest" { npm run test }
-  Invoke-ExternalCommand "Tests legacy/backend" { npm run test:legacy }
+  Invoke-ExternalCommand "Regresión backend" { npm run test:legacy }
   Invoke-ExternalCommand "Tests de integración" { npm run test:integration }
   Invoke-ExternalCommand "Build" { npm run build }
   Invoke-ExternalCommand "E2E/PWA/visual" { npm run test:e2e }
@@ -1251,211 +1182,6 @@ function Ensure-PagesProject {
   }
 
   return $project
-}
-
-function ConvertTo-PagesStableUrl {
-  param([object]$Value)
-
-  if ($null -eq $Value) {
-    return ""
-  }
-
-  foreach ($entry in @($Value)) {
-    if ($null -eq $entry) {
-      continue
-    }
-
-    $text = [string]$entry
-    $urlMatches = [regex]::Matches(
-      $text,
-      "(?i)(?:https?://)?([a-z0-9-]+\.pages\.dev)(?=[/,\s]|$)"
-    )
-
-    foreach ($match in $urlMatches) {
-      $candidateHost = $match.Groups[1].Value.ToLowerInvariant()
-
-      # La URL estable de proyecto tiene una única etiqueta antes de pages.dev.
-      # Las URLs de deployment añaden un hash delante y no deben persistirse
-      # como PUBLIC_APP_URL.
-      if ($candidateHost -match "^[^.]+\.pages\.dev$") {
-        return "https://$candidateHost/"
-      }
-    }
-  }
-
-  return ""
-}
-
-function Get-PagesStableUrlFromDeployments {
-  $raw = (& (Resolve-NpxCliPath) --yes wrangler pages deployment list --project-name $script:PagesProjectName --environment production --json 2>$null | Out-String)
-
-  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
-    return ""
-  }
-
-  try {
-    $parsed = $raw | ConvertFrom-Json
-    $deployments = if ($parsed -is [System.Array]) {
-      @($parsed)
-    } elseif ($parsed.result) {
-      @($parsed.result)
-    } else {
-      @($parsed)
-    }
-
-    foreach ($deployment in $deployments) {
-      foreach ($candidate in @(
-        $deployment.aliases,
-        $deployment.domains,
-        $deployment.'Aliases',
-        $deployment.'Domains'
-      )) {
-        $stableUrl = ConvertTo-PagesStableUrl $candidate
-        if ($stableUrl) {
-          return $stableUrl
-        }
-      }
-    }
-  } catch {
-    return ""
-  }
-
-  return ""
-}
-
-function Get-PagesPublicUrl {
-  param($Project)
-
-  # Wrangler ha expuesto estos datos con nombres distintos entre versiones.
-  # Se prioriza siempre el dominio estable *.pages.dev del proyecto.
-  foreach ($candidate in @(
-    $Project.subdomain,
-    $Project.domains,
-    $Project.project_domains,
-    $Project.'Project Domains',
-    $Project.'Project Domain'
-  )) {
-    $stableUrl = ConvertTo-PagesStableUrl $candidate
-    if ($stableUrl) {
-      return $stableUrl
-    }
-  }
-
-  # Si el listado del proyecto omite dominios, un deployment de producción
-  # puede exponer el alias estable dentro de aliases/domains.
-  $deploymentUrl = Get-PagesStableUrlFromDeployments
-  if ($deploymentUrl) {
-    return $deploymentUrl
-  }
-
-  $properties = @($Project.PSObject.Properties.Name) -join ", "
-  throw "Cloudflare Pages no devolvió un dominio estable *.pages.dev. Campos recibidos: $properties"
-}
-
-function Assert-PagesPublicUrlMatchesProject {
-  param([string]$PagesUrl)
-
-  if (-not $PagesUrl) {
-    throw "Cloudflare Pages no devolvió una URL pública para validar."
-  }
-
-  $pagesUri = [Uri]$PagesUrl
-  $expectedHost = ("$($script:PagesProjectName).pages.dev").ToLowerInvariant()
-  $actualPagesHost = $pagesUri.Host.ToLowerInvariant()
-
-  if ($actualPagesHost -ne $expectedHost) {
-    throw "Cloudflare asignó '$actualPagesHost' al proyecto '$script:PagesProjectName', no '$expectedHost'. El corte se detiene para no conservar un sufijo aleatorio. Prueba otro nombre, por ejemplo hopper-send o hopper-relay."
-  }
-}
-
-function Get-CurrentWorkerVersionId {
-  if (-not $script:WorkerName) {
-    return ""
-  }
-
-  $raw = (& (Resolve-NpxCliPath) --yes wrangler versions list --name $script:WorkerName --json 2>$null | Out-String)
-  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
-    return ""
-  }
-
-  try {
-    $parsed = $raw | ConvertFrom-Json
-    $versions = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
-    $latest = $versions | Select-Object -First 1
-    return [string]$latest.id
-  } catch {
-    return ""
-  }
-}
-
-function Get-CurrentPagesDeploymentId {
-  $raw = (& (Resolve-NpxCliPath) --yes wrangler pages deployment list --project-name $script:PagesProjectName --json 2>$null | Out-String)
-  if ($LASTEXITCODE -ne 0 -or -not $raw.Trim()) {
-    return ""
-  }
-
-  try {
-    $parsed = $raw | ConvertFrom-Json
-    $deployments = if ($parsed -is [System.Array]) { @($parsed) } elseif ($parsed.result) { @($parsed.result) } else { @($parsed) }
-    $production = $deployments | Where-Object { -not $_.environment -or $_.environment -eq "production" } | Select-Object -First 1
-    return [string]$production.id
-  } catch {
-    return ""
-  }
-}
-
-function Save-Phase5Rollback {
-  if (Test-Path -LiteralPath $rollbackPath) {
-    try {
-      $existing = Get-Content $rollbackPath -Raw | ConvertFrom-Json
-
-      if ($existing -and -not [bool]$existing.cutoverComplete) {
-        $legacyUrl = [string]$existing.legacyPublicAppUrl
-        if (-not $legacyUrl) {
-          $legacyUrl = $script:LegacyPublicAppUrl
-        }
-
-        if ($legacyUrl) {
-          $legacyUri = [Uri]$legacyUrl
-          $payload = [ordered]@{
-            createdAt = [string]$existing.createdAt
-            workerVersionId = [string]$existing.workerVersionId
-            pagesDeploymentId = [string]$existing.pagesDeploymentId
-            pagesProjectName = if ($existing.pagesProjectName) { [string]$existing.pagesProjectName } else { $script:PagesProjectName }
-            publicAppUrl = $legacyUri.AbsoluteUri.TrimEnd("/") + "/"
-            allowedOrigin = $legacyUri.GetLeftPart([UriPartial]::Authority)
-            legacyPublicAppUrl = $legacyUri.AbsoluteUri.TrimEnd("/") + "/"
-            cleanFrontendUrls = $false
-            cutoverComplete = $false
-            legacyRedirectVerified = $false
-          }
-
-          Write-Utf8NoBom -Path $rollbackPath -Content ($payload | ConvertTo-Json)
-        }
-
-        Write-Host "Snapshot de rollback existente conservado: $rollbackPath"
-        return
-      }
-    } catch {
-      Write-Warning "El snapshot de rollback existente no pudo validarse; se creará uno nuevo."
-    }
-  }
-
-  $payload = [ordered]@{
-    createdAt = (Get-Date).ToUniversalTime().ToString("o")
-    workerVersionId = Get-CurrentWorkerVersionId
-    pagesDeploymentId = Get-CurrentPagesDeploymentId
-    pagesProjectName = $script:PagesProjectName
-    publicAppUrl = $script:PublicAppUrl
-    allowedOrigin = $script:AllowedOrigin
-    legacyPublicAppUrl = $script:LegacyPublicAppUrl
-    cleanFrontendUrls = $script:CleanFrontendUrls
-    cutoverComplete = $script:CutoverComplete
-    legacyRedirectVerified = $script:LegacyRedirectVerified
-  }
-
-  Write-Utf8NoBom -Path $rollbackPath -Content ($payload | ConvertTo-Json)
-  Write-Host "Snapshot de rollback: $rollbackPath"
 }
 
 function Deploy-Pages {
@@ -1535,7 +1261,7 @@ function Resolve-GitHubCliPath {
     }
   }
 
-  throw "Falta GitHub CLI (gh). Instálalo y ejecuta 'gh auth login' antes del corte."
+  throw "Falta GitHub CLI (gh). Instálalo y ejecuta 'gh auth login'."
 }
 
 function Ensure-GitHubCli {
@@ -1598,224 +1324,10 @@ function Configure-GitHubActions {
   Write-Host "Secrets de GitHub Actions configurados para $repo."
 }
 
-function Enable-GitHubPagesWorkflow {
-  $repo = Get-GitHubRepository
-
-  & $script:GitHubCliPath api --method PUT "repos/$repo/pages" -f build_type=workflow *> $null
-
-  if ($LASTEXITCODE -ne 0) {
-    throw "No fue posible cambiar GitHub Pages a GitHub Actions."
-  }
-
-  Write-Host "GitHub Pages quedó configurado para publicar mediante GitHub Actions."
-}
-
-function Test-LegacyRedirect {
-  if (-not $script:LegacyPublicAppUrl) {
-    throw "No existe una URL legacy configurada."
-  }
-
-  try {
-    $response = Invoke-WebRequest -Uri $script:LegacyPublicAppUrl -UseBasicParsing
-  } catch {
-    throw "No fue posible consultar la URL antigua de GitHub Pages."
-  }
-
-  $content = [string]$response.Content
-  $target = $script:PublicAppUrl.TrimEnd("/")
-
-  if ($content -notmatch [regex]::Escape($target)) {
-    throw "GitHub Pages todavía no publica el redirect hacia Cloudflare Pages."
-  }
-}
-
-function Invoke-Phase5Cutover {
-  Write-Host ""
-  Write-Host "FASE 5 - corte a Cloudflare Pages + Worker TypeScript"
-  Write-Host "No se eliminará el frontend legacy hasta verificar producción."
-  Write-Host ""
-
-  Ensure-GitHubCli
-  [void](Get-GitHubRepository)
-  Remove-Phase5TransitionalArtifacts
-  Invoke-FullValidation
-  $project = Ensure-PagesProject
-  Save-Phase5Rollback
-
-  if (-not $script:LegacyPublicAppUrl) {
-    $script:LegacyPublicAppUrl = $script:PublicAppUrl
-  }
-
-  $legacyOrigin = if ($script:LegacyPublicAppUrl) {
-    ([Uri]$script:LegacyPublicAppUrl).GetLeftPart([UriPartial]::Authority)
-  } else {
-    ""
-  }
-
-  $pagesUrl = Get-PagesPublicUrl $project
-  Assert-PagesPublicUrlMatchesProject -PagesUrl $pagesUrl
-  $pagesUri = [Uri]$pagesUrl
-  $script:PublicAppUrl = $pagesUri.AbsoluteUri.TrimEnd("/") + "/"
-  $script:AllowedOrigin = $pagesUri.GetLeftPart([UriPartial]::Authority)
-  $script:CleanFrontendUrls = $true
-  $script:CutoverComplete = $false
-  $script:LegacyRedirectVerified = $false
-
-  Save-Config
-  Write-ProductionConfig
-
-  try {
-    Deploy-Pages
-    Deploy-Worker -AdditionalAllowedOrigins @($legacyOrigin)
-    Configure-B2Cors -AdditionalAllowedOrigins @($legacyOrigin)
-    Verify-Production
-  } catch {
-    Write-Warning "El corte no superó la verificación. El snapshot de rollback se conserva."
-    throw
-  }
-
-  Write-Host ""
-  Write-Host "Cloudflare Pages y Worker están operativos en:"
-  Write-Host $script:PublicAppUrl
-  Write-Host ""
-  Write-Host "Verificación manual obligatoria antes de aprobar el corte:"
-  Write-Host "  - login con PIN y reautenticación"
-  Write-Host "  - texto: crear, descargar/copiar y eliminar"
-  Write-Host "  - archivo real, incluida una subida grande dentro del límite configurado"
-  Write-Host "  - sala: crear, entrar desde otra sesión, transferir y cerrar"
-  Write-Host "  - Administración y cambio de PIN"
-  Write-Host "  - recuperación por correo"
-  Write-Host "  - instalar/actualizar PWA y Share Target"
-  Write-Host ""
-
-  try {
-    Start-Process $script:PublicAppUrl
-  } catch {
-    Write-Host "Abre manualmente: $script:PublicAppUrl"
-  }
-
-  $approval = (Read-Host "Si todo lo anterior funciona, escribe APROBAR").Trim()
-
-  if ($approval -cne "APROBAR") {
-    Write-Warning "No se marcó el corte como aprobado. Puedes ejecutar -Action rollback."
-    return
-  }
-
-  Configure-GitHubActions
-  Enable-GitHubPagesWorkflow
-
-  $script:CutoverComplete = $true
-  Save-Config
-  Write-ProductionConfig
-  Update-ReadmePublicUrl
-
-  Write-Host ""
-  Write-Host "Corte principal aprobado."
-  Write-Host "Ahora ejecuta -Action cleanup-refactor, revisa git diff, commit/push y espera los Actions."
-  Write-Host "Después ejecuta -Action finalize para verificar el redirect antiguo y retirar su CORS."
-}
-
-function Invoke-Phase5Finalize {
-  if (-not $script:CutoverComplete) {
-    throw "El corte principal todavía no está aprobado."
-  }
-
-  Verify-Production
-  Test-LegacyRedirect
-
-  Deploy-Worker -SkipSchema
-  Configure-B2Cors
-  Verify-Production
-
-  $script:LegacyRedirectVerified = $true
-  Save-Config
-  Write-ProductionConfig
-
-  Write-Host ""
-  Write-Host "FASE 5 FINALIZADA: producción Cloudflare y redirect legacy verificados."
-}
-
-function Invoke-Phase5Rollback {
-  if (-not (Test-Path $rollbackPath)) {
-    throw "No existe $rollbackPath."
-  }
-
-  $rollback = Get-Content $rollbackPath -Raw | ConvertFrom-Json
-
-  if ($rollback.workerVersionId) {
-    Write-Host "Restaurando Worker a la versión $($rollback.workerVersionId)..."
-    & (Resolve-NpxCliPath) --yes wrangler rollback ([string]$rollback.workerVersionId) --name $script:WorkerName --message "Rollback Fase 5"
-    if ($LASTEXITCODE -ne 0) {
-      Write-Warning "Wrangler no pudo restaurar automáticamente el Worker."
-    }
-  }
-
-  $script:PublicAppUrl = [string]$rollback.publicAppUrl
-  $script:AllowedOrigin = [string]$rollback.allowedOrigin
-  $script:LegacyPublicAppUrl = [string]$rollback.legacyPublicAppUrl
-  $script:CleanFrontendUrls = [bool]$rollback.cleanFrontendUrls
-  $script:CutoverComplete = [bool]$rollback.cutoverComplete
-  $script:LegacyRedirectVerified = [bool]$rollback.legacyRedirectVerified
-
-  Save-Config
-  Write-ProductionConfig
-  Sync-WorkerConfig
-
-  if ($rollback.pagesDeploymentId) {
-    Write-Warning "Pages puede restaurarse al deployment $($rollback.pagesDeploymentId) desde Cloudflare Pages > Deployments > Rollback."
-  }
-
-  Write-Host "Configuración local de Fase 5 restaurada."
-}
-
-function Remove-RefactorLegacy {
-  if (-not $script:CutoverComplete) {
-    throw "El frontend Cloudflare todavía no está aprobado. No se eliminará el legado."
-  }
-
-  $approval = (Read-Host "Escribe ELIMINAR para retirar los archivos sustituidos por el refactor").Trim()
-  if ($approval -cne "ELIMINAR") {
-    Write-Host "Limpieza cancelada."
-    return
-  }
-
-  $obsolete = @(
-    "admin.html",
-    "recover.html",
-    "room.html",
-    "share-target.html",
-    "service-worker.js",
-    "manifest.webmanifest",
-    "css",
-    "js",
-    "modern",
-    "public\assets",
-    "scripts\serve-legacy.mjs",
-    ".github\workflows\preview-frontend.yml",
-    "tests\e2e\phase-three-pwa.spec.ts",
-    "tests\e2e\visual-regression.spec.ts",
-    "tests\unit\layout-parity.test.tsx",
-    "tests\unit\style-freeze.test.ts",
-    ".wrangler",
-    "test-results"
-  )
-
-  foreach ($relative in $obsolete) {
-    $path = Join-Path $PSScriptRoot $relative
-    if (Test-Path -LiteralPath $path) {
-      Remove-Item -LiteralPath $path -Recurse -Force
-      Write-Host "Eliminado: $relative"
-    }
-  }
-
-  Invoke-ExternalCommand "Validación post-limpieza" { node scripts/phase5-check.mjs --post-cleanup }
-  Write-Host "Limpieza del refactor completada."
-}
-
 function Invoke-GuidedSetup {
   Write-Host ""
   Write-Host "Hopper - configuración inicial"
-  Write-Host "Configura el Worker, D1, B2 y Resend. El frontend final se corta con la acción 'cutover'."
+  Write-Host "Configura Worker, D1, B2 y Resend. El frontend se despliega en Cloudflare Pages."
   Write-Host ""
 
   Select-Database
@@ -1846,11 +1358,8 @@ function Invoke-Action {
     "init" { Initialize-Schema }
     "deploy" { Deploy-Worker }
     "pages" { Ensure-PagesProject | Out-Null; Deploy-Pages }
-    "cutover" { Invoke-Phase5Cutover }
-    "finalize" { Invoke-Phase5Finalize }
+    "validate" { Invoke-FullValidation }
     "verify" { Verify-Production }
-    "rollback" { Invoke-Phase5Rollback }
-    "cleanup-refactor" { Remove-RefactorLegacy }
     "github" { Configure-GitHubActions }
     "status" { Show-Status }
     "lock" { Set-ManualLock }
@@ -1867,10 +1376,22 @@ function Invoke-Action {
   }
 }
 
-Ensure-CloudflareLogin
 Load-Config
 
-if (-not $script:DatabaseName) {
+$actionsRequiringCloudflare = @(
+  "menu", "setup", "init", "deploy", "pages", "status", "lock", "unlock", "change-pin",
+  "block", "unblock", "events", "email", "b2", "cors", "cleanup", "url"
+)
+
+if ($Action -in $actionsRequiringCloudflare) {
+  Ensure-CloudflareLogin
+}
+
+$actionsRequiringDatabase = @(
+  "menu", "init", "deploy", "status", "lock", "unlock", "block", "unblock", "events", "cleanup", "url"
+)
+
+if ($Action -in $actionsRequiringDatabase -and -not $script:DatabaseName) {
   Select-Database
 }
 
@@ -1890,24 +1411,21 @@ do {
   Write-Host "[2] Aplicar migraciones D1"
   Write-Host "[3] Desplegar Worker"
   Write-Host "[4] Desplegar Cloudflare Pages"
-  Write-Host "[5] Ejecutar corte completo Fase 5"
-  Write-Host "[6] Finalizar Fase 5 tras publicar redirect GitHub"
-  Write-Host "[7] Verificar producción"
-  Write-Host "[8] Rollback Fase 5"
-  Write-Host "[9] Eliminar archivos sustituidos por el refactor"
-  Write-Host "[10] Configurar secrets de GitHub Actions"
-  Write-Host "[11] Ver estado"
-  Write-Host "[12] Cambiar PIN"
-  Write-Host "[13] Bloquear Hopper"
-  Write-Host "[14] Desbloquear Hopper"
-  Write-Host "[15] Bloquear IP o red"
-  Write-Host "[16] Desbloquear IP o red"
-  Write-Host "[17] Ver eventos de seguridad"
-  Write-Host "[18] Configurar correo de recuperación"
-  Write-Host "[19] Configurar credenciales de Backblaze B2"
-  Write-Host "[20] Configurar CORS de Backblaze B2"
-  Write-Host "[21] Ejecutar limpieza temporal ahora"
-  Write-Host "[22] Cambiar URL pública manualmente"
+  Write-Host "[5] Ejecutar validación completa"
+  Write-Host "[6] Verificar producción"
+  Write-Host "[7] Configurar secrets de GitHub Actions"
+  Write-Host "[8] Ver estado"
+  Write-Host "[9] Cambiar PIN"
+  Write-Host "[10] Bloquear Hopper"
+  Write-Host "[11] Desbloquear Hopper"
+  Write-Host "[12] Bloquear IP o red"
+  Write-Host "[13] Desbloquear IP o red"
+  Write-Host "[14] Ver eventos de seguridad"
+  Write-Host "[15] Configurar correo de recuperación"
+  Write-Host "[16] Configurar credenciales de Backblaze B2"
+  Write-Host "[17] Configurar CORS de Backblaze B2"
+  Write-Host "[18] Ejecutar limpieza temporal ahora"
+  Write-Host "[19] Cambiar URL pública manualmente"
   Write-Host "[0] Salir"
 
   $choice = Read-Host "Opción"
@@ -1917,24 +1435,21 @@ do {
     "2" { Invoke-Action "init" }
     "3" { Invoke-Action "deploy" }
     "4" { Invoke-Action "pages" }
-    "5" { Invoke-Action "cutover" }
-    "6" { Invoke-Action "finalize" }
-    "7" { Invoke-Action "verify" }
-    "8" { Invoke-Action "rollback" }
-    "9" { Invoke-Action "cleanup-refactor" }
-    "10" { Invoke-Action "github" }
-    "11" { Invoke-Action "status" }
-    "12" { Invoke-Action "change-pin" }
-    "13" { Invoke-Action "lock" }
-    "14" { Invoke-Action "unlock" }
-    "15" { Invoke-Action "block" }
-    "16" { Invoke-Action "unblock" }
-    "17" { Invoke-Action "events" }
-    "18" { Invoke-Action "email" }
-    "19" { Invoke-Action "b2" }
-    "20" { Invoke-Action "cors" }
-    "21" { Invoke-Action "cleanup" }
-    "22" { Invoke-Action "url" }
+    "5" { Invoke-Action "validate" }
+    "6" { Invoke-Action "verify" }
+    "7" { Invoke-Action "github" }
+    "8" { Invoke-Action "status" }
+    "9" { Invoke-Action "change-pin" }
+    "10" { Invoke-Action "lock" }
+    "11" { Invoke-Action "unlock" }
+    "12" { Invoke-Action "block" }
+    "13" { Invoke-Action "unblock" }
+    "14" { Invoke-Action "events" }
+    "15" { Invoke-Action "email" }
+    "16" { Invoke-Action "b2" }
+    "17" { Invoke-Action "cors" }
+    "18" { Invoke-Action "cleanup" }
+    "19" { Invoke-Action "url" }
     "0" { return }
     default { Write-Host "Opción inválida." }
   }

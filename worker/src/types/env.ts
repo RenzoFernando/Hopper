@@ -35,7 +35,6 @@ export interface Env {
   ROOM_MAX_BYTES?: string;
   ROOM_MAX_ITEMS?: string;
   PUBLIC_APP_URL?: string;
-  CLEAN_FRONTEND_URLS?: string;
   RECOVERY_EMAIL?: string;
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;

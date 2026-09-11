@@ -46,11 +46,10 @@ test("evalúa redes IPv4 CIDR", () => {
 });
 
 
-test("genera enlaces de recuperación legacy o limpios según el corte de frontend", () => {
+test("genera enlaces de recuperación con la ruta limpia actual", () => {
   const token = "A".repeat(43);
   const base = { PUBLIC_APP_URL: "https://hopper.example/" };
-  expectRecoveryUrl(buildRecoveryUrl(base, token), `https://hopper.example/recover.html#token=${token}`);
-  expectRecoveryUrl(buildRecoveryUrl({ ...base, CLEAN_FRONTEND_URLS: "true" }, token), `https://hopper.example/recover#${token}`);
+  expectRecoveryUrl(buildRecoveryUrl(base, token), `https://hopper.example/recover#${token}`);
 });
 
 function expectRecoveryUrl(actual, expected) {

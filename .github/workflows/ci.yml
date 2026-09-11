@@ -44,8 +44,8 @@ jobs:
             npm install --prefix worker --no-audit --no-fund
           fi
 
-      - name: Validar estructura Fase 5
-        run: node scripts/phase5-check.mjs
+      - name: Validar estructura final
+        run: node scripts/project-check.mjs
 
       - name: TypeScript del Worker
         run: npm --prefix worker run typecheck

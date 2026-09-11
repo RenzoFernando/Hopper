@@ -21,5 +21,3 @@ worker/.dev.vars
 .hopper-wrangler.json
 playwright-report/
 test-results/
-.hopper-phase5-rollback.json
-.phase5-github-pages/
