@@ -65,7 +65,7 @@ async function installApiMock(page: Page) {
     }
 
     if (path === "/api/security/status") return json(route, { ok: true, locked: false, remainingAttempts: 5 });
-    if (path === "/api/rooms/capacity") return json(route, { ok: true, active: 0, maximum: 2, available: 2 });
+    if (path === "/api/rooms/capacity") return json(route, { ok: true, active: 0, maximum: 3, available: 3 });
     if (path === "/api/auth/login" && method === "POST") return json(route, { ok: true, status: "authorized", remainingAttempts: 5, token: "personal-token", expiresIn: 3600 });
     if (path === "/api/recovery/request" && method === "POST") return json(route, { ok: true, status: "sent" });
 
@@ -101,8 +101,8 @@ async function installApiMock(page: Page) {
       storage: { estimatedBytes: 1024, activeBytes: 1024, orphanBytes: 0, referenceBytes: 10737418240, freeEstimatedBytes: 10737417216, warningBytes: 8589934592, internalLimitBytes: 9663676416, warning: false, blocked: false },
       today: { uploadsCount: 1, uploadBytes: 1024, deletedBytes: 0, failedUploads: 0, cleanupFailures: 0 },
       last7Days: { uploadsCount: 1, uploadBytes: 1024, deletedBytes: 0, failedUploads: 0, cleanupFailures: 0 },
-      rooms: { active: 1, maximum: 2 },
-      limits: { maxFileBytes: 536870912, storageReferenceBytes: 10737418240, storageWarningBytes: 8589934592, storageInternalLimitBytes: 9663676416, maxRooms: 2, roomMaxTtlMinutes: 5, roomMaxFileBytes: 104857600, roomMaxBytes: 104857600, roomMaxItems: 20, activeItems: 1, pendingUploads: 0, cleanupFailures: 0, orphanItems: 0, missingItems: 0 }
+      rooms: { active: 1, maximum: 3 },
+      limits: { maxFileBytes: 536870912, storageReferenceBytes: 10737418240, storageWarningBytes: 8589934592, storageInternalLimitBytes: 9663676416, maxRooms: 3, roomMaxTtlMinutes: 5, roomMaxFileBytes: 104857600, roomMaxBytes: 104857600, roomMaxItems: 20, activeItems: 1, pendingUploads: 0, cleanupFailures: 0, orphanItems: 0, missingItems: 0 }
     });
     if (path === "/api/admin/health") return json(route, { ok: true, health: { worker: { ok: true }, d1: { ok: true, latencyMs: 1 }, b2: { ok: true, error: null }, b2Signing: { ok: true }, resend: { ok: true, configured: true }, cleanup: { ok: true, lastCleanupAt: nowIso, failures: 0 }, reconcile: { lastReconcileAt: nowIso, orphanCount: 0, orphanBytes: 0, missingCount: 0 } } });
     if (path === "/api/admin/rooms") return json(route, { ok: true, rooms: [room()] });
@@ -178,7 +178,7 @@ test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => 
   await installApiMock(page);
   await page.goto("/admin");
   await expect(page.locator("#usage-storage")).not.toHaveText("—");
-  await expect(page.locator("#admin-room-count")).toHaveText("1 / 2");
+  await expect(page.locator("#admin-room-count")).toHaveText("1 / 3");
 
   await page.locator("#cleanup-button").click();
   await expect(page.locator("#toast-region")).toContainText("Limpieza completada");

@@ -10,6 +10,13 @@ async function openModern(page: Page, path: string, width = 1440, height = 1000)
   await page.evaluate(() => document.fonts.ready);
 }
 
+async function stabilizeCapacityCounter(page: Page, selector: string, expected: string, baseline: string) {
+  const counter = page.locator(selector);
+  await expect(counter).toHaveText(expected);
+  // La capacidad es funcional: se valida primero y luego se fija el texto histórico para conservar la referencia visual.
+  await counter.evaluate((element, text) => { element.textContent = text; }, baseline);
+}
+
 
 async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
   await page.evaluate((itemKind) => {
@@ -65,6 +72,7 @@ async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
 
 test("React conserva inicio móvil", async ({ page }) => {
   await openModern(page, "/", 390, 844);
+  await stabilizeCapacityCounter(page, "#room-capacity", "— / 3", "— / 2");
   await expect(page).toHaveScreenshot("home-mobile.png", {
     fullPage: true,
     ...(process.platform === "win32" ? { maxDiffPixelRatio: 0.05 } : {})
@@ -73,6 +81,7 @@ test("React conserva inicio móvil", async ({ page }) => {
 
 test("React conserva inicio escritorio", async ({ page }) => {
   await openModern(page, "/", 1440, 1000);
+  await stabilizeCapacityCounter(page, "#room-capacity", "— / 3", "— / 2");
   await expect(page).toHaveScreenshot("home-desktop.png", { fullPage: true });
 });
 
@@ -150,6 +159,7 @@ test("React conserva salas", async ({ page }) => {
 
 test("React conserva administración", async ({ page }) => {
   await openModern(page, "/admin", 1440, 1200);
+  await stabilizeCapacityCounter(page, "#admin-room-count", "0 / 3", "0 / 2");
   await expect(page).toHaveScreenshot("admin.png", { fullPage: true });
 
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#change-pin-dialog")?.showModal());

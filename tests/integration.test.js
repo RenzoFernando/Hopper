@@ -72,7 +72,7 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     const capacityBeforeResponse = await worker.fetch(request("/api/rooms/capacity"), env);
     assert.equal(capacityBeforeResponse.status, 200);
     const capacityBefore = await json(capacityBeforeResponse);
-    assert.equal(capacityBefore.available, 2);
+    assert.equal(capacityBefore.available, 3);
 
     const personalToken = await createSessionToken(secret, 1);
     const createResponse = await worker.fetch(request("/api/rooms", {
@@ -84,7 +84,7 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     assert.match(created.code, /^[A-Z]{2}-\d{4}$/);
     assert.ok(Date.parse(created.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
     const capacityAfter = await json(await worker.fetch(request("/api/rooms/capacity"), env));
-    assert.equal(capacityAfter.available, 1);
+    assert.equal(capacityAfter.available, 2);
 
     const joinResponse = await worker.fetch(request("/api/rooms/join", {
       method: "POST",

@@ -52,13 +52,15 @@ test("genera códigos de sala, guarda hash y emite tokens firmados", async () =>
   }
 });
 
-test("limita a dos salas y revoca de inmediato los tokens al cerrar", async () => {
+test("limita a tres salas y revoca de inmediato los tokens al cerrar", async () => {
   const env = createEnv();
 
   try {
     const first = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" });
     const second = await createRoom(env, { ttlMinutes: 15 }, { ip: "198.51.100.11" });
+    const third = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" });
     assert.ok(Date.parse(second.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+    assert.equal(third.room.status, "active");
     await assert.rejects(
       () => createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" }),
       (error) => error?.code === "room-limit"
@@ -78,22 +80,23 @@ test("limita a dos salas y revoca de inmediato los tokens al cerrar", async () =
   }
 });
 
-test("mantiene el máximo de dos salas ante creaciones concurrentes", async () => {
+test("mantiene el máximo de tres salas ante creaciones concurrentes", async () => {
   const env = createEnv();
 
   try {
     const results = await Promise.allSettled([
       createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.21" }),
       createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.22" }),
-      createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.23" })
+      createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.23" }),
+      createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.24" })
     ]);
     const fulfilled = results.filter((result) => result.status === "fulfilled");
     const rejected = results.filter((result) => result.status === "rejected");
     const active = await env.DB.prepare("SELECT COUNT(*) AS count FROM rooms WHERE status = 'active'").first();
-    assert.equal(fulfilled.length, 2);
+    assert.equal(fulfilled.length, 3);
     assert.equal(rejected.length, 1);
     assert.equal(rejected[0].reason?.code, "room-limit");
-    assert.equal(active.count, 2);
+    assert.equal(active.count, 3);
   } finally {
     env.DB.close();
   }

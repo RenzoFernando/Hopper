@@ -56,7 +56,7 @@ test("el Service Worker controla la SPA y persiste el POST de Share Target", asy
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
     if (path === "/api/security/status") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, locked: false, remainingAttempts: 5 }) });
-    if (path === "/api/rooms/capacity") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, active: 0, maximum: 2, available: 2 }) });
+    if (path === "/api/rooms/capacity") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, active: 0, maximum: 3, available: 3 }) });
     return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false }) });
   });
 
@@ -99,7 +99,7 @@ test("la SPA conserva su shell de navegación sin conexión", async ({ page, con
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === "OPTIONS") return route.fulfill({ status: 204 });
     if (path === "/api/security/status") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, locked: false, remainingAttempts: 5 }) });
-    if (path === "/api/rooms/capacity") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, active: 0, maximum: 2, available: 2 }) });
+    if (path === "/api/rooms/capacity") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, active: 0, maximum: 3, available: 3 }) });
     return route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false }) });
   });
 
