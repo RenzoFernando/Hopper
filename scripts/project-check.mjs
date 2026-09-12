@@ -15,6 +15,7 @@ const required = [
   "public/seo-runtime.js",
   "assets/hopper-transferencia-archivos.svg",
   "scripts/seo-pages.mjs",
+  "scripts/configure-pages-production.mjs",
   ".env.example",
   "src/main.tsx",
   "src/sw.ts",
@@ -39,6 +40,11 @@ const required = [
 
 for (const relative of required) {
   await access(resolve(root, relative), constants.R_OK);
+}
+
+const gitignore = await readFile(resolve(root, ".gitignore"), "utf8");
+if (!/^!\.env\.example$/m.test(gitignore) || /^\.env\.example$/m.test(gitignore)) {
+  throw new Error(".env.example debe quedar versionado: conserva .env.* pero añade !.env.example en .gitignore.");
 }
 
 const index = await readFile(resolve(root, "index.html"), "utf8");

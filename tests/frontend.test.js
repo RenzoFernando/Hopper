@@ -76,21 +76,34 @@ test("Wrangler usa únicamente el origen actual de Pages", () => {
   assert.equal("CLEAN_FRONTEND_URLS" in (wrangler.vars || {}), false);
 });
 
-test("CI y CD están separados y despliegan desde master", () => {
+test("CI y CD están separados y Pages alinea producción con master", () => {
   const ci = read(".github/workflows/ci.yml");
   const frontend = read(".github/workflows/deploy-frontend.yml");
   const worker = read(".github/workflows/deploy-worker.yml");
+  const pagesConfig = read("scripts/configure-pages-production.mjs");
 
   assert.match(ci, /npm --prefix worker run typecheck/);
   assert.match(ci, /npm run test:e2e/);
   assert.match(frontend, /branches:[\s\S]*- master/);
-  assert.match(frontend, /pages deployment list --project-name hopper-transfer --environment production --json/);
-  assert.match(frontend, /pages deploy dist --project-name=hopper-transfer --branch=\$\{\{ steps\.pages-production\.outputs\.branch \}\}/);
+  assert.match(frontend, /node scripts\/configure-pages-production\.mjs/);
+  assert.match(frontend, /pages deploy dist --project-name=hopper-transfer --branch=master/);
   assert.match(frontend, /pages-environment/);
   assert.match(frontend, /node scripts\/verify-production\.mjs/);
+  assert.match(pagesConfig, /production_branch/);
+  assert.match(pagesConfig, /method,[\s\S]*PATCH|cloudflareRequest\("PATCH"/);
   assert.match(worker, /branches:[\s\S]*- master/);
   assert.match(worker, /d1 migrations apply hopper-db --remote/);
   assert.match(worker, /workingDirectory: worker/);
+});
+
+test(".env.example queda versionado sin exponer archivos de entorno reales", () => {
+  const gitignore = read(".gitignore");
+  assert.match(gitignore, /^\.env\.\*$/m);
+  assert.match(gitignore, /^!\.env\.example$/m);
+  assert.doesNotMatch(gitignore, /^\.env\.example$/m);
+  const envExample = read(".env.example");
+  assert.match(envExample, /VITE_GA_MEASUREMENT_ID=/);
+  assert.match(envExample, /VITE_GSC_VERIFICATION=/);
 });
 
 test("el administrador contiene solo operaciones actuales", () => {
@@ -120,6 +133,7 @@ test("Pages publica y verifica exactamente el mismo build antes de aprobar produ
   const verify = read("scripts/verify-production.mjs");
   const headers = read("public/_headers");
   const admin = read("hopper-admin.ps1");
+  const pagesConfig = read("scripts/configure-pages-production.mjs");
 
   assert.match(prepare, /createHash\("sha256"\)/);
   assert.match(prepare, /version\.json/);
