@@ -20,8 +20,11 @@ describe("configuración final de producción", () => {
     const frontend = await readFile(resolve(".github/workflows/deploy-frontend.yml"), "utf8");
     const worker = await readFile(resolve(".github/workflows/deploy-worker.yml"), "utf8");
 
-    expect(frontend).toContain("pages deploy dist");
-    expect(frontend).toContain("--branch=master");
+    expect(frontend).toContain("pages deployment list --project-name hopper-transfer --environment production --json");
+    expect(frontend).toContain("pages deploy dist --project-name=hopper-transfer --branch=${{ steps.pages-production.outputs.branch }}");
+    expect(frontend).toContain("pages-environment");
+    expect(frontend).toContain("HOPPER_DEPLOYMENT_URL");
+    expect(frontend).toContain("scripts/verify-production.mjs");
     expect(frontend).not.toContain("wrangler deploy --config wrangler.jsonc");
     expect(worker).toContain("deploy --config wrangler.jsonc");
     expect(worker).not.toContain("pages deploy dist");

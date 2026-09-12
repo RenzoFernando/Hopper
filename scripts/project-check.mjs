@@ -8,6 +8,14 @@ const required = [
   "index.html",
   "config/production.json",
   "public/_headers",
+  "public/robots.txt",
+  "public/sitemap.xml",
+  "public/llms.txt",
+  "public/seo.css",
+  "public/seo-runtime.js",
+  "assets/hopper-transferencia-archivos.svg",
+  "scripts/seo-pages.mjs",
+  ".env.example",
   "src/main.tsx",
   "src/sw.ts",
   "src/styles/styles.css",
@@ -41,6 +49,23 @@ if (!index.includes('id="root"') || !index.includes('/src/main.tsx')) {
 const vite = await readFile(resolve(root, "vite.config.ts"), "utf8");
 if (vite.includes("js/config.js") || vite.includes("modern/index.html")) {
   throw new Error("vite.config.ts depende de una estructura retirada.");
+}
+
+const robots = await readFile(resolve(root, "public/robots.txt"), "utf8");
+if (!robots.includes("Disallow: /page/") || !robots.includes("Sitemap: https://hopper-transfer.pages.dev/sitemap.xml")) {
+  throw new Error("robots.txt no contiene las reglas SEO requeridas.");
+}
+
+const sitemap = await readFile(resolve(root, "public/sitemap.xml"), "utf8");
+for (const route of ["/transferir-archivos", "/compartir-texto", "/salas-temporales", "/seguridad"]) {
+  if (!sitemap.includes(`https://hopper-transfer.pages.dev${route}`)) {
+    throw new Error(`sitemap.xml no contiene la ruta pública ${route}.`);
+  }
+}
+
+const seoPages = await readFile(resolve(root, "scripts/seo-pages.mjs"), "utf8");
+if (!seoPages.includes('"@type": "FAQPage"') || seoPages.includes('"@type": "LocalBusiness"')) {
+  throw new Error("La configuración SEO debe incluir FAQPage y evitar LocalBusiness no aplicable.");
 }
 
 const workerConfig = await readFile(resolve(root, "worker/wrangler.jsonc"), "utf8");

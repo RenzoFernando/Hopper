@@ -1,27 +1,7 @@
-import { useLayoutEffect } from "react";
 import { AppFooter } from "../components/layout/AppFooter";
 import { AppHeader } from "../components/layout/AppHeader";
 
 export function NotFoundPage() {
-  useLayoutEffect(() => {
-    let meta = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-    const existed = Boolean(meta);
-    const previous = meta?.content || "";
-
-    if (!meta) {
-      meta = document.createElement("meta");
-      meta.name = "robots";
-      document.head.append(meta);
-    }
-    meta.content = "noindex";
-
-    return () => {
-      if (!meta) return;
-      if (existed) meta.content = previous;
-      else meta.remove();
-    };
-  }, []);
-
   return <>
     <div className="document-shell not-found-shell">
       <AppHeader variant="simple" />

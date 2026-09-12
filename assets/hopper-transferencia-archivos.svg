@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Hopper">
+  <rect width="512" height="512" rx="128" fill="#202123"/>
+  <path d="M120 136h272v64l-88 96v68l-88 68V296l-96-96z" fill="#ffffff"/>
+  <path d="M168 184h176" fill="none" stroke="#b8d5cc" stroke-width="24" stroke-linecap="round"/>
+</svg>

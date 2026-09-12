@@ -1,12 +1,30 @@
 /*
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __HOPPER_B2_ORIGIN__; media-src 'self' blob: __HOPPER_B2_ORIGIN__; connect-src 'self' __HOPPER_WORKER_ORIGIN__ __HOPPER_B2_ORIGIN__; font-src 'self'; worker-src 'self'; manifest-src 'self'
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: __HOPPER_B2_ORIGIN__ https://www.google-analytics.com; media-src 'self' blob: __HOPPER_B2_ORIGIN__; connect-src 'self' __HOPPER_WORKER_ORIGIN__ __HOPPER_B2_ORIGIN__ https://www.googletagmanager.com https://www.google-analytics.com https://region1.google-analytics.com; font-src 'self'; worker-src 'self'; manifest-src 'self'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), geolocation=(), microphone=(), payment=(), usb=()
   X-Frame-Options: DENY
 
+/
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/index.html
+  Cache-Control: no-store, no-cache, must-revalidate
+
 /sw.js
-  Cache-Control: no-cache
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/version.json
+  Cache-Control: no-store, no-cache, must-revalidate
 
 /manifest.webmanifest
   Cache-Control: no-cache
+
+/robots.txt
+  Cache-Control: public, max-age=3600
+
+/sitemap.xml
+  Cache-Control: public, max-age=3600
+
+/llms.txt
+  Cache-Control: public, max-age=3600

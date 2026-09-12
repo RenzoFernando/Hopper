@@ -7,7 +7,8 @@ const port = Number(process.argv[2] || process.env.PORT || 4175);
 const types = new Map([
   [".css", "text/css; charset=utf-8"], [".html", "text/html; charset=utf-8"], [".ico", "image/x-icon"],
   [".js", "text/javascript; charset=utf-8"], [".json", "application/json; charset=utf-8"], [".png", "image/png"],
-  [".svg", "image/svg+xml"], [".webmanifest", "application/manifest+json; charset=utf-8"]
+  [".svg", "image/svg+xml"], [".txt", "text/plain; charset=utf-8"], [".xml", "application/xml; charset=utf-8"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"]
 ]);
 
 function filePath(pathname) {
@@ -17,9 +18,14 @@ function filePath(pathname) {
   return existsSync(path) && statSync(path).isFile() ? path : null;
 }
 
+function cleanHtmlPath(pathname) {
+  if (pathname === "/" || extname(pathname)) return null;
+  return filePath(`${pathname}.html`);
+}
+
 createServer((request, response) => {
   const pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname);
-  let path = filePath(pathname);
+  let path = filePath(pathname) || cleanHtmlPath(pathname);
   if (!path && request.method === "GET" && String(request.headers.accept || "").includes("text/html")) path = filePath("/index.html");
   if (!path) {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });

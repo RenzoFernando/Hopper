@@ -34,23 +34,38 @@ function usePwaController(): PwaController {
   useEffect(() => {
     if (isVisualTestRuntime() || !("serviceWorker" in navigator)) return;
     let alive = true;
+    let reloaded = false;
+    const hadController = Boolean(navigator.serviceWorker.controller);
     const target = serviceWorkerTarget();
+
+    const activateWaitingWorker = (worker: ServiceWorker | null) => {
+      if (!worker) return;
+      setUpdateVisible(true);
+      worker.postMessage({ type: "SKIP_WAITING" });
+    };
 
     navigator.serviceWorker.register(target.url, target.options)
       .then((next) => {
         if (!alive) return;
         setRegistration(next);
-        if (next.waiting) setUpdateVisible(true);
+        activateWaitingWorker(next.waiting);
+        void next.update().catch(() => undefined);
         next.addEventListener("updatefound", () => {
           const worker = next.installing;
           worker?.addEventListener("statechange", () => {
-            if (worker.state === "installed" && navigator.serviceWorker.controller) setUpdateVisible(true);
+            if (worker.state === "installed" && navigator.serviceWorker.controller) {
+              activateWaitingWorker(next.waiting || worker);
+            }
           });
         });
       })
       .catch(() => setInstallPrompt(null));
 
-    const controllerChange = () => window.location.reload();
+    const controllerChange = () => {
+      if (!hadController || reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    };
     navigator.serviceWorker.addEventListener("controllerchange", controllerChange);
     return () => {
       alive = false;

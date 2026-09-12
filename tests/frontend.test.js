@@ -44,12 +44,18 @@ test("Cloudflare Pages recibe headers endurecidos con orígenes explícitos", ()
   assert.doesNotMatch(headers, /connect-src[^\r\n]*\*/);
 });
 
-test("el Service Worker conserva rutas limpias, Share Target y fallback offline", () => {
+test("el Service Worker conserva rutas limpias y activa builds nuevos sin quedar esperando", () => {
   const sw = read("src/sw.ts");
   assert.match(sw, /url\.pathname === "\/share"/);
   assert.match(sw, /event\.request\.mode === "navigate"/);
   assert.match(sw, /hopper-share-target-v1/);
   assert.match(sw, /\/manifest\.webmanifest/);
+  assert.match(sw, /hopper-shell-v6/);
+  assert.match(sw, /self\.skipWaiting\(\)/);
+
+  const pwa = read("src/hooks/usePwa.tsx");
+  assert.match(pwa, /next\.update\(\)/);
+  assert.match(pwa, /activateWaitingWorker/);
 });
 
 test("el router expone solo las rutas actuales", () => {
@@ -78,7 +84,10 @@ test("CI y CD están separados y despliegan desde master", () => {
   assert.match(ci, /npm --prefix worker run typecheck/);
   assert.match(ci, /npm run test:e2e/);
   assert.match(frontend, /branches:[\s\S]*- master/);
-  assert.match(frontend, /pages deploy dist --project-name=hopper-transfer --branch=master/);
+  assert.match(frontend, /pages deployment list --project-name hopper-transfer --environment production --json/);
+  assert.match(frontend, /pages deploy dist --project-name=hopper-transfer --branch=\$\{\{ steps\.pages-production\.outputs\.branch \}\}/);
+  assert.match(frontend, /pages-environment/);
+  assert.match(frontend, /node scripts\/verify-production\.mjs/);
   assert.match(worker, /branches:[\s\S]*- master/);
   assert.match(worker, /d1 migrations apply hopper-db --remote/);
   assert.match(worker, /workingDirectory: worker/);
@@ -104,6 +113,28 @@ test("los scripts operativos actuales existen y no incluyen secretos", () => {
 
   const production = read("config/production.json");
   assert.doesNotMatch(production, /B2_APPLICATION_KEY|B2_KEY_ID|RESEND_API_KEY|SESSION_SECRET|CLOUDFLARE_API_TOKEN/);
+});
+
+test("Pages publica y verifica exactamente el mismo build antes de aprobar producción", () => {
+  const prepare = read("scripts/prepare-pages-preview.mjs");
+  const verify = read("scripts/verify-production.mjs");
+  const headers = read("public/_headers");
+  const admin = read("hopper-admin.ps1");
+
+  assert.match(prepare, /createHash\("sha256"\)/);
+  assert.match(prepare, /version\.json/);
+  assert.match(verify, /localVersion\.buildId/);
+  assert.match(verify, /HOPPER_DEPLOYMENT_URL/);
+  assert.match(verify, /version\.json devolvió HTML/);
+  assert.match(verify, /Build de producción/);
+  assert.match(verify, /hopper-shell-v6/);
+  assert.match(headers, /\/version\.json[\s\S]*no-store/);
+  assert.match(headers, /\/sw\.js[\s\S]*no-store/);
+  assert.match(admin, /Invoke-FullValidation[\s\S]*Build final de Pages/);
+  assert.match(admin, /pages deployment list/);
+  assert.match(admin, /--environment production/);
+  assert.match(admin, /"--branch", \$script:PagesProductionBranch/);
+  assert.match(admin, /Verify-Production -DeploymentUrl/);
 });
 
 test("el CSS grande quedó dividido sin alterar su orden de cascada", () => {
@@ -181,4 +212,76 @@ test("los límites visibles y del Worker comparten la configuración actual del 
   assert.match(administrator, /RoomMaxFileBytes = \[long\]\(256MB\)/);
   assert.match(administrator, /maxMb -gt 512/);
   assert.doesNotMatch(administrator, /maxMb -gt 5120/);
+});
+
+test("la capa SEO pública tiene metadatos, contenido semántico, FAQ, sitemap, robots y llms", async () => {
+  const { SEO_PAGES, renderLlms, renderRobots, renderSeoPage, renderSitemap } = await import("../scripts/seo-pages.mjs");
+  assert.equal(SEO_PAGES.length, 4);
+  assert.equal(new Set(SEO_PAGES.map((page) => page.intent)).size, SEO_PAGES.length);
+  assert.equal(new Set(SEO_PAGES.map((page) => page.title)).size, SEO_PAGES.length);
+  assert.equal(new Set(SEO_PAGES.map((page) => page.description)).size, SEO_PAGES.length);
+
+  for (const page of SEO_PAGES) {
+    assert.ok(page.intent.length >= 20);
+    assert.match(page.path, /^\/[a-z-]+$/);
+    assert.doesNotMatch(page.path, /\d|(?:^|-)y(?:-|$)/);
+    assert.notEqual(page.title, page.h1);
+    assert.ok(page.title.length >= 30 && page.title.length <= 65, page.title);
+    assert.ok(page.description.length >= 100 && page.description.length <= 170, page.description);
+
+    const html = renderSeoPage(page);
+    assert.equal((html.match(/<h1\b/g) || []).length, 1, page.path);
+    assert.match(html, /<h2\b/);
+    assert.match(html, /<h3\b/);
+    assert.match(html, /<table>/);
+    assert.match(html, /<ul>/);
+    assert.match(html, /data-share/);
+    assert.match(html, /seo-mobile-cta/);
+    assert.match(html, /FAQPage/);
+    assert.match(html, /BreadcrumbList/);
+    assert.match(html, /alt="Icono de Hopper para transferencia temporal de archivos y texto"/);
+    assert.doesNotMatch(html, /LocalBusiness/);
+    assert.ok(html.indexOf("seo-intro") < html.indexOf("seo-actions"), `${page.path}: CTA después del primer párrafo`);
+  }
+
+  const index = read("index.html");
+  assert.match(index, /<link rel="canonical" href="https:\/\/hopper-transfer\.pages\.dev\/">/);
+  assert.match(index, /<meta property="og:title"/);
+  assert.match(index, /WebApplication/);
+  assert.match(index, /Person/);
+  assert.doesNotMatch(index, /LocalBusiness/);
+
+  const robots = renderRobots();
+  assert.match(robots, /Disallow: \/page\//);
+  assert.match(robots, /Disallow: \/admin/);
+  assert.match(robots, /Sitemap: https:\/\/hopper-transfer\.pages\.dev\/sitemap\.xml/);
+
+  const sitemap = renderSitemap();
+  for (const page of SEO_PAGES) assert.match(sitemap, new RegExp(page.path.replaceAll("-", "\\-")));
+
+  const llms = renderLlms();
+  assert.match(llms, /^# Hopper/m);
+  assert.match(llms, /Hopper no se presenta como cifrado de extremo a extremo/);
+
+  const headers = read("public/_headers");
+  assert.match(headers, /https:\/\/www\.googletagmanager\.com/);
+  assert.match(headers, /https:\/\/www\.google-analytics\.com/);
+
+  const workflow = read(".github/workflows/deploy-frontend.yml");
+  assert.match(workflow, /VITE_GA_MEASUREMENT_ID/);
+  assert.match(workflow, /VITE_GSC_VERIFICATION/);
+
+  const envExample = read(".env.example");
+  assert.match(envExample, /VITE_GA_MEASUREMENT_ID=/);
+  assert.match(envExample, /VITE_GSC_VERIFICATION=/);
+});
+
+test("las rutas privadas declaran noindex y la portada conserva indexación", () => {
+  const router = read("src/app/router.tsx");
+  const notFound = read("src/pages/NotFoundPage.tsx");
+  assert.match(router, /PRIVATE_ROBOTS = "noindex,nofollow"/);
+  assert.match(router, /INDEX_ROBOTS = "index,follow/);
+  assert.match(router, /path="\/"[\s\S]*indexable canonicalPath="\/"/);
+  assert.match(router, /canonical\?\.remove\(\)/);
+  assert.doesNotMatch(notFound, /meta\[name="robots"\]|useLayoutEffect/);
 });

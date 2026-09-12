@@ -19,7 +19,7 @@ test("las rutas desconocidas muestran el 404 de la SPA sin romper el fallback", 
   await expect(page).toHaveURL(/\/ruta-que-no-existe$/);
   await expect(page.getByRole("heading", { name: "Esto no está en Hopper." })).toBeVisible();
   await expect(page.getByText("RUTA NO ENCONTRADA")).toBeVisible();
-  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
   await expect(page.locator(".not-found-actions").getByRole("link", { name: "Volver a Hopper", exact: true })).toHaveAttribute("href", "/");
 });
 
@@ -32,6 +32,17 @@ test("la ruta 404 explícita usa el mismo fallback de la SPA", async ({ page, re
   await expect(page).toHaveURL(/\/404$/);
   await expect(page.getByRole("heading", { name: "Esto no está en Hopper." })).toBeVisible();
   await expect(page.getByText("RUTA NO ENCONTRADA")).toBeVisible();
+});
+
+
+
+test("el build publica un identificador verificable y sin caché", async ({ request }) => {
+  const response = await request.get("/version.json");
+  expect(response.ok()).toBe(true);
+  expect(response.headers()["cache-control"] || "").toContain("no-store");
+  const version = await response.json() as { app?: string; buildId?: string };
+  expect(version.app).toBe("Hopper");
+  expect(version.buildId).toMatch(/^[a-f0-9]{24}$/);
 });
 
 test("el manifest declara navegación limpia y Share Target POST", async ({ request }) => {
@@ -117,4 +128,47 @@ test("la SPA conserva su shell de navegación sin conexión", async ({ page, con
   } finally {
     await context.setOffline(false);
   }
+});
+test("las guías SEO se sirven con URL limpia, un H1 y metadatos propios", async ({ request }) => {
+  const pages = [
+    ["/transferir-archivos", "Transferir archivos entre dispositivos | Hopper"],
+    ["/compartir-texto", "Compartir texto entre dispositivos rápido | Hopper"],
+    ["/salas-temporales", "Salas temporales para compartir archivos | Hopper"],
+    ["/seguridad", "Seguridad y privacidad de transferencias | Hopper"]
+  ] as const;
+
+  for (const [path, title] of pages) {
+    const response = await request.get(path, { headers: { Accept: "text/html" } });
+    expect(response.status(), path).toBe(200);
+    const html = await response.text();
+    expect(html, path).toContain(`<title>${title}</title>`);
+    expect((html.match(/<h1\b/g) || []).length, path).toBe(1);
+    expect(html, path).toContain('"@type":"FAQPage"');
+    expect(html, path).toContain('data-share');
+    expect(html, path).toContain('seo-mobile-cta');
+    expect(html, path).not.toContain('LocalBusiness');
+  }
+});
+
+test("robots, sitemap y llms exponen solo las rutas públicas previstas", async ({ request }) => {
+  const robots = await request.get("/robots.txt");
+  expect(robots.ok()).toBe(true);
+  const robotsText = await robots.text();
+  expect(robotsText).toContain("Disallow: /page/");
+  expect(robotsText).toContain("Disallow: /admin");
+  expect(robotsText).toContain("Sitemap: https://hopper-transfer.pages.dev/sitemap.xml");
+
+  const sitemap = await request.get("/sitemap.xml");
+  expect(sitemap.ok()).toBe(true);
+  const sitemapText = await sitemap.text();
+  expect(sitemapText).toContain("https://hopper-transfer.pages.dev/transferir-archivos");
+  expect(sitemapText).toContain("https://hopper-transfer.pages.dev/compartir-texto");
+  expect(sitemapText).toContain("https://hopper-transfer.pages.dev/salas-temporales");
+  expect(sitemapText).toContain("https://hopper-transfer.pages.dev/seguridad");
+  expect(sitemapText).not.toContain("/admin");
+  expect(sitemapText).not.toContain("/room");
+
+  const llms = await request.get("/llms.txt");
+  expect(llms.ok()).toBe(true);
+  expect(await llms.text()).toContain("# Hopper");
 });

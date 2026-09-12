@@ -1,0 +1,41 @@
+# Hopper
+
+> Hopper es una PWA para transferir temporalmente texto y archivos entre dispositivos mediante un espacio privado con PIN o salas temporales.
+
+## Aplicación
+
+- Producción: https://hopper-transfer.pages.dev/
+- Repositorio: https://github.com/RenzoFernando/Hopper
+- Autor: Renzo Fernando Mosquera Daza
+
+## Capacidades
+
+- Transferencia de texto, código, enlaces y archivos.
+- Mi espacio protegido por PIN de cuatro dígitos.
+- Retención personal de 5, 15 o 30 minutos, 1 hora, 6 horas, 1 día o indefinida.
+- Hasta 3 salas temporales simultáneas.
+- Salas con vida máxima de 10 minutos y cierre tras 5 minutos sin actividad.
+- Hasta 512 MB por archivo en Mi espacio.
+- Hasta 256 MB por archivo y 512 MB totales por sala.
+- PWA y Web Share Target.
+
+## Seguridad
+
+Hopper usa HTTPS en producción, sesiones y tokens firmados, CORS explícito, Backblaze B2 privado y URLs firmadas temporales. Hopper no se presenta como cifrado de extremo a extremo: el Worker participa en el procesamiento del contenido.
+
+## Guías públicas
+
+- [Mueve archivos entre tus dispositivos sin cables](https://hopper-transfer.pages.dev/transferir-archivos): Transfiere archivos entre celular, computador y otros dispositivos con Hopper, usando un espacio privado o salas temporales con código.
+- [Copia texto de un dispositivo a otro](https://hopper-transfer.pages.dev/compartir-texto): Comparte texto, código y enlaces entre dispositivos con Hopper mediante un PIN privado o una sala temporal, con expiración automática.
+- [Comparte archivos y texto con un código temporal](https://hopper-transfer.pages.dev/salas-temporales): Crea salas temporales en Hopper para compartir texto y archivos con código o QR, con cierre automático por inactividad y límites definidos.
+- [Cómo protege Hopper tus transferencias temporales](https://hopper-transfer.pages.dev/seguridad): Conoce cómo Hopper protege sesiones, salas, archivos y enlaces temporales mediante HTTPS, almacenamiento privado, tokens firmados y controles de acceso.
+
+## Rutas privadas o no indexables
+
+- /space
+- /admin
+- /room/*
+- /recover
+- /share
+
+No se deben inferir secretos, credenciales, contenido transferido ni datos de usuarios a partir de esta documentación.

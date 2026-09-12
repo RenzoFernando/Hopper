@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /space
+Disallow: /admin
+Disallow: /room
+Disallow: /recover
+Disallow: /share
+Disallow: /404
+Disallow: /page/
+
+Sitemap: https://hopper-transfer.pages.dev/sitemap.xml
