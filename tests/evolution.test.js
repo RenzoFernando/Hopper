@@ -8,12 +8,15 @@ import {
 import {
   createTextItem,
   initializeFileUpload,
-  listActiveItems
+  listActiveItems,
+  resetItemTtl
 } from "../worker/src/services/items.ts";
 import {
+  cleanupExpiredRooms,
   closeRoom,
   createRoom,
   createRoomSessionToken,
+  getRoomCapacity,
   hashRoomCode,
   joinRoom,
   requireRoomRequest,
@@ -23,7 +26,9 @@ import {
 import { getTodayUsage } from "../worker/src/services/usage.ts";
 import { TestD1 } from "./d1-test-helper.js";
 
-const schema = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
+const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
+const tuning = readFileSync(new URL("../worker/migrations/0002_product_tuning.sql", import.meta.url), "utf8");
+const schema = `${baseline}\n${tuning}`;
 const secret = "hopper-test-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 
 function createEnv() {
@@ -34,9 +39,13 @@ test("genera códigos de sala, guarda hash y emite tokens firmados", async () =>
   const env = createEnv();
 
   try {
+    env.ROOM_MAX_FILE_BYTES = String(1024 * 1024 * 1024);
+    env.ROOM_MAX_BYTES = String(2 * 1024 * 1024 * 1024);
     const created = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.10" });
     assert.match(created.code, /^[A-Z]{2}-\d{4}$/);
     assert.equal(created.room.status, "active");
+    assert.equal(created.room.maxFileBytes, 256 * 1024 * 1024);
+    assert.equal(created.room.maxBytes, 512 * 1024 * 1024);
     assert.equal(created.room.maxItems, 25);
     const raw = await env.DB.prepare("SELECT code_hash AS codeHash FROM rooms WHERE id = ?1").bind(created.room.id).first();
     assert.notEqual(raw.codeHash, created.code);
@@ -59,7 +68,7 @@ test("limita a tres salas y revoca de inmediato los tokens al cerrar", async () 
     const first = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" });
     const second = await createRoom(env, { ttlMinutes: 15 }, { ip: "198.51.100.11" });
     const third = await createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" });
-    assert.ok(Date.parse(second.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+    assert.ok(Date.parse(second.room.expiresAt) - Date.now() <= 10 * 60_000 + 2000);
     assert.equal(third.room.status, "active");
     await assert.rejects(
       () => createRoom(env, { ttlMinutes: 5 }, { ip: "198.51.100.11" }),
@@ -115,16 +124,16 @@ test("aísla los scopes personal y sala, limita elementos y recorta expiración"
       maxFileBytes: roomResult.room.maxFileBytes,
       maxBytes: roomResult.room.maxBytes,
       maxItems: 1,
-      ttlOptions: [5]
+      ttlOptions: [10]
     };
-    const roomItem = await createTextItem(env, { content: "sala", ttlMinutes: 5 }, roomContext);
+    const roomItem = await createTextItem(env, { content: "sala", ttlMinutes: 10 }, roomContext);
     assert.ok(Date.parse(roomItem.expiresAt) <= Date.parse(roomContext.roomExpiresAt));
     const personalItems = await listActiveItems(env);
     const roomItems = await listActiveItems(env, roomContext);
     assert.deepEqual(personalItems.map((item) => item.id), [personal.id]);
     assert.deepEqual(roomItems.map((item) => item.id), [roomItem.id]);
     await assert.rejects(
-      () => createTextItem(env, { content: "segundo", ttlMinutes: 5 }, roomContext),
+      () => createTextItem(env, { content: "segundo", ttlMinutes: 10 }, roomContext),
       (error) => error?.code === "room-item-limit"
     );
     const usage = await getTodayUsage(env.DB);
@@ -155,11 +164,11 @@ test("aplica límites de sala de forma atómica ante operaciones concurrentes", 
       maxFileBytes: roomResult.room.maxFileBytes,
       maxBytes: roomResult.room.maxBytes,
       maxItems: 1,
-      ttlOptions: [5]
+      ttlOptions: [10]
     };
     const texts = await Promise.allSettled([
-      createTextItem(env, { content: "uno", ttlMinutes: 5 }, textContext),
-      createTextItem(env, { content: "dos", ttlMinutes: 5 }, textContext)
+      createTextItem(env, { content: "uno", ttlMinutes: 10 }, textContext),
+      createTextItem(env, { content: "dos", ttlMinutes: 10 }, textContext)
     ]);
     assert.equal(texts.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(texts.filter((result) => result.status === "rejected")[0].reason?.code, "room-item-limit");
@@ -171,8 +180,8 @@ test("aplica límites de sala de forma atómica ante operaciones concurrentes", 
       maxBytes: 10
     };
     const uploads = await Promise.allSettled([
-      initializeFileUpload(env, { name: "a.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 5 }, fileContext),
-      initializeFileUpload(env, { name: "b.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 5 }, fileContext)
+      initializeFileUpload(env, { name: "a.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 10 }, fileContext),
+      initializeFileUpload(env, { name: "b.bin", size: 6, mimeType: "application/octet-stream", ttlMinutes: 10 }, fileContext)
     ]);
     assert.equal(uploads.filter((result) => result.status === "fulfilled").length, 1);
     assert.equal(uploads.filter((result) => result.status === "rejected")[0].reason?.code, "room-storage-limit");
@@ -261,16 +270,61 @@ test("mantiene el guardarraíl global ante reservas concurrentes", async () => {
   }
 });
 
-test("renueva la sala con actividad sin alterar el TTL fijo de sus elementos", async () => {
+test("la actividad mantiene viva la sala sin extender su cierre duro de 10 minutos", async () => {
   const env = createEnv();
 
   try {
     const created = await createRoom(env, {}, { ip: "198.51.100.40" });
-    const nearExpiry = new Date(Date.now() + 20_000).toISOString();
-    await env.DB.prepare("UPDATE rooms SET expires_at = ?2 WHERE id = ?1").bind(created.room.id, nearExpiry).run();
+    const hardExpiry = created.room.expiresAt;
+    const oldActivity = new Date(Date.now() - 4 * 60_000).toISOString();
+    await env.DB.prepare("UPDATE rooms SET last_activity_at = ?2 WHERE id = ?1").bind(created.room.id, oldActivity).run();
+
     const touched = await touchRoomActivity(env, created.room.id);
-    assert.ok(Date.parse(touched.expiresAt) > Date.parse(nearExpiry));
-    assert.ok(Date.parse(touched.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+    assert.equal(touched.expiresAt, hardExpiry);
+    assert.ok(Date.parse(touched.lastActivityAt) > Date.parse(oldActivity));
+    assert.ok(Date.parse(hardExpiry) - Date.now() <= 10 * 60_000 + 2000);
+  } finally {
+    env.DB.close();
+  }
+});
+
+test("cierra una sala después de cinco minutos reales sin actividad", async () => {
+  const env = createEnv();
+
+  try {
+    const created = await createRoom(env, {}, { ip: "198.51.100.41" });
+    const staleActivity = new Date(Date.now() - 5 * 60_000 - 1000).toISOString();
+    await env.DB.prepare("UPDATE rooms SET last_activity_at = ?2 WHERE id = ?1").bind(created.room.id, staleActivity).run();
+
+    const capacity = await getRoomCapacity(env.DB);
+    assert.equal(capacity.active, 0);
+    assert.equal(capacity.maximum, 3);
+    assert.equal(capacity.available, 3);
+
+    const cleanup = await cleanupExpiredRooms(env);
+    assert.equal(cleanup.closed, 1);
+    const row = await env.DB.prepare("SELECT status FROM rooms WHERE id = ?1").bind(created.room.id).first();
+    assert.equal(row.status, "closed");
+  } finally {
+    env.DB.close();
+  }
+});
+
+test("permite un día e indefinido y puede fijar un elemento existente como indefinido", async () => {
+  const env = createEnv();
+
+  try {
+    const oneDay = await createTextItem(env, { content: "un día", ttlMinutes: 1440 });
+    const remaining = Date.parse(oneDay.expiresAt) - Date.now();
+    assert.ok(remaining > 23 * 60 * 60_000);
+    assert.ok(remaining <= 24 * 60 * 60_000 + 2000);
+
+    const item = await createTextItem(env, { content: "conservar", ttlMinutes: 5 });
+    const pinned = await resetItemTtl(env, item.id, 0);
+    assert.equal(pinned.expiresAt, null);
+    assert.equal(pinned.ttlMinutes, 0);
+    const items = await listActiveItems(env);
+    assert.equal(items.some((entry) => entry.id === item.id), true);
   } finally {
     env.DB.close();
   }

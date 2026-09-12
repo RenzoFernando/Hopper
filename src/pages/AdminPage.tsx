@@ -151,12 +151,12 @@ export function AdminPage() {
 
   return <>
     <div className="document-shell">
-      <AppHeader variant="admin" adminRefreshing={refreshing} onRefreshAdmin={() => { void refreshAll(); }} />
+      <AppHeader variant="admin" adminRefreshing={refreshing} onRefreshAdmin={() => { void refreshAll(); }} onLogout={goHome} />
       <main className="admin-main">
         <div className="admin-heading"><div><p className="eyebrow">HOPPER</p><h1>Administración</h1></div></div>
         <AdminMetrics usage={usageData} />
         <div className="admin-columns"><AdminHealth health={healthData?.health} /><AdminLimits usage={usageData} /></div>
-        <AdminRooms rooms={roomsData?.rooms ?? []} maximum={usageData?.rooms.maximum ?? 3} now={now} busyRoom={busyRoom} onOpen={(room) => { void openRoom(room); }} onClose={(room) => { void closeRoom(room); }} />
+        <AdminRooms rooms={roomsData?.rooms ?? []} maximum={usageData ? Math.max(usageData.rooms.maximum, usageData.limits.maxRooms) : null} now={now} busyRoom={busyRoom} onOpen={(room) => { void openRoom(room); }} onClose={(room) => { void closeRoom(room); }} />
         <MaintenanceActions busyAction={busyAction} onAction={(action, currentPin) => { void runAction(action, currentPin); }} onChangePin={changePin} />
       </main>
       <ToastRegion toasts={toasts} />

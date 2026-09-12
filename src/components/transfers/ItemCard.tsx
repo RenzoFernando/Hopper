@@ -75,7 +75,7 @@ export function ItemCard(props: Props) {
   const created = Number.isNaN(createdDate.getTime()) ? "Temporal" : createdDate.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 
   return (
-    <article className="item-card" data-item-id={item.id} data-expires-at={item.expiresAt}>
+    <article className="item-card" data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
       <div className="item-main">
         <div className={`item-type-mark ${item.type === "text" ? "is-text" : item.audio ? "is-audio" : "is-file"}`}>
           {item.type === "text" ? <TextIcon /> : item.audio ? <AudioIcon /> : <FileIcon />}
@@ -92,8 +92,8 @@ export function ItemCard(props: Props) {
       </div>
       <div className="item-actions">
         <div className="expiry-controls">
-          <span className="expiry-countdown" data-expires-at={item.expiresAt} aria-label="Tiempo restante">{formatCountdown(item.expiresAt, props.now)}</span>
-          {props.allowTtlReset && <select className="expiry-select" data-item-id={item.id} aria-label="Reiniciar tiempo de expiración" defaultValue="" onChange={(event) => { const minutes = Number(event.target.value); event.target.value = ""; if (Number.isFinite(minutes) && minutes > 0) void props.onResetTtl(item, minutes); }}>
+          <span className="expiry-countdown" data-expires-at={item.expiresAt || undefined} aria-label="Tiempo restante">{formatCountdown(item.expiresAt, props.now)}</span>
+          {props.allowTtlReset && <select className="expiry-select" data-item-id={item.id} aria-label="Reiniciar tiempo de expiración" defaultValue="" onChange={(event) => { const minutes = Number(event.target.value); event.target.value = ""; if (Number.isFinite(minutes) && minutes >= 0) void props.onResetTtl(item, minutes); }}>
             <option value="">Tiempo</option>
             {props.ttlOptions.map((minutes) => <option value={minutes} key={minutes}>{ttlLabel(minutes)}</option>)}
           </select>}

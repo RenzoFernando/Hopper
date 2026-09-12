@@ -5,6 +5,7 @@ import { sessionStore } from "../../api/client";
 import { itemsApi, roomItemsApi } from "../../api/items";
 import { roomsApi } from "../../api/rooms";
 import { appConfig } from "../../lib/config";
+import { PERSONAL_TTL_OPTIONS, ROOM_TTL_MINUTES } from "../../lib/retention";
 import { formatBytes } from "../../lib/format";
 import { roomPath } from "../../lib/navigation";
 import { isCompleteRoomCode, normalizeRoomCode } from "../../lib/room-code";
@@ -12,7 +13,7 @@ import { clearSharedPayload, readSharedPayload, writeSharedPayload, type Pending
 import type { TransferApi } from "../transfers/types";
 
 const MAX_PAYLOAD_AGE_MS = 10 * 60 * 1000;
-const PERSONAL_TTLS = [5, 15, 30, 60, 360];
+const PERSONAL_TTLS = [...PERSONAL_TTL_OPTIONS];
 
 type MessageKind = "" | "success" | "error";
 type DestinationOption = { value: ShareDestination; label: string };
@@ -200,8 +201,8 @@ export function useShareTarget(enabled = true) {
   }, [enabled, refreshDestinations]);
 
   useEffect(() => {
-    if (destination === "room") setTtlMinutes(5);
-    else if (!PERSONAL_TTLS.includes(ttlMinutes)) setTtlMinutes(5);
+    if (destination === "room") setTtlMinutes(ROOM_TTL_MINUTES);
+    else if (!PERSONAL_TTLS.includes(ttlMinutes)) setTtlMinutes(appConfig.defaultTtlMinutes || 5);
   }, [destination, ttlMinutes]);
 
   const persistDelivery = useCallback(() => {
@@ -244,7 +245,7 @@ export function useShareTarget(enabled = true) {
       if (!confirmed.item.id || confirmed.item.id !== uploadId) throw new Error("Hopper no confirmó correctamente el archivo compartido.");
       return confirmed.item.id;
     } catch (error) {
-      if (uploadId) void api.cancelUpload(uploadId).catch(() => undefined);
+      if (uploadId) void api.cancelUpload(uploadId, true).catch(() => undefined);
       throw error;
     }
   }, []);
@@ -273,7 +274,7 @@ export function useShareTarget(enabled = true) {
     }
 
     const api = apiFor(target);
-    const ttl = target === "room" ? 5 : ttlMinutes || 5;
+    const ttl = target === "room" ? ROOM_TTL_MINUTES : PERSONAL_TTLS.includes(ttlMinutes) ? ttlMinutes : appConfig.defaultTtlMinutes || 5;
     const text = [currentPayload.title, currentPayload.text, currentPayload.url].filter(Boolean).join("\n").trim();
     const files = currentPayload.files;
     sendBusyRef.current = true;
@@ -418,7 +419,7 @@ export function useShareTarget(enabled = true) {
     return values;
   }, [payload]);
 
-  const ttlOptions = destination === "room" ? [5] : PERSONAL_TTLS;
+  const ttlOptions = destination === "room" ? [ROOM_TTL_MINUTES] : PERSONAL_TTLS;
   const hasDestination = destinations.length > 0;
   const hasContent = summary.length > 0;
 

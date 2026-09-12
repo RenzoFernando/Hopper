@@ -6,6 +6,7 @@ export const roomSchema = z.object({
   version: z.number(),
   createdAt: z.string(),
   expiresAt: z.string(),
+  lastActivityAt: z.string().optional(),
   closedAt: z.string().nullable().optional(),
   maxBytes: z.number(),
   maxFileBytes: z.number(),

@@ -29,6 +29,7 @@ describe("layout congelado", () => {
     rerender(header("admin"));
     expect(screen.getByRole("link", { name: "Mi espacio" })).toHaveAttribute("href", "/space");
     expect(container.querySelector("#admin-refresh-button.refresh-button")).toBeInTheDocument();
+    expect(container.querySelector("#admin-logout-button.logout-button")).toBeInTheDocument();
 
     rerender(header("simple"));
     expect(container.querySelectorAll("header.site-header > *")).toHaveLength(1);
@@ -41,6 +42,6 @@ describe("layout congelado", () => {
     expect(footer).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Hopper" })).toHaveAttribute("href", "https://github.com/RenzoFernando/Hopper");
     expect(footer).toHaveTextContent("— Transferencia temporal de texto y archivos");
-    expect(footer).toHaveTextContent("© 2026 — Renzo Fernando Mosquera Daza");
+    expect(footer).toHaveTextContent(`© ${new Date().getFullYear()} — Renzo Fernando Mosquera Daza`);
   });
 });

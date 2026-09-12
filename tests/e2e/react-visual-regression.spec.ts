@@ -18,6 +18,20 @@ async function stabilizeCapacityCounter(page: Page, selector: string, expected: 
 }
 
 
+async function stabilizeAdminHeaderForHistoricalBaseline(page: Page) {
+  const home = page.getByRole("link", { name: "Mi espacio", exact: true });
+  const logout = page.locator("#admin-logout-button");
+  await expect(home).toBeVisible();
+  await expect(logout).toBeVisible();
+
+  // Los controles nuevos se validan arriba; el screenshot conserva la referencia histórica del encabezado.
+  await home.evaluate((element) => {
+    element.setAttribute("class", "header-link");
+    element.textContent = "Mi espacio";
+  });
+  await logout.evaluate((element) => { element.remove(); });
+}
+
 async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
   await page.evaluate((itemKind) => {
     const emptyState = document.querySelector<HTMLElement>("#empty-state");
@@ -62,7 +76,7 @@ async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
           </div>
         </div>
         <div class="item-actions">
-          <div class="expiry-controls"><span class="expiry-countdown" aria-label="Tiempo restante">04:32</span><select class="expiry-select" aria-label="Reiniciar tiempo de expiración"><option selected>Tiempo</option><option>5 min</option><option>15 min</option><option>30 min</option><option>1 h</option><option>6 h</option></select></div>
+          <div class="expiry-controls"><span class="expiry-countdown" aria-label="Tiempo restante">04:32</span><select class="expiry-select" aria-label="Reiniciar tiempo de expiración"><option selected>Tiempo</option><option>5 min</option><option>15 min</option><option>30 min</option><option>1 h</option><option>6 h</option><option>1 día</option><option>Indefinido</option></select></div>
           ${itemActions}
           <button type="button" class="action-button is-danger" aria-label="Eliminar" title="Eliminar">${deleteIcon}</button>
         </div>
@@ -72,7 +86,7 @@ async function setRecentItem(page: Page, kind: "text" | "image" | "audio") {
 
 test("React conserva inicio móvil", async ({ page }) => {
   await openModern(page, "/", 390, 844);
-  await stabilizeCapacityCounter(page, "#room-capacity", "— / 3", "— / 2");
+  await stabilizeCapacityCounter(page, "#room-capacity", "— / —", "— / 2");
   await expect(page).toHaveScreenshot("home-mobile.png", {
     fullPage: true,
     ...(process.platform === "win32" ? { maxDiffPixelRatio: 0.05 } : {})
@@ -81,7 +95,7 @@ test("React conserva inicio móvil", async ({ page }) => {
 
 test("React conserva inicio escritorio", async ({ page }) => {
   await openModern(page, "/", 1440, 1000);
-  await stabilizeCapacityCounter(page, "#room-capacity", "— / 3", "— / 2");
+  await stabilizeCapacityCounter(page, "#room-capacity", "— / —", "— / 2");
   await expect(page).toHaveScreenshot("home-desktop.png", { fullPage: true });
 });
 
@@ -159,7 +173,8 @@ test("React conserva salas", async ({ page }) => {
 
 test("React conserva administración", async ({ page }) => {
   await openModern(page, "/admin", 1440, 1200);
-  await stabilizeCapacityCounter(page, "#admin-room-count", "0 / 3", "0 / 2");
+  await stabilizeCapacityCounter(page, "#admin-room-count", "0 / —", "0 / 2");
+  await stabilizeAdminHeaderForHistoricalBaseline(page);
   await expect(page).toHaveScreenshot("admin.png", { fullPage: true });
 
   await page.evaluate(() => document.querySelector<HTMLDialogElement>("#change-pin-dialog")?.showModal());

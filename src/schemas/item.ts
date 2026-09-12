@@ -5,7 +5,7 @@ export const itemSchema = z.object({
   type: z.enum(["text", "file"]),
   status: z.string(),
   createdAt: z.string(),
-  expiresAt: z.string(),
+  expiresAt: z.string().nullable(),
   ttlMinutes: z.number(),
   content: z.string().optional(),
   name: z.string().optional(),

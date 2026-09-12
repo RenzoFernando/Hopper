@@ -1,3 +1,4 @@
+import { TTL_OPTIONS } from "../lib/constants.ts";
 import {
   cancelFileUpload,
   completeFileUpload,
@@ -36,7 +37,7 @@ const PERSONAL_CONTEXT: ItemContext = Object.freeze({
   maxFileBytes: null,
   maxBytes: null,
   maxItems: null,
-  ttlOptions: [5, 15, 30, 60, 360]
+  ttlOptions: TTL_OPTIONS
 });
 
 export function registerItemRoutes(app: HopperApp): void {
@@ -75,7 +76,8 @@ export function registerItemRoutes(app: HopperApp): void {
   app.delete("/api/uploads/:id/cancel", async (c: HopperContext) => {
     await authorizePersonal(c, "uploads-cancel", 60, 60);
     const { id } = parseParams({ id: c.req.param("id") }, idParamSchema);
-    await cancelFileUpload(c.env, id, PERSONAL_CONTEXT);
+    const recordFailure = c.req.query("outcome") === "failed";
+    await cancelFileUpload(c.env, id, PERSONAL_CONTEXT, { recordFailure });
     return criticalJson(operationResponseSchema, { ok: true }, 200, responseOrigin(c));
   });
 

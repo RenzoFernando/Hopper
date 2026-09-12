@@ -200,7 +200,7 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
       return { ok: true as const, key: entry.key, cancelled: false };
     } catch (caught) {
       const error = errorInfo(caught);
-      if (uploadId) void api.cancelUpload(uploadId).catch(() => undefined);
+      if (uploadId) void api.cancelUpload(uploadId, error.code !== "upload-aborted").catch(() => undefined);
       if (error.code === "upload-aborted") {
         setSelectedFiles((current) => current.filter((item) => item.key !== entry.key));
         return { ok: false as const, key: entry.key, cancelled: true, error };

@@ -79,9 +79,9 @@ export default defineConfig({
       workerBaseUrl: productionConfig.workerBaseUrl,
       publicAppUrl: productionConfig.publicAppUrl,
       defaultTtlMinutes: 5,
-      roomDefaultTtlMinutes: 5,
+      roomDefaultTtlMinutes: 10,
       maxFileBytes: 536870912,
-      roomMaxFileBytes: 104857600,
+      roomMaxFileBytes: 268435456,
       pollIntervalMs: 3000,
       uploadConcurrency: 2
     })

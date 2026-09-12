@@ -1,4 +1,6 @@
 export function AppFooter() {
+  const currentYear = new Date().getFullYear();
+
   return (
     <footer className="project-footer">
       <p>
@@ -7,7 +9,7 @@ export function AppFooter() {
         </a>
         <span> — Transferencia temporal de texto y archivos</span>
       </p>
-      <p>© 2026 — Renzo Fernando Mosquera Daza</p>
+      <p>© {currentYear} — Renzo Fernando Mosquera Daza</p>
     </footer>
   );
 }

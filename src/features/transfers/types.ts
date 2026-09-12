@@ -17,7 +17,7 @@ export type TransferApi = {
   initializeUpload: (file: File, ttlMinutes: number) => Promise<UploadResponse>;
   uploadToSignedUrl: (file: File, uploadUrl: string, onProgress?: (progress: number) => void, contentType?: string, signal?: AbortSignal) => Promise<void>;
   completeUpload: (id: string) => Promise<ItemResponse>;
-  cancelUpload: (id: string) => Promise<unknown>;
+  cancelUpload: (id: string, failed?: boolean) => Promise<unknown>;
   getFileUrl: (id: string, mode?: "download" | "preview" | "stream") => Promise<FileUrlResponse>;
   deleteItem: (id: string) => Promise<unknown>;
   resetTtl?: (id: string, ttlMinutes: number) => Promise<ItemResponse>;

@@ -12,7 +12,9 @@ import {
 import { createRoom } from "../src/services/rooms.ts";
 import { TestD1 } from "../../tests/d1-test-helper.js";
 
-const schema = readFileSync(new URL("../migrations/0001_baseline.sql", import.meta.url), "utf8");
+const baseline = readFileSync(new URL("../migrations/0001_baseline.sql", import.meta.url), "utf8");
+const tuning = readFileSync(new URL("../migrations/0002_product_tuning.sql", import.meta.url), "utf8");
+const schema = `${baseline}\n${tuning}`;
 const origin = "https://hopper.pages.dev";
 const secret = "hopper-phase-four-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 

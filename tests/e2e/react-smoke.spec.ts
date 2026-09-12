@@ -14,11 +14,12 @@ function room(code = "AB-1234") {
     createdAt: nowIso,
     expiresAt: laterIso,
     closedAt: null,
-    maxBytes: 104857600,
-    maxFileBytes: 104857600,
-    maxItems: 20,
+    maxBytes: 536870912,
+    maxFileBytes: 268435456,
+    maxItems: 25,
     usedBytes: 0,
     itemCount: 0,
+    lastActivityAt: nowIso,
     code
   };
 }
@@ -91,7 +92,7 @@ async function installApiMock(page: Page) {
     if (path === "/api/room/items" && method === "GET") return json(route, { ok: true, items: roomItems, room: room(), serverTime: nowIso });
     if (path === "/api/room/items/text" && method === "POST") {
       const payload = request.postDataJSON() as { content?: string };
-      const item = textItem(payload.content || "");
+      const item = { ...textItem(payload.content || ""), ttlMinutes: 10 };
       roomItems = [item, ...roomItems];
       return json(route, { ok: true, item }, 201);
     }
@@ -102,7 +103,7 @@ async function installApiMock(page: Page) {
       today: { uploadsCount: 1, uploadBytes: 1024, deletedBytes: 0, failedUploads: 0, cleanupFailures: 0 },
       last7Days: { uploadsCount: 1, uploadBytes: 1024, deletedBytes: 0, failedUploads: 0, cleanupFailures: 0 },
       rooms: { active: 1, maximum: 3 },
-      limits: { maxFileBytes: 536870912, storageReferenceBytes: 10737418240, storageWarningBytes: 8589934592, storageInternalLimitBytes: 9663676416, maxRooms: 3, roomMaxTtlMinutes: 5, roomMaxFileBytes: 104857600, roomMaxBytes: 104857600, roomMaxItems: 20, activeItems: 1, pendingUploads: 0, cleanupFailures: 0, orphanItems: 0, missingItems: 0 }
+      limits: { maxFileBytes: 536870912, storageReferenceBytes: 10737418240, storageWarningBytes: 8589934592, storageInternalLimitBytes: 9663676416, maxRooms: 3, roomMaxTtlMinutes: 10, roomLifetimeMinutes: 10, roomInactivityMinutes: 5, roomMaxFileBytes: 268435456, roomMaxBytes: 536870912, roomMaxItems: 25, activeItems: 1, pendingUploads: 0, cleanupFailures: 0, orphanItems: 0, missingItems: 0 }
     });
     if (path === "/api/admin/health") return json(route, { ok: true, health: { worker: { ok: true }, d1: { ok: true, latencyMs: 1 }, b2: { ok: true, error: null }, b2Signing: { ok: true }, resend: { ok: true, configured: true }, cleanup: { ok: true, lastCleanupAt: nowIso, failures: 0 }, reconcile: { lastReconcileAt: nowIso, orphanCount: 0, orphanBytes: 0, missingCount: 0 } } });
     if (path === "/api/admin/rooms") return json(route, { ok: true, rooms: [room()] });
@@ -139,6 +140,7 @@ test("login, texto, archivo y logout funcionan en React", async ({ page }) => {
   await page.locator("#pin-input").fill("1234");
   await expect(page).toHaveURL(/\/space$/);
   await expect(page.locator("#workspace-screen")).toBeVisible();
+  await expect(page.locator("#ttl-select option")).toHaveText(["5 min", "15 min", "30 min", "1 hora", "6 horas", "1 día", "Indefinido"]);
 
   await page.locator("#text-input").fill("Texto desde React");
   await page.locator("#send-button").click();
@@ -179,6 +181,8 @@ test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => 
   await page.goto("/admin");
   await expect(page.locator("#usage-storage")).not.toHaveText("—");
   await expect(page.locator("#admin-room-count")).toHaveText("1 / 3");
+  await expect(page.getByRole("link", { name: "Mi espacio", exact: true })).toHaveAttribute("href", "/space");
+  await expect(page.locator("#admin-logout-button")).toBeVisible();
 
   await page.locator("#cleanup-button").click();
   await expect(page.locator("#toast-region")).toContainText("Limpieza completada");
@@ -201,6 +205,18 @@ test("Administración carga datos y ejecuta mantenimiento", async ({ page }) => 
   const request = await pinRequest;
   expect(request.postDataJSON()).toEqual({ currentPin: "1234", pin: "4321", confirmation: "4321" });
   await expect(page).toHaveURL(/\/$/);
+});
+
+
+test("Administración permite cerrar la sesión directamente", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.goto("/admin");
+  await page.locator("#admin-logout-button").click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("#auth-screen")).toBeVisible();
+  const session = await page.evaluate(() => sessionStorage.getItem("hopper-session-v1"));
+  expect(session).toBeNull();
 });
 
 test("recuperación verifica, limpia el hash y actualiza el PIN", async ({ page }) => {

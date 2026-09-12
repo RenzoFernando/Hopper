@@ -39,7 +39,7 @@ interface DropItem {
   type: string;
   status: string;
   createdAt: string;
-  expiresAt: string;
+  expiresAt: string | null;
   ttlMinutes: number;
   spaceType?: string;
   roomId?: string | null;
@@ -113,7 +113,7 @@ function normalizeMimeType(value: unknown): string {
 function personalMaxFileBytes(env: Env) {
   const configured = Number(env.MAX_FILE_BYTES);
   return Number.isFinite(configured) && configured > 0
-    ? Math.floor(configured)
+    ? Math.min(Math.floor(configured), DEFAULT_MAX_FILE_BYTES)
     : DEFAULT_MAX_FILE_BYTES;
 }
 
@@ -162,7 +162,7 @@ function rowToDropItem(row: Record<string, unknown> | null | undefined): DropIte
     type: String(row.type || ""),
     status: String(row.status || ""),
     createdAt: String(row.created_at || ""),
-    expiresAt: String(row.expires_at || ""),
+    expiresAt: row.expires_at == null ? null : String(row.expires_at),
     ttlMinutes: Number(row.ttl_minutes || 0),
     spaceType: String(row.space_type || "personal"),
     roomId: row.room_id ? String(row.room_id) : null,
@@ -254,7 +254,11 @@ export async function getDropItem(env: Env, id: unknown): Promise<DropItem | nul
   return rowToDropItem(row);
 }
 
-export function isExpired(item: Pick<DropItem, "expiresAt"> | null | undefined, now: number = Date.now()): boolean {
+export function isExpired(item: Pick<DropItem, "expiresAt" | "ttlMinutes"> | null | undefined, now: number = Date.now()): boolean {
+  if (item?.expiresAt === null && Number(item?.ttlMinutes) === 0) {
+    return false;
+  }
+
   const expiresAt = Date.parse(item?.expiresAt || "");
   return !Number.isFinite(expiresAt) || expiresAt <= now;
 }
@@ -310,7 +314,7 @@ export async function listActiveItems(env: Env, context: ItemContext = personalC
       room_id,
       etag
     FROM drop_items
-    WHERE status = 'ready' AND expires_at > ?1 AND ${filter.sql}
+    WHERE status = 'ready' AND (expires_at IS NULL OR expires_at > ?1) AND ${filter.sql}
     ORDER BY created_at DESC
     LIMIT ?${filter.values.length + 2}
   `).bind(now, ...filter.values, MAX_LIST_ITEMS).all();
@@ -318,9 +322,14 @@ export async function listActiveItems(env: Env, context: ItemContext = personalC
   return (result.results || []).map(rowToDropItem).filter((item): item is DropItem => item !== null).map(publicItem);
 }
 
-function effectiveExpiry(ttlMinutes: number, context: Partial<ItemContext> | null | undefined, base: number = Date.now()): Date {
-  const requested = base + ttlMinutes * 60_000;
+function effectiveExpiry(ttlMinutes: number, context: Partial<ItemContext> | null | undefined, base: number = Date.now()): Date | null {
   const scope = normalizeContext(context);
+
+  if (scope.spaceType === "personal" && ttlMinutes === 0) {
+    return null;
+  }
+
+  const requested = base + ttlMinutes * 60_000;
   const roomExpiry = Date.parse(scope.roomExpiresAt || "");
 
   return new Date(
@@ -439,7 +448,7 @@ export async function createTextItem(env: Env, payload: { content?: unknown; ttl
     id,
     content,
     now,
-    expiresAt.toISOString(),
+    expiresAt?.toISOString() ?? null,
     ttlMinutes,
     scope.spaceType,
     scope.roomId,
@@ -463,7 +472,9 @@ export async function initializeFileUpload(env: Env, payload: { name?: unknown; 
   const pendingExpiresAt = new Date(createdAt.getTime() + PENDING_UPLOAD_TTL_SECONDS * 1000);
   const storageKey = scope.spaceType === "room"
     ? `drop/rooms/${scope.roomId}/${id}/${file.name}`
-    : `drop/personal/${id}/${file.name}`;
+    : file.ttlMinutes === 0
+      ? `drop/personal/persistent/${id}/${file.name}`
+      : `drop/personal/temporary/${id}/${file.name}`;
   const now = createdAt.toISOString();
   const inserted = await env.DB.prepare(`
     INSERT INTO drop_items (
@@ -605,7 +616,7 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
     actualSize,
     mimeType,
     now,
-    expiresAt.toISOString(),
+    expiresAt?.toISOString() ?? null,
     metadata.etag || metadata.versionId || null
   ).run();
 
@@ -619,7 +630,12 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
   return publicItem(readyItem);
 }
 
-export async function cancelFileUpload(env: Env, id: unknown, context: ItemContext = personalContext()): Promise<void> {
+export async function cancelFileUpload(
+  env: Env,
+  id: unknown,
+  context: ItemContext = personalContext(),
+  { recordFailure = false }: { recordFailure?: boolean } = {}
+): Promise<void> {
   const item = await getDropItem(env, validateItemId(id));
 
   if (!item) {
@@ -627,6 +643,10 @@ export async function cancelFileUpload(env: Env, id: unknown, context: ItemConte
   }
 
   assertScope(item, context);
+
+  if (recordFailure && item.status === "pending") {
+    await recordUploadFailure(env.DB).catch(() => {});
+  }
 
   if (item.type === "file" && item.storageKey) {
     await deleteB2Object(env, storageKeyFor(item));
@@ -656,14 +676,14 @@ export async function createItemDownloadUrl(env: Env, id: unknown, mode: string 
     throw new HttpError(400, "stream-not-supported", "Este tipo de archivo no admite reproducción de audio.");
   }
 
-  const remainingSeconds = Math.max(
-    1,
-    Math.floor((Date.parse(item.expiresAt) - Date.now()) / 1000)
-  );
+  const remainingSeconds = item.expiresAt === null
+    ? DOWNLOAD_URL_TTL_SECONDS
+    : Math.max(1, Math.floor((Date.parse(item.expiresAt) - Date.now()) / 1000));
+  const signedTtlSeconds = Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds);
   const url = await createSignedB2Url(env, {
     method: "GET",
     objectName: storageKeyFor(item),
-    expiresSeconds: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds),
+    expiresSeconds: signedTtlSeconds,
     queryParameters: mode === "download"
       ? { "response-content-type": "application/octet-stream" }
       : {}
@@ -673,7 +693,7 @@ export async function createItemDownloadUrl(env: Env, id: unknown, mode: string 
     url,
     name: item.name,
     mimeType: item.mimeType,
-    expiresIn: Math.min(DOWNLOAD_URL_TTL_SECONDS, remainingSeconds)
+    expiresIn: signedTtlSeconds
   };
 }
 
@@ -687,14 +707,14 @@ export async function resetItemTtl(env: Env, id: unknown, ttlValue: unknown, con
 
   assertScope(item, scope);
   const ttlMinutes = normalizeTtlMinutes(ttlValue, scope.ttlOptions);
-  const expiresAt = effectiveExpiry(ttlMinutes, scope).toISOString();
+  const expiresAt = effectiveExpiry(ttlMinutes, scope);
   const updatedAt = new Date().toISOString();
 
   await env.DB.prepare(`
     UPDATE drop_items
     SET expires_at = ?2, ttl_minutes = ?3, updated_at = ?4
     WHERE id = ?1 AND status = 'ready'
-  `).bind(item.id, expiresAt, ttlMinutes, updatedAt).run();
+  `).bind(item.id, expiresAt?.toISOString() ?? null, ttlMinutes, updatedAt).run();
 
   return publicItem(await getDropItem(env, item.id));
 }
@@ -819,7 +839,7 @@ export async function cleanupExpiredItems(env: Env) {
       room_id,
       etag
     FROM drop_items
-    WHERE expires_at <= ?1
+    WHERE expires_at IS NOT NULL AND expires_at <= ?1
     ORDER BY expires_at ASC
     LIMIT ?2
   `).bind(now, MAX_CLEANUP_ITEMS).all();

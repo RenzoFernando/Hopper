@@ -183,7 +183,7 @@ export function HomePage() {
               <PinForm pin={pin} loading={pinSubmitting} locked={locked} disabled={!configured && !visual} message={pinMessage} messageKind={pinKind} recoveryMessage={recoveryMessage} recoveryKind={recoveryKind} recoveryLoading={recoveryLoading} onPinChange={(value) => { setPin(value); setPinMessage(""); setPinKind(""); }} onSubmit={(value) => { void submitPin(value); }} onRecovery={() => { void requestRecovery(); }} />
             </div>
             <span className="auth-divider" aria-hidden="true" />
-            <RoomAccess available={capacity.data?.available ?? null} maximum={capacity.data?.maximum ?? 3} code={roomCode} submitting={roomSubmitting} message={roomMessage} messageKind={roomKind} onCodeChange={(value) => { setRoomCode(value); setRoomMessage(""); setRoomKind(""); }} onCreate={() => { void createRoom(); }} onJoin={() => { void joinRoom(); }} />
+            <RoomAccess available={capacity.data?.available ?? null} maximum={capacity.data?.maximum ?? null} code={roomCode} submitting={roomSubmitting} message={roomMessage} messageKind={roomKind} onCodeChange={(value) => { setRoomCode(value); setRoomMessage(""); setRoomKind(""); }} onCreate={() => { void createRoom(); }} onJoin={() => { void joinRoom(); }} />
           </div>
         </section>
       </main>

@@ -28,7 +28,7 @@ type Props = {
 };
 
 export function ItemList(props: Props) {
-  const activeItems = props.items.filter((item) => Date.parse(item.expiresAt || "") > props.now);
+  const activeItems = props.items.filter((item) => item.expiresAt === null || Date.parse(item.expiresAt || "") > props.now);
   return (
     <section className="recent-section" aria-labelledby="recent-title">
       <div className="recent-header">

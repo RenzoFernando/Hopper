@@ -145,3 +145,40 @@ test("PowerShell escribe JSON UTF-8 sin BOM", () => {
   assert.doesNotMatch(admin, /Set-Content\s+\$productionConfigPath\s+-Encoding\s+UTF8/);
   assert.doesNotMatch(admin, /Set-Content\s+\$workerConfigPath\s+-Encoding\s+UTF8/);
 });
+
+test("PowerShell mantiene UTF-8 en la consola y en la salida de procesos nativos", () => {
+  const path = resolve(root, "hopper-admin.ps1");
+  const bytes = readFileSync(path);
+  assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+
+  const admin = bytes.toString("utf8");
+  assert.match(admin, /function Initialize-TerminalEncoding/);
+  assert.match(admin, /\[Console\]::InputEncoding = \$utf8/);
+  assert.match(admin, /\[Console\]::OutputEncoding = \$utf8/);
+  assert.match(admin, /\$script:OutputEncoding = \$utf8/);
+  assert.match(admin, /Get-Content \$configPath -Raw -Encoding UTF8/);
+  assert.match(admin, /Get-Content \$productionConfigPath -Raw -Encoding UTF8/);
+  assert.match(admin, /Get-Content \$readmePath -Raw -Encoding UTF8/);
+});
+
+test("los límites visibles y del Worker comparten la configuración actual del producto", () => {
+  const constants = read("worker/src/lib/constants.ts");
+  const wrangler = readJson("worker/wrangler.jsonc");
+  const vite = read("vite.config.ts");
+  const admin = read("src/components/admin/AdminRooms.tsx");
+
+  assert.match(constants, /MAX_ACTIVE_ROOMS = 3/);
+  assert.match(constants, /ROOM_LIFETIME_MINUTES = 10/);
+  assert.match(constants, /ROOM_INACTIVITY_SECONDS = 5 \* 60/);
+  assert.match(constants, /DEFAULT_ROOM_MAX_FILE_BYTES = 256 \* 1024 \* 1024/);
+  assert.equal(wrangler.vars?.ROOM_MAX_FILE_BYTES, String(256 * 1024 * 1024));
+  assert.equal(wrangler.vars?.ROOM_MAX_BYTES, String(512 * 1024 * 1024));
+  assert.match(vite, /roomDefaultTtlMinutes:\s*10/);
+  assert.match(vite, /roomMaxFileBytes:\s*268435456/);
+  assert.doesNotMatch(admin, /\?\?\s*2|\/\s*2/);
+
+  const administrator = read("hopper-admin.ps1");
+  assert.match(administrator, /RoomMaxFileBytes = \[long\]\(256MB\)/);
+  assert.match(administrator, /maxMb -gt 512/);
+  assert.doesNotMatch(administrator, /maxMb -gt 5120/);
+});

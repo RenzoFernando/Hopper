@@ -18,8 +18,13 @@ export function formatBytes(bytes: number) {
   return `${amount.toFixed(digits)} ${units[unitIndex] ?? "TB"}`;
 }
 
-export function formatCountdown(expiresAt: string, now = Date.now()) {
-  const remaining = Math.max(0, Date.parse(expiresAt || "") - now);
+export function formatCountdown(expiresAt: string | null | undefined, now = Date.now()) {
+  if (!expiresAt) return "Indefinido";
+
+  const timestamp = Date.parse(expiresAt);
+  if (!Number.isFinite(timestamp)) return "--:--";
+
+  const remaining = Math.max(0, timestamp - now);
   const totalSeconds = Math.ceil(remaining / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -33,8 +38,10 @@ export function formatCountdown(expiresAt: string, now = Date.now()) {
 }
 
 export function ttlLabel(minutes: number) {
+  if (minutes === 0) return "Indefinido";
   if (minutes === 60) return "1 hora";
   if (minutes === 360) return "6 horas";
+  if (minutes === 1440) return "1 día";
   return `${minutes} min`;
 }
 

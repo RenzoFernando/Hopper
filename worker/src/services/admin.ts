@@ -7,7 +7,8 @@ import {
   MAX_ACTIVE_ROOMS,
   ORPHAN_SAFETY_SECONDS,
   RECONCILE_INTERVAL_SECONDS,
-  ROOM_TTL_OPTIONS,
+  ROOM_INACTIVITY_SECONDS,
+  ROOM_LIFETIME_MINUTES,
   STORAGE_INTERNAL_LIMIT_BYTES,
   STORAGE_REFERENCE_BYTES,
   STORAGE_WARNING_BYTES
@@ -28,9 +29,27 @@ import {
   recordReconcileState
 } from "./usage.ts";
 
+function configuredCappedInteger(value: unknown, maximum: number) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.min(Math.floor(number), maximum)
+    : maximum;
+}
+
 function configuredMaxFileBytes(env: Env) {
-  const value = Number(env.MAX_FILE_BYTES);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : DEFAULT_MAX_FILE_BYTES;
+  return configuredCappedInteger(env.MAX_FILE_BYTES, DEFAULT_MAX_FILE_BYTES);
+}
+
+function configuredRoomMaxFileBytes(env: Env) {
+  return configuredCappedInteger(env.ROOM_MAX_FILE_BYTES, DEFAULT_ROOM_MAX_FILE_BYTES);
+}
+
+function configuredRoomMaxBytes(env: Env) {
+  return configuredCappedInteger(env.ROOM_MAX_BYTES, DEFAULT_ROOM_MAX_BYTES);
+}
+
+function configuredRoomMaxItems(env: Env) {
+  return configuredCappedInteger(env.ROOM_MAX_ITEMS, DEFAULT_ROOM_MAX_ITEMS);
 }
 
 export async function getAdminUsage(env: Env) {
@@ -41,7 +60,7 @@ export async function getAdminUsage(env: Env) {
     listActiveRooms(env.DB),
     env.DB.prepare(`
       SELECT
-        SUM(CASE WHEN status = 'ready' AND expires_at > ?1 THEN 1 ELSE 0 END) AS activeItems,
+        SUM(CASE WHEN status = 'ready' AND (expires_at IS NULL OR expires_at > ?1) THEN 1 ELSE 0 END) AS activeItems,
         SUM(CASE WHEN status = 'pending' AND expires_at > ?1 THEN 1 ELSE 0 END) AS pendingUploads
       FROM drop_items
     `).bind(new Date().toISOString()).first<{ activeItems: number | null; pendingUploads: number | null }>(),
@@ -72,10 +91,12 @@ export async function getAdminUsage(env: Env) {
       storageWarningBytes: STORAGE_WARNING_BYTES,
       storageInternalLimitBytes: STORAGE_INTERNAL_LIMIT_BYTES,
       maxRooms: MAX_ACTIVE_ROOMS,
-      roomMaxTtlMinutes: Math.max(...ROOM_TTL_OPTIONS),
-      roomMaxFileBytes: DEFAULT_ROOM_MAX_FILE_BYTES,
-      roomMaxBytes: DEFAULT_ROOM_MAX_BYTES,
-      roomMaxItems: DEFAULT_ROOM_MAX_ITEMS,
+      roomMaxTtlMinutes: ROOM_LIFETIME_MINUTES,
+      roomLifetimeMinutes: ROOM_LIFETIME_MINUTES,
+      roomInactivityMinutes: Math.floor(ROOM_INACTIVITY_SECONDS / 60),
+      roomMaxFileBytes: configuredRoomMaxFileBytes(env),
+      roomMaxBytes: configuredRoomMaxBytes(env),
+      roomMaxItems: configuredRoomMaxItems(env),
       activeItems: Number(counts?.activeItems || 0),
       pendingUploads: Number(counts?.pendingUploads || 0),
       cleanupFailures: Number(maintenance.lastCleanupFailed || 0),

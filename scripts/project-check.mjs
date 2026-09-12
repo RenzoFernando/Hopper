@@ -23,6 +23,7 @@ const required = [
   "src/styles/rooms.css",
   "worker/wrangler.jsonc",
   "worker/migrations/0001_baseline.sql",
+  "worker/migrations/0002_product_tuning.sql",
   ".github/workflows/ci.yml",
   ".github/workflows/deploy-frontend.yml",
   ".github/workflows/deploy-worker.yml"

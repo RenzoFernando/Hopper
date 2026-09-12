@@ -65,6 +65,9 @@ jobs:
       - name: Regresión backend
         run: npm run test:legacy
 
+      - name: Persistencia de métricas
+        run: node --experimental-strip-types --test tests/usage.test.js
+
       - name: Integración
         run: npm run test:integration
 

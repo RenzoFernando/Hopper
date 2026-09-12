@@ -16,7 +16,10 @@ function itemApi(prefix: string, auth: "personal" | "room", fixedTtl?: number) {
       body: { name: file.name, size: file.size, mimeType: file.type || "application/octet-stream", ttlMinutes: fixedTtl ?? ttlMinutes }
     }),
     completeUpload: (id: string) => request(`${uploadsPath}/${encodeURIComponent(id)}/complete`, itemResponseSchema, { method: "POST", auth, body: {} }),
-    cancelUpload: (id: string) => request(`${uploadsPath}/${encodeURIComponent(id)}/cancel`, operationResponseSchema, { method: "DELETE", auth }),
+    cancelUpload: (id: string, failed = false) => {
+      const query = failed ? "?outcome=failed" : "";
+      return request(`${uploadsPath}/${encodeURIComponent(id)}/cancel${query}`, operationResponseSchema, { method: "DELETE", auth });
+    },
     getFileUrl: (id: string, mode: "download" | "preview" | "stream" = "download") => {
       const query = new URLSearchParams({ mode });
       return request(`${itemsPath}/${encodeURIComponent(id)}/url?${query.toString()}`, fileUrlResponseSchema, { auth });
@@ -27,7 +30,7 @@ function itemApi(prefix: string, auth: "personal" | "room", fixedTtl?: number) {
 }
 
 const personalBase = itemApi("/api", "personal");
-const roomBase = itemApi("/api/room", "room", 5);
+const roomBase = itemApi("/api/room", "room", 10);
 
 export const itemsApi = {
   ...personalBase,

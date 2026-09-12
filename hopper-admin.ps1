@@ -1,4 +1,4 @@
-param(
+﻿param(
   [ValidateSet(
     "menu", "setup", "init", "deploy", "pages", "validate", "verify", "github", "status",
     "lock", "unlock", "change-pin", "block", "unblock", "events", "email", "b2", "cors",
@@ -8,6 +8,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Initialize-TerminalEncoding {
+  $utf8 = [System.Text.UTF8Encoding]::new($false)
+
+  try {
+    [Console]::InputEncoding = $utf8
+    [Console]::OutputEncoding = $utf8
+  } catch {
+    # Algunos hosts no exponen una consola estándar; el administrador puede continuar.
+  }
+
+  # Windows PowerShell 5.1 usa esta variable al intercambiar texto con procesos nativos.
+  $script:OutputEncoding = $utf8
+}
+
+Initialize-TerminalEncoding
 Set-Location $PSScriptRoot
 
 $configPath = Join-Path $PSScriptRoot ".hopper-admin.json"
@@ -28,9 +44,11 @@ $script:AllowedOrigin = ""
 $script:PagesProjectName = "hopper-transfer"
 $script:ProductionBranch = "master"
 $script:MaxFileBytes = [long](512MB)
-$script:RoomMaxFileBytes = [long](100MB)
+$script:RoomMaxFileBytes = [long](256MB)
+$script:RoomMaxBytes = [long](512MB)
+$script:RoomMaxItems = 25
 $script:DefaultTtlMinutes = 5
-$script:RoomDefaultTtlMinutes = 5
+$script:RoomDefaultTtlMinutes = 10
 $script:PollIntervalMs = 3000
 $script:UploadConcurrency = 2
 $script:SessionSecretConfigured = $false
@@ -138,7 +156,7 @@ function Read-Config {
   }
 
   try {
-    return Get-Content $configPath -Raw | ConvertFrom-Json
+    return Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
   } catch {
     return $null
   }
@@ -158,7 +176,10 @@ function Load-Config {
     $script:AllowedOrigin = [string]$config.allowedOrigin
 
     if ($config.maxFileBytes) {
-      $script:MaxFileBytes = [long]$config.maxFileBytes
+      $configuredMaxFileBytes = [long]$config.maxFileBytes
+      if ($configuredMaxFileBytes -gt 0) {
+        $script:MaxFileBytes = [math]::Min($configuredMaxFileBytes, [long](512MB))
+      }
     }
 
     $script:SessionSecretConfigured = [bool]$config.sessionSecretConfigured
@@ -172,7 +193,7 @@ function Load-Config {
 
   if (Test-Path $productionConfigPath) {
     try {
-      $production = Get-Content $productionConfigPath -Raw | ConvertFrom-Json
+      $production = Get-Content $productionConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
       if ($production.pagesProjectName) {
         $script:PagesProjectName = [string]$production.pagesProjectName
@@ -244,7 +265,7 @@ function Update-ReadmePublicUrl {
     return
   }
 
-  $source = Get-Content $readmePath -Raw
+  $source = Get-Content $readmePath -Raw -Encoding UTF8
   $replacement = @"
 <!-- HOPPER_APP_URL_START -->
 <p>
@@ -484,8 +505,8 @@ function Configure-BaseValues {
   if ($maxInput) {
     $maxMb = [long]$maxInput
 
-    if ($maxMb -lt 1 -or $maxMb -gt 5120) {
-      throw "El tamaño máximo debe estar entre 1 MB y 5120 MB."
+    if ($maxMb -lt 1 -or $maxMb -gt 512) {
+      throw "El tamaño máximo debe estar entre 1 MB y 512 MB."
     }
 
     $script:MaxFileBytes = [long]($maxMb * 1MB)
@@ -524,6 +545,8 @@ function Sync-WorkerConfig {
       PUBLIC_APP_URL = $script:PublicAppUrl
       MAX_FILE_BYTES = [string]$script:MaxFileBytes
       ROOM_MAX_FILE_BYTES = [string]$script:RoomMaxFileBytes
+      ROOM_MAX_BYTES = [string]$script:RoomMaxBytes
+      ROOM_MAX_ITEMS = [string]$script:RoomMaxItems
       B2_BUCKET_NAME = $script:B2BucketName
       B2_ENDPOINT = $script:B2Endpoint
     }
@@ -864,7 +887,7 @@ function Configure-B2Cors {
     corsRules = $corsRules
     lifecycleRules = @(
       [ordered]@{
-        fileNamePrefix = "drop/"
+        fileNamePrefix = "drop/rooms/"
         daysFromUploadingToHiding = 1
         daysFromHidingToDeleting = 1
         daysFromStartingToCancelingUnfinishedLargeFiles = 1
@@ -885,7 +908,7 @@ function Configure-B2Cors {
     throw "Backblaze no confirmó todos los orígenes CORS requeridos: $($missingOrigins -join ', ')."
   }
 
-  Write-Host "CORS y regla de seguridad de ciclo de vida configurados para Hopper."
+  Write-Host "CORS y ciclo de vida de respaldo para salas temporales configurados."
 }
 
 function Test-B2WorkerAccess {
@@ -1137,6 +1160,7 @@ function Invoke-FullValidation {
   Invoke-ExternalCommand "TypeScript frontend" { npm run typecheck }
   Invoke-ExternalCommand "Vitest" { npm run test }
   Invoke-ExternalCommand "Regresión backend" { npm run test:legacy }
+  Invoke-ExternalCommand "Persistencia de métricas" { node --experimental-strip-types --test tests/usage.test.js }
   Invoke-ExternalCommand "Tests de integración" { npm run test:integration }
   Invoke-ExternalCommand "Build" { npm run build }
   Invoke-ExternalCommand "E2E/PWA/visual" { npm run test:e2e }

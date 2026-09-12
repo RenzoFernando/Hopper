@@ -1,8 +1,8 @@
 {
-  "pagesProjectName": "hopper-transfer",
-  "productionBranch": "master",
-  "workerName": "hopper-api",
-  "workerBaseUrl": "https://hopper-api.renzofernando.workers.dev",
-  "publicAppUrl": "https://hopper-transfer.pages.dev/",
-  "b2Endpoint": "https://s3.us-east-005.backblazeb2.com"
+    "pagesProjectName":  "hopper-transfer",
+    "productionBranch":  "master",
+    "workerName":  "hopper-api",
+    "workerBaseUrl":  "https://hopper-api.renzofernando.workers.dev",
+    "publicAppUrl":  "https://hopper-transfer.pages.dev/",
+    "b2Endpoint":  "https://s3.us-east-005.backblazeb2.com"
 }

@@ -4,8 +4,8 @@ import {
   DEFAULT_ROOM_MAX_FILE_BYTES,
   DEFAULT_ROOM_MAX_ITEMS,
   MAX_ACTIVE_ROOMS,
-  ROOM_DEFAULT_TTL_MINUTES,
   ROOM_INACTIVITY_SECONDS,
+  ROOM_LIFETIME_MINUTES,
   ROOM_SESSION_TTL_SECONDS,
   ROOM_TTL_OPTIONS
 } from "../lib/constants.ts";
@@ -29,6 +29,7 @@ export interface Room {
   version: number;
   createdAt: string;
   expiresAt: string;
+  lastActivityAt: string;
   closedAt: string | null;
   maxBytes: number;
   maxFileBytes: number;
@@ -184,6 +185,7 @@ function mapRoom(row: Record<string, unknown> | null | undefined): Room | null {
     version: Number(row.version || 1),
     createdAt: String(row.created_at || row.createdAt || ""),
     expiresAt: String(row.expires_at || row.expiresAt || ""),
+    lastActivityAt: String(row.last_activity_at || row.lastActivityAt || row.created_at || row.createdAt || ""),
     closedAt: row.closed_at || row.closedAt ? String(row.closed_at || row.closedAt) : null,
     maxBytes: Number(row.max_bytes || row.maxBytes || DEFAULT_ROOM_MAX_BYTES),
     maxFileBytes: Number(row.max_file_bytes || row.maxFileBytes || DEFAULT_ROOM_MAX_FILE_BYTES),
@@ -199,9 +201,45 @@ async function clientHash(client: ClientInfo) {
 }
 
 function roomExpiryFrom(now = Date.now()): string {
-  return new Date(now + ROOM_INACTIVITY_SECONDS * 1000).toISOString();
+  return new Date(now + ROOM_LIFETIME_MINUTES * 60_000).toISOString();
 }
 
+function roomInactivityCutoffFrom(now = Date.now()): string {
+  return new Date(now - ROOM_INACTIVITY_SECONDS * 1000).toISOString();
+}
+
+function roomIsAvailable(room: Room | null | undefined, now = Date.now()): room is Room {
+  if (!room || room.status !== "active") {
+    return false;
+  }
+
+  const hardExpiry = Date.parse(room.expiresAt);
+  const lastActivity = Date.parse(room.lastActivityAt);
+
+  return Number.isFinite(hardExpiry)
+    && Number.isFinite(lastActivity)
+    && hardExpiry > now
+    && lastActivity > now - ROOM_INACTIVITY_SECONDS * 1000;
+}
+
+function configuredCappedInteger(value: unknown, maximum: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? Math.min(Math.floor(number), maximum)
+    : maximum;
+}
+
+function configuredRoomMaxFileBytes(env: Env): number {
+  return configuredCappedInteger(env.ROOM_MAX_FILE_BYTES, DEFAULT_ROOM_MAX_FILE_BYTES);
+}
+
+function configuredRoomMaxBytes(env: Env): number {
+  return configuredCappedInteger(env.ROOM_MAX_BYTES, DEFAULT_ROOM_MAX_BYTES);
+}
+
+function configuredRoomMaxItems(env: Env): number {
+  return configuredCappedInteger(env.ROOM_MAX_ITEMS, DEFAULT_ROOM_MAX_ITEMS);
+}
 
 export async function getRoomById(db: D1Database, id: string): Promise<Room | null> {
   const row = await db.prepare(`
@@ -220,7 +258,9 @@ export async function getRoomById(db: D1Database, id: string): Promise<Room | nu
 }
 
 export async function listActiveRooms(db: D1Database) {
-  const now = new Date().toISOString();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const result = await db.prepare(`
     SELECT
       r.*,
@@ -228,22 +268,27 @@ export async function listActiveRooms(db: D1Database) {
       COALESCE(SUM(CASE WHEN d.status IN ('pending', 'ready') THEN 1 ELSE 0 END), 0) AS item_count
     FROM rooms r
     LEFT JOIN drop_items d ON d.room_id = r.id AND d.space_type = 'room'
-    WHERE r.status = 'active' AND r.expires_at > ?1
+    WHERE
+      r.status = 'active'
+      AND r.expires_at > ?1
+      AND r.last_activity_at > ?2
     GROUP BY r.id
     ORDER BY r.created_at ASC
-    LIMIT ?2
-  `).bind(now, MAX_ACTIVE_ROOMS).all<Record<string, unknown>>();
+    LIMIT ?3
+  `).bind(nowIso, inactivityCutoff, MAX_ACTIVE_ROOMS).all<Record<string, unknown>>();
 
   return (result.results || []).map(mapRoom).filter((room): room is Room => room !== null);
 }
 
 export async function getRoomCapacity(db: D1Database) {
-  const now = new Date().toISOString();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const row = await db.prepare(`
     SELECT COUNT(*) AS count
     FROM rooms
-    WHERE status = 'active' AND expires_at > ?1
-  `).bind(now).first();
+    WHERE status = 'active' AND expires_at > ?1 AND last_activity_at > ?2
+  `).bind(nowIso, inactivityCutoff).first();
   const active = Math.min(MAX_ACTIVE_ROOMS, Math.max(0, Number(row?.count || 0)));
 
   return {
@@ -255,12 +300,16 @@ export async function getRoomCapacity(db: D1Database) {
 
 export async function touchRoomActivity(env: Env, roomId: string, now = Date.now()): Promise<Room | null> {
   const nowIso = new Date(now).toISOString();
-  const expiresAt = roomExpiryFrom(now);
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const updated = await env.DB.prepare(`
     UPDATE rooms
-    SET expires_at = ?2
-    WHERE id = ?1 AND status = 'active' AND expires_at > ?3
-  `).bind(String(roomId || ""), expiresAt, nowIso).run();
+    SET last_activity_at = ?2
+    WHERE
+      id = ?1
+      AND status = 'active'
+      AND expires_at > ?2
+      AND last_activity_at > ?3
+  `).bind(String(roomId || ""), nowIso, inactivityCutoff).run();
 
   if (Number(updated.meta?.changes || 0) !== 1) {
     return null;
@@ -272,11 +321,12 @@ export async function touchRoomActivity(env: Env, roomId: string, now = Date.now
 export async function createRoom(env: Env, _payload: unknown, client: ClientInfo) {
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const countRow = await env.DB.prepare(`
     SELECT COUNT(*) AS count
     FROM rooms
-    WHERE status = 'active' AND expires_at > ?1
-  `).bind(nowIso).first<{ count: number }>();
+    WHERE status = 'active' AND expires_at > ?1 AND last_activity_at > ?2
+  `).bind(nowIso, inactivityCutoff).first<{ count: number }>();
 
   if (Number(countRow?.count || 0) >= MAX_ACTIVE_ROOMS) {
     throw new HttpError(409, "room-limit", "No hay salas disponibles en este momento.");
@@ -304,27 +354,34 @@ export async function createRoom(env: Env, _payload: unknown, client: ClientInfo
   const id = crypto.randomUUID();
   const expiresAt = roomExpiryFrom(now);
   const creatorHash = await clientHash(client);
+  const maxBytes = configuredRoomMaxBytes(env);
+  const maxFileBytes = Math.min(configuredRoomMaxFileBytes(env), maxBytes);
+  const maxItems = configuredRoomMaxItems(env);
 
   const inserted = await env.DB.prepare(`
     INSERT INTO rooms (
-      id, code_hash, status, version, created_at, expires_at,
+      id, code_hash, status, version, created_at, expires_at, last_activity_at,
       max_bytes, max_file_bytes, max_items, created_client_hash
     )
-    SELECT ?1, ?2, 'active', 1, ?3, ?4, ?5, ?6, ?7, ?8
+    SELECT ?1, ?2, 'active', 1, ?3, ?4, ?3, ?5, ?6, ?7, ?8
     WHERE (
       SELECT COUNT(*)
       FROM rooms
-      WHERE status = 'active' AND expires_at > ?3
-    ) < ?9
+      WHERE
+        status = 'active'
+        AND expires_at > ?3
+        AND last_activity_at > ?9
+    ) < ?10
   `).bind(
     id,
     codeHash,
     nowIso,
     expiresAt,
-    DEFAULT_ROOM_MAX_BYTES,
-    DEFAULT_ROOM_MAX_FILE_BYTES,
-    DEFAULT_ROOM_MAX_ITEMS,
+    maxBytes,
+    maxFileBytes,
+    maxItems,
     creatorHash,
+    inactivityCutoff,
     MAX_ACTIVE_ROOMS
   ).run();
 
@@ -352,13 +409,19 @@ export async function createRoom(env: Env, _payload: unknown, client: ClientInfo
 export async function joinRoom(env: Env, code: unknown) {
   const normalized = normalizeRoomCode(code);
   const codeHash = await hashRoomCode(normalized, env.SESSION_SECRET);
-  const now = new Date().toISOString();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const row = await env.DB.prepare(`
     SELECT id
     FROM rooms
-    WHERE code_hash = ?1 AND status = 'active' AND expires_at > ?2
+    WHERE
+      code_hash = ?1
+      AND status = 'active'
+      AND expires_at > ?2
+      AND last_activity_at > ?3
     LIMIT 1
-  `).bind(codeHash, now).first<{ id: string }>();
+  `).bind(codeHash, nowIso, inactivityCutoff).first<{ id: string }>();
 
   if (!row) {
     throw new HttpError(404, "room-not-available", "La sala no está disponible o el código no es válido.");
@@ -382,7 +445,7 @@ export async function joinRoom(env: Env, code: unknown) {
 export async function issueRoomSession(env: Env, roomId: string, { touch = true }: { touch?: boolean } = {}) {
   let room = await getRoomById(env.DB, roomId);
 
-  if (!room || room.status !== "active" || Date.parse(room.expiresAt) <= Date.now()) {
+  if (!roomIsAvailable(room)) {
     throw new HttpError(404, "room-not-available", "La sala ya no está disponible.");
   }
 
@@ -411,10 +474,8 @@ export async function requireRoomRequest(request: Request, env: Env) {
   const room = await getRoomById(env.DB, session.rid);
 
   if (
-    !room
-    || room.status !== "active"
+    !roomIsAvailable(room)
     || room.version !== session.ver
-    || Date.parse(room.expiresAt) <= Date.now()
   ) {
     throw new HttpError(401, "invalid-room-session", "La sala cerró o la sesión ya no es válida.");
   }
@@ -449,7 +510,7 @@ export async function closeRoom(env: Env, roomId: string) {
   await env.DB.prepare(`
     UPDATE drop_items
     SET expires_at = ?2, updated_at = ?2
-    WHERE room_id = ?1 AND space_type = 'room' AND expires_at > ?2
+    WHERE room_id = ?1 AND space_type = 'room' AND (expires_at IS NULL OR expires_at > ?2)
   `).bind(room.id, now).run();
 
   const cleanup = await deleteItemsForRoom(env, room.id);
@@ -462,14 +523,18 @@ export async function closeRoom(env: Env, roomId: string) {
 }
 
 export async function cleanupExpiredRooms(env: Env) {
-  const now = new Date().toISOString();
+  const now = Date.now();
+  const nowIso = new Date(now).toISOString();
+  const inactivityCutoff = roomInactivityCutoffFrom(now);
   const result = await env.DB.prepare(`
     SELECT id
     FROM rooms
-    WHERE status = 'active' AND expires_at <= ?1
+    WHERE
+      status = 'active'
+      AND (expires_at <= ?1 OR last_activity_at <= ?2)
     ORDER BY expires_at ASC
-    LIMIT ?2
-  `).bind(now, MAX_ACTIVE_ROOMS).all<{ id: string }>();
+    LIMIT ?3
+  `).bind(nowIso, inactivityCutoff, MAX_ACTIVE_ROOMS).all<{ id: string }>();
   let closed = 0;
   let deleted = 0;
   let failed = 0;

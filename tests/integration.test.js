@@ -5,7 +5,9 @@ import worker from "../worker/src/index.ts";
 import { createSessionToken, verifyConfiguredPin, writePinCredentials } from "../worker/src/services/security.ts";
 import { TestD1 } from "./d1-test-helper.js";
 
-const schema = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
+const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
+const tuning = readFileSync(new URL("../worker/migrations/0002_product_tuning.sql", import.meta.url), "utf8");
+const schema = `${baseline}\n${tuning}`;
 const origin = "https://hopper.pages.dev";
 const secret = "hopper-integration-session-secret-2026-abcdefghijklmnopqrstuvwxyz";
 
@@ -82,7 +84,9 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     assert.equal(createResponse.status, 201);
     const created = await json(createResponse);
     assert.match(created.code, /^[A-Z]{2}-\d{4}$/);
-    assert.ok(Date.parse(created.room.expiresAt) - Date.now() <= 5 * 60_000 + 2000);
+    assert.ok(Date.parse(created.room.expiresAt) - Date.now() <= 10 * 60_000 + 2000);
+    assert.equal(created.room.maxFileBytes, 256 * 1024 * 1024);
+    assert.equal(created.room.maxBytes, 512 * 1024 * 1024);
     const capacityAfter = await json(await worker.fetch(request("/api/rooms/capacity"), env));
     assert.equal(capacityAfter.available, 2);
 
@@ -101,15 +105,15 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     }), env);
     assert.equal(textResponse.status, 201);
     const textCreated = await json(textResponse);
-    assert.equal(textCreated.item.ttlMinutes, 5);
+    assert.equal(textCreated.item.ttlMinutes, 10);
 
-    const beforeActivity = await db.prepare("SELECT expires_at AS expiresAt FROM rooms WHERE id = ?1").bind(created.room.id).first();
-    await db.prepare("UPDATE rooms SET expires_at = ?2 WHERE id = ?1").bind(created.room.id, new Date(Date.now() + 20_000).toISOString()).run();
+    const beforeActivity = await db.prepare("SELECT expires_at AS expiresAt, last_activity_at AS lastActivityAt FROM rooms WHERE id = ?1").bind(created.room.id).first();
+    await db.prepare("UPDATE rooms SET last_activity_at = ?2 WHERE id = ?1").bind(created.room.id, new Date(Date.now() - 4 * 60_000).toISOString()).run();
     const activityResponse = await worker.fetch(request("/api/room/activity", { method: "POST", token: roomToken, body: {} }), env);
     assert.equal(activityResponse.status, 200);
     const activity = await json(activityResponse);
-    assert.ok(Date.parse(activity.room.expiresAt) > Date.now() + 4 * 60_000);
-    assert.ok(beforeActivity.expiresAt);
+    assert.equal(activity.room.expiresAt, beforeActivity.expiresAt);
+    assert.ok(Date.parse(activity.room.lastActivityAt) > Date.parse(beforeActivity.lastActivityAt));
 
     const ttlResetResponse = await worker.fetch(request(`/api/room/items/${textCreated.item.id}/ttl`, {
       method: "PATCH", token: roomToken, body: { ttlMinutes: 60 }
@@ -182,6 +186,11 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
     assert.equal(usage.today.uploadBytes, 4);
     assert.equal(usage.today.deletedCount, 2);
     assert.equal(usage.today.deletedBytes, 4);
+    assert.equal(usage.rooms.maximum, 3);
+    assert.equal(usage.limits.maxRooms, 3);
+    assert.equal(usage.limits.roomLifetimeMinutes, 10);
+    assert.equal(usage.limits.roomInactivityMinutes, 5);
+    assert.equal(usage.limits.roomMaxFileBytes, 256 * 1024 * 1024);
 
     const remaining = await db.prepare("SELECT COUNT(*) AS count FROM drop_items WHERE room_id = ?1").bind(created.room.id).first();
     assert.equal(remaining.count, 0);

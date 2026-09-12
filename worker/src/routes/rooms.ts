@@ -1,3 +1,4 @@
+import { ROOM_DEFAULT_TTL_MINUTES } from "../lib/constants.ts";
 import { HttpError, getClientInfo } from "../lib/http.ts";
 import {
   emptyBodySchema,
@@ -116,14 +117,14 @@ export function registerRoomRoutes(app: HopperApp): void {
   app.post("/api/room/items/text", async (c: HopperContext) => {
     const auth = await authorizeRoom(c, "room-items-text", 60, 60, true);
     const body = await parseJsonBody(c.req.raw, textItemBodySchema);
-    const item = await createTextItem(c.env, { ...body, ttlMinutes: 5 }, auth.context);
+    const item = await createTextItem(c.env, { ...body, ttlMinutes: ROOM_DEFAULT_TTL_MINUTES }, auth.context);
     return criticalJson(itemResponseSchema, { ok: true, item }, 201, responseOrigin(c));
   });
 
   app.post("/api/room/uploads/init", async (c: HopperContext) => {
     const auth = await authorizeRoom(c, "room-uploads-init", 40, 60, true);
     const body = await parseJsonBody(c.req.raw, fileUploadBodySchema);
-    const upload = await initializeFileUpload(c.env, { ...body, ttlMinutes: 5 }, auth.context);
+    const upload = await initializeFileUpload(c.env, { ...body, ttlMinutes: ROOM_DEFAULT_TTL_MINUTES }, auth.context);
     return criticalJson(uploadResponseSchema, { ok: true, upload }, 201, responseOrigin(c));
   });
 
@@ -138,7 +139,8 @@ export function registerRoomRoutes(app: HopperApp): void {
   app.delete("/api/room/uploads/:id/cancel", async (c: HopperContext) => {
     const auth = await authorizeRoom(c, "room-uploads-cancel", 60, 60, true);
     const { id } = parseParams({ id: c.req.param("id") }, idParamSchema);
-    await cancelFileUpload(c.env, id, auth.context);
+    const recordFailure = c.req.query("outcome") === "failed";
+    await cancelFileUpload(c.env, id, auth.context, { recordFailure });
     return criticalJson(operationResponseSchema, { ok: true }, 200, responseOrigin(c));
   });
 

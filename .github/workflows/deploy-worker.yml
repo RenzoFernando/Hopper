@@ -59,6 +59,7 @@ jobs:
           npm --prefix worker run typecheck
           npm --prefix worker test
           npm run test:legacy
+          node --experimental-strip-types --test tests/usage.test.js
           npm run test:integration
 
       - name: Migrar y desplegar Worker

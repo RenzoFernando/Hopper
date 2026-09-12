@@ -1,9 +1,11 @@
 import { formatBytes, formatCountdown } from "../../lib/format";
 import type { Room } from "../../schemas/room";
 
-export function AdminRooms({ rooms, maximum, now, busyRoom, onOpen, onClose }: { rooms: Room[]; maximum: number; now: number; busyRoom: string; onOpen: (room: Room) => void; onClose: (room: Room) => void }) {
+export function AdminRooms({ rooms, maximum, now, busyRoom, onOpen, onClose }: { rooms: Room[]; maximum: number | null; now: number; busyRoom: string; onOpen: (room: Room) => void; onClose: (room: Room) => void }) {
+  const visibleMaximum = maximum === null ? null : Math.max(rooms.length, maximum);
+
   return <section className="admin-panel" id="rooms" aria-labelledby="rooms-title">
-    <div className="panel-heading"><div><h2 id="rooms-title">Salas activas</h2><span className="panel-count" id="admin-room-count">{rooms.length} / {maximum}</span></div></div>
+    <div className="panel-heading"><div><h2 id="rooms-title">Salas activas</h2><span className="panel-count" id="admin-room-count">{rooms.length} / {visibleMaximum === null ? "—" : visibleMaximum}</span></div></div>
     <div className="admin-room-list" id="admin-room-list">
       {rooms.length === 0 ? <p className="admin-empty">No hay salas activas.</p> : rooms.map((room, index) => <article className="admin-room" data-room-id={room.id} data-expires-at={room.expiresAt} key={room.id}>
         <div className="admin-room-info"><strong>Sala {index + 1}</strong><span><span data-room-countdown>{formatCountdown(room.expiresAt, now)}</span> · {formatBytes(room.usedBytes)} · {room.itemCount} elemento{room.itemCount === 1 ? "" : "s"}</span></div>

@@ -1,29 +1,31 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "hopper-api",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-09-10",
-  "workers_dev": true,
-  "vars": {
-    "ALLOWED_ORIGINS": "https://hopper-transfer.pages.dev",
-    "ALLOW_LOCALHOST": "false",
-    "PUBLIC_APP_URL": "https://hopper-transfer.pages.dev/",
-    "MAX_FILE_BYTES": "536870912",
-    "ROOM_MAX_FILE_BYTES": "104857600",
-    "B2_BUCKET_NAME": "hopper-transfer-r3nz0f",
-    "B2_ENDPOINT": "https://s3.us-east-005.backblazeb2.com"
-  },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "hopper-db",
-      "database_id": "04e81af7-55af-4e40-b3ab-ad0aa98a982d",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "triggers": {
-    "crons": [
-      "* * * * *"
-    ]
-  }
+    "$schema":  "node_modules/wrangler/config-schema.json",
+    "name":  "hopper-api",
+    "main":  "src/index.ts",
+    "compatibility_date":  "2026-09-11",
+    "workers_dev":  true,
+    "vars":  {
+                 "ALLOWED_ORIGINS":  "https://hopper-transfer.pages.dev",
+                 "ALLOW_LOCALHOST":  "false",
+                 "PUBLIC_APP_URL":  "https://hopper-transfer.pages.dev/",
+                 "MAX_FILE_BYTES":  "536870912",
+                 "ROOM_MAX_FILE_BYTES":  "268435456",
+                 "ROOM_MAX_BYTES":  "536870912",
+                 "ROOM_MAX_ITEMS":  "25",
+                 "B2_BUCKET_NAME":  "hopper-transfer-r3nz0f",
+                 "B2_ENDPOINT":  "https://s3.us-east-005.backblazeb2.com"
+             },
+    "d1_databases":  [
+                         {
+                             "binding":  "DB",
+                             "database_name":  "hopper-db",
+                             "database_id":  "04e81af7-55af-4e40-b3ab-ad0aa98a982d",
+                             "migrations_dir":  "migrations"
+                         }
+                     ],
+    "triggers":  {
+                     "crons":  [
+                                   "* * * * *"
+                               ]
+                 }
 }

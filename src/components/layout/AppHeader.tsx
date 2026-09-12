@@ -20,6 +20,14 @@ type AppHeaderProps = {
   adminRefreshing?: boolean;
 };
 
+function HomeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m4 11 8-7 8 7v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19v-8Zm5.5 9.5v-6h5v6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function RefreshIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -108,8 +116,9 @@ export function AppHeader({
       <header className="site-header">
         <Brand homeLabel="Volver a Hopper" />
         <div className="header-session">
-          <a className="header-link" href="/space">Mi espacio</a>
+          <a className="icon-button info-icon-button" href="/space" aria-label="Mi espacio" title="Mi espacio"><HomeIcon /></a>
           <button className={`icon-button refresh-button${adminRefreshing ? " is-spinning" : ""}`} id="admin-refresh-button" type="button" aria-label="Actualizar panel" title="Actualizar" disabled={adminRefreshing} onClick={onRefreshAdmin}><RefreshIcon /></button>
+          <button className="icon-button logout-button" id="admin-logout-button" type="button" aria-label="Salir" title="Salir" onClick={onLogout}><LogoutIcon /></button>
         </div>
       </header>
     );
