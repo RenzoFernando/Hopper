@@ -109,3 +109,40 @@
     transition-duration: 0.01ms !important;
   }
 }
+@media (max-width: 760px) {
+  .bulk-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .bulk-actions {
+    justify-content: flex-start;
+  }
+
+  .bulk-button {
+    flex: 1 1 auto;
+  }
+
+  .item-card:has(.item-select) .item-actions {
+    padding-left: 76px;
+  }
+
+  .text-file-preview,
+  .markdown-preview {
+    padding: 18px 17px 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .bulk-button span {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .item-card:has(.item-select) .item-actions {
+    padding-left: 68px;
+  }
+}

@@ -31,7 +31,9 @@ Hopper es una PWA para mover contenido entre dispositivos desde un espacio priva
 - Mantener cada sala hasta 10 minutos y cerrarla automáticamente tras 5 minutos sin actividad.
 - Admitir archivos de hasta 512 MB en Mi espacio y 256 MB por archivo dentro de una sala.
 - Subir archivos directamente a Backblaze B2 con cola, progreso, cancelación y reintentos seguros.
-- Previsualizar imágenes y reproducir audio mediante URLs firmadas temporales.
+- Seleccionar varios archivos y descargarlos juntos en un ZIP generado localmente.
+- Previsualizar imágenes, PDF, texto y Markdown; copiar texto de archivos e imágenes compatibles sin descargarlos primero.
+- Elegir una carpeta de descargas para Hopper cuando el navegador admite File System Access, con descarga normal como alternativa.
 - Instalar Hopper como PWA y recibir contenido mediante Web Share Target.
 - Consultar uso, transferencias, fallos, salud, límites, salas y mantenimiento desde Administración.
 

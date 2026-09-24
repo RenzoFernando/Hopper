@@ -41,4 +41,7 @@ export type TransferWorkspaceOptions = {
   onSyncChange?: (label: string, variant: "" | "busy" | "offline" | "ok") => void;
 };
 
-export type PreviewState = { item: HopperItem; url: string } | null;
+export type PreviewState =
+  | { item: HopperItem; kind: "image" | "pdf"; url: string; text?: never }
+  | { item: HopperItem; kind: "markdown" | "text"; text: string; url?: never }
+  | null;

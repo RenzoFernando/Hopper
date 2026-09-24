@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fileExtension, fileTypeInfo } from "../../src/lib/file-types";
 import { fileTypeLabel, formatBytes, formatCountdown, textPreview, ttlLabel } from "../../src/lib/format";
 import { isCompleteRoomCode, normalizeRoomCode } from "../../src/lib/room-code";
 
@@ -25,8 +26,19 @@ describe("utilidades migradas a TypeScript", () => {
   it("conserva previews y cuenta regresiva", () => {
     expect(textPreview("  hola\n   mundo  ")).toBe("hola mundo");
     expect(fileTypeLabel("foto.png", "image/png")).toBe("PNG");
-    expect(fileTypeLabel("archivo", "application/octet-stream")).toBe("APPLICATION");
+    expect(fileTypeLabel("archivo", "application/octet-stream")).toBe("Archivo");
     expect(formatCountdown("2026-09-10T00:05:00.000Z", Date.parse("2026-09-10T00:00:28.000Z"))).toBe("4:32");
     expect(formatCountdown(null)).toBe("Indefinido");
+  });
+
+
+  it("reconoce archivos de texto, Markdown, código, PDF y comprimidos", () => {
+    expect(fileExtension("README.md")).toBe("md");
+    expect(fileExtension(".env")).toBe("env");
+    expect(fileTypeInfo("README.md", "application/octet-stream")).toMatchObject({ kind: "markdown", label: "Markdown", previewKind: "markdown", copyable: true });
+    expect(fileTypeInfo("notas.txt", "text/plain")).toMatchObject({ kind: "text", label: "Texto plano", previewKind: "text", copyable: true });
+    expect(fileTypeInfo("datos.json", "application/json")).toMatchObject({ kind: "code", label: "JSON", previewKind: "text", copyable: true });
+    expect(fileTypeInfo("paquete.zip", "application/zip")).toMatchObject({ kind: "archive", label: "ZIP", previewKind: null });
+    expect(fileTypeInfo("manual.pdf", "application/pdf")).toMatchObject({ kind: "pdf", label: "PDF", previewKind: "pdf" });
   });
 });

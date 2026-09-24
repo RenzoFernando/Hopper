@@ -704,3 +704,226 @@
   }
 }
 
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 4px 10px;
+}
+
+.bulk-select-all {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-soft);
+  font-size: 0.74rem;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.bulk-select-all input,
+.item-select input {
+  accent-color: var(--info);
+}
+
+.bulk-actions {
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.bulk-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.bulk-button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.bulk-button:hover:not(:disabled),
+.bulk-button:focus-visible,
+.bulk-button.is-active {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+  color: var(--info-hover);
+}
+
+.bulk-button.is-danger {
+  color: var(--danger);
+}
+
+.bulk-button.is-danger:hover:not(:disabled),
+.bulk-button.is-danger:focus-visible {
+  border-color: #e2b9b9;
+  background: var(--danger-soft);
+  color: var(--danger-hover);
+}
+
+.bulk-button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+.item-card.is-selected {
+  background: var(--info-soft);
+}
+
+.item-card.is-selected:hover {
+  background: var(--info-soft);
+}
+
+.item-select {
+  width: 20px;
+  height: 38px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.item-select input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+}
+
+.preview-body.is-pdf,
+.preview-body.is-markdown,
+.preview-body.is-text {
+  display: block;
+  min-height: min(70dvh, 640px);
+  padding: 0;
+  background: var(--surface);
+}
+
+.pdf-preview {
+  width: 100%;
+  height: min(72dvh, 720px);
+  display: block;
+  border: 0;
+  background: var(--surface-subtle);
+}
+
+.text-file-preview,
+.markdown-preview {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  padding: 24px 28px 34px;
+  color: var(--text);
+  background: var(--surface);
+}
+
+.text-file-preview {
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markdown-preview {
+  max-width: 860px;
+  margin: 0 auto;
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  margin: 1.35em 0 0.55em;
+  line-height: 1.3;
+}
+
+.markdown-preview h1:first-child,
+.markdown-preview h2:first-child,
+.markdown-preview h3:first-child {
+  margin-top: 0;
+}
+
+.markdown-preview h1,
+.markdown-preview h2 {
+  padding-bottom: 0.28em;
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown-preview p,
+.markdown-preview ul,
+.markdown-preview ol,
+.markdown-preview blockquote {
+  margin: 0 0 1em;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  padding-left: 1.6em;
+}
+
+.markdown-preview blockquote {
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-soft);
+}
+
+.markdown-preview blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview code {
+  padding: 0.16em 0.34em;
+  border-radius: 5px;
+  background: var(--surface-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.markdown-preview .markdown-code {
+  overflow: auto;
+  margin: 0 0 1em;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-subtle);
+}
+
+.markdown-preview .markdown-code code {
+  padding: 0;
+  background: transparent;
+}
+
+.markdown-preview a {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-preview hr {
+  height: 1px;
+  margin: 1.5em 0;
+  border: 0;
+  background: var(--border);
+}

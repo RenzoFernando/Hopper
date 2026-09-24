@@ -1,3 +1,5 @@
+import { fileTypeInfo } from "./file-types";
+
 export function formatBytes(bytes: number) {
   const value = Math.max(0, Number(bytes) || 0);
 
@@ -50,13 +52,5 @@ export function textPreview(content: string) {
 }
 
 export function fileTypeLabel(name: string, mimeType: string) {
-  const parts = String(name || "").split(".");
-  const extension = parts.at(-1) ?? "";
-
-  if (extension && extension !== name && extension.length <= 8) {
-    return extension.toUpperCase();
-  }
-
-  const category = String(mimeType || "").split("/")[0] ?? "";
-  return category ? category.toUpperCase() : "ARCHIVO";
+  return fileTypeInfo(name, mimeType).label;
 }

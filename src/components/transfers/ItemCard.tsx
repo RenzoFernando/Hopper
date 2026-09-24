@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TransferApi } from "../../features/transfers/types";
-import { formatBytes, formatCountdown, fileTypeLabel, textPreview, ttlLabel } from "../../lib/format";
+import { fileTypeInfo } from "../../lib/file-types";
+import { formatBytes, formatCountdown, textPreview, ttlLabel } from "../../lib/format";
 import { extractHttpUrls, splitHttpText } from "../../lib/links";
 import type { HopperItem } from "../../schemas/item";
-import { AudioIcon, CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
+import { ArchiveIcon, AudioIcon, CodeIcon, CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileIcon, ImageIcon, MarkdownIcon, PdfIcon, PlayIcon, PreviewIcon, ShareIcon, TableIcon, TextIcon } from "./icons";
 
 type Props = {
   item: HopperItem;
@@ -11,7 +12,10 @@ type Props = {
   api: TransferApi;
   allowTtlReset: boolean;
   ttlOptions: number[];
+  selected: boolean;
+  onSelectionChange: (item: HopperItem, selected: boolean) => void;
   onCopy: (item: HopperItem) => Promise<void>;
+  onCopyFile: (item: HopperItem) => Promise<void>;
   onDownload: (item: HopperItem) => Promise<void>;
   onPreview: (item: HopperItem) => Promise<void>;
   onShare: (item: HopperItem) => Promise<void>;
@@ -27,6 +31,18 @@ function ActionButton({ label, className = "is-info", onClick, children }: { lab
 
 function ActionLink({ label, href, children }: { label: string; href: string; children: ReactNode }) {
   return <a className="action-button is-info" href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label}>{children}</a>;
+}
+
+function FileKindIcon({ kind }: { kind: ReturnType<typeof fileTypeInfo>["kind"] }) {
+  if (kind === "archive") return <ArchiveIcon />;
+  if (kind === "audio") return <AudioIcon />;
+  if (kind === "code") return <CodeIcon />;
+  if (kind === "image") return <ImageIcon />;
+  if (kind === "markdown") return <MarkdownIcon />;
+  if (kind === "pdf") return <PdfIcon />;
+  if (kind === "table") return <TableIcon />;
+  if (kind === "text") return <TextIcon />;
+  return <FileIcon />;
 }
 
 export function ItemCard(props: Props) {
@@ -71,18 +87,21 @@ export function ItemCard(props: Props) {
   const textLinkSet = new Set(textLinks);
   const previewText = item.type === "text" ? textPreview(textContent) : "";
   const previewParts = item.type === "text" ? splitHttpText(previewText) : [];
+  const fileInfo = item.type === "file" ? fileTypeInfo(item.name || "", item.mimeType || "") : null;
   const detail = item.type === "text" ? `${textContent.length.toLocaleString("es-CO")} caracteres` : formatBytes(item.size || 0);
   const created = Number.isNaN(createdDate.getTime()) ? "Temporal" : createdDate.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+  const canPreview = item.type === "file" && Boolean(fileInfo?.previewKind);
 
   return (
-    <article className="item-card" data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
+    <article className={`item-card ${props.selected ? "is-selected" : ""}`.trim()} data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
       <div className="item-main">
+        {item.type === "file" && <label className="item-select" title={`Seleccionar ${item.name || "archivo"}`}><input type="checkbox" checked={props.selected} aria-label={`Seleccionar ${item.name || "archivo"}`} onChange={(event) => props.onSelectionChange(item, event.target.checked)} /><span aria-hidden="true" /></label>}
         <div className={`item-type-mark ${item.type === "text" ? "is-text" : item.audio ? "is-audio" : "is-file"}`}>
-          {item.type === "text" ? <TextIcon /> : item.audio ? <AudioIcon /> : <FileIcon />}
+          {item.type === "text" ? <TextIcon /> : <FileKindIcon kind={fileInfo?.kind || "file"} />}
         </div>
         <div className="item-copy">
           <h3 className="item-title">{item.type === "text" ? "Texto" : item.name}</h3>
-          <p className="item-preview">{item.type === "text" ? previewParts.map((part, index) => part.href && textLinkSet.has(part.href) ? <a className="item-preview-link" href={part.href} target="_blank" rel="noopener noreferrer" key={`${part.href}-${index}`}>{part.text}</a> : <span key={`text-${index}`}>{part.text}</span>) : `${fileTypeLabel(item.name || "", item.mimeType || "")} · ${item.mimeType || "application/octet-stream"}`}</p>
+          <p className="item-preview">{item.type === "text" ? previewParts.map((part, index) => part.href && textLinkSet.has(part.href) ? <a className="item-preview-link" href={part.href} target="_blank" rel="noopener noreferrer" key={`${part.href}-${index}`}>{part.text}</a> : <span key={`text-${index}`}>{part.text}</span>) : `${fileInfo?.label || "Archivo"} · ${item.mimeType || "application/octet-stream"}`}</p>
           <div className="item-meta"><span>{detail}</span><span>{created}</span></div>
           {item.audio && <div className="audio-row">
             <button type="button" className="audio-load-button" data-action="load-audio" data-item-id={item.id} hidden={Boolean(audioUrl)} disabled={audioLoading} onClick={() => { void loadAudio(); }}><PlayIcon /><span>Reproducir audio</span></button>
@@ -99,7 +118,8 @@ export function ItemCard(props: Props) {
           </select>}
         </div>
         {item.type === "text" ? <>{textLinks[0] && <ActionLink label="Abrir enlace" href={textLinks[0]}><ExternalLinkIcon /></ActionLink>}<ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton></> : <>
-          {item.previewable && <ActionButton label="Ver" onClick={() => invoke(() => props.onPreview(item))}><PreviewIcon /></ActionButton>}
+          {canPreview && <ActionButton label="Ver" onClick={() => invoke(() => props.onPreview(item))}><PreviewIcon /></ActionButton>}
+          {(fileInfo?.copyable || fileInfo?.previewKind === "image") && <ActionButton label={fileInfo.previewKind === "image" ? "Copiar imagen" : "Copiar contenido"} onClick={() => invoke(() => props.onCopyFile(item))}><CopyIcon /></ActionButton>}
           <ActionButton label="Descargar" onClick={() => invoke(() => props.onDownload(item))}><DownloadIcon /></ActionButton>
         </>}
         {typeof navigator.share === "function" && <ActionButton label="Compartir" onClick={() => invoke(() => props.onShare(item))}><ShareIcon /></ActionButton>}
