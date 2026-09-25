@@ -39,13 +39,11 @@
   }
 
   .selected-files.is-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    justify-content: stretch;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .selected-files.is-grid .selected-file {
-    aspect-ratio: auto;
-    min-height: 92px;
+    min-height: 78px;
   }
 
   .item-card {

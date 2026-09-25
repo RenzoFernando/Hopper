@@ -130,7 +130,7 @@ async function installApiMock(page: Page) {
 
 async function seedPersonalSession(page: Page) {
   await page.addInitScript(() => {
-    sessionStorage.setItem("hopper-session-v1", JSON.stringify({ token: "personal-token", expiresAt: Date.now() + 3_600_000 }));
+    localStorage.setItem("hopper-session-v1", JSON.stringify({ token: "personal-token", expiresAt: Date.now() + 3_600_000 }));
   });
 }
 
@@ -215,7 +215,7 @@ test("Administración permite cerrar la sesión directamente", async ({ page }) 
   await page.locator("#admin-logout-button").click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#auth-screen")).toBeVisible();
-  const session = await page.evaluate(() => sessionStorage.getItem("hopper-session-v1"));
+  const session = await page.evaluate(() => localStorage.getItem("hopper-session-v1"));
   expect(session).toBeNull();
 });
 

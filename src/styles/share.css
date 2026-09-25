@@ -168,6 +168,14 @@
   margin-top: 17px;
 }
 
+.share-actions.is-single {
+  justify-content: flex-start;
+}
+
+.share-actions.is-single > * {
+  min-width: 132px;
+}
+
 .compact-document-page .recovery-main {
   flex: 1 1 auto;
 }
@@ -196,6 +204,10 @@
   .share-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
+  }
+
+  .share-actions.is-single {
+    grid-template-columns: 1fr;
   }
 
   .share-actions button {

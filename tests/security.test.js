@@ -35,7 +35,8 @@ test("rechaza una sesión alterada o expirada", async () => {
   const tampered = `${body}.${tamperedSignature}`;
 
   assert.equal(await verifySessionToken(tampered, SECRET, now + 1000), null);
-  assert.equal(await verifySessionToken(token, SECRET, now + 31 * 60 * 1000), null);
+  assert.ok(await verifySessionToken(token, SECRET, now + 24 * 60 * 60 * 1000));
+  assert.equal(await verifySessionToken(token, SECRET, now + 8 * 24 * 60 * 60 * 1000), null);
 });
 
 test("evalúa redes IPv4 CIDR", () => {

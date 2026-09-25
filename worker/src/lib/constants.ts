@@ -1,5 +1,5 @@
 export const MAX_FAILED_ATTEMPTS = 5;
-export const SESSION_TTL_SECONDS = 30 * 60;
+export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 export const RECOVERY_TTL_SECONDS = 15 * 60;
 export const RECOVERY_COOLDOWN_SECONDS = 15 * 60;
 export const UPLOAD_URL_TTL_SECONDS = 15 * 60;

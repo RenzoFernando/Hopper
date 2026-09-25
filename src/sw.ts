@@ -50,7 +50,7 @@ async function storeSharedPayload(payload: unknown) {
 }
 
 function storedShareFile(value: FormDataEntryValue, index: number) {
-  if (!(value instanceof Blob) || value.size <= 0) return null;
+  if (!(value instanceof Blob)) return null;
   const source = value as File;
   return {
     blob: value,
@@ -63,7 +63,12 @@ function storedShareFile(value: FormDataEntryValue, index: number) {
 async function handleShareTarget(request: Request) {
   try {
     const form = await request.formData();
-    const files = form.getAll("files")
+    const sharedEntries = [...form.entries()]
+      .filter(([, value]) => value instanceof Blob)
+      .map(([, value]) => value);
+    const declaredFiles = form.getAll("files").filter((value) => value instanceof Blob);
+    const sourceFiles = declaredFiles.length > 0 ? declaredFiles : sharedEntries;
+    const files = sourceFiles
       .map((value, index) => storedShareFile(value, index))
       .filter((value): value is NonNullable<ReturnType<typeof storedShareFile>> => Boolean(value));
     await storeSharedPayload({

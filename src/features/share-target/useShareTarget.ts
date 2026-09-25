@@ -149,7 +149,6 @@ export function useShareTarget(enabled = true) {
   const sendBusyRef = useRef(false);
   const [directSending, setDirectSending] = useState(false);
   const autoPinRef = useRef("");
-  const autoRoomRef = useRef("");
 
   const destinations = useMemo<DestinationOption[]>(() => {
     const values: DestinationOption[] = [];
@@ -332,11 +331,15 @@ export function useShareTarget(enabled = true) {
     }
   }, [apiFor, canUseDestination, destination, navigate, persistDelivery, refreshDestinations, targetPath, ttlMinutes, uploadFile]);
 
-  const submitPin = useCallback(async () => {
-    if (authBusyRef.current) return;
-    if (pin.length !== 4) {
-      setPinMessage("Escribe los cuatro dígitos del PIN.");
-      setPinKind("error");
+  const submitPin = useCallback(async (overridePin = "") => {
+    if (authBusyRef.current || sendBusyRef.current) return;
+    const candidate = (overridePin || pin).replace(/\D/g, "").slice(0, 4);
+    if (candidate.length !== 4) return;
+    const currentPayload = payloadRef.current;
+    const hasPendingContent = Boolean(currentPayload && ([currentPayload.title, currentPayload.text, currentPayload.url].some(Boolean) || currentPayload.files.length > 0));
+    if (!hasPendingContent) {
+      setMessage("No hay contenido compartido pendiente.");
+      setMessageKind("error");
       return;
     }
     authBusyRef.current = true;
@@ -344,7 +347,7 @@ export function useShareTarget(enabled = true) {
     setPinMessage("");
     setPinKind("");
     try {
-      const result = await authApi.login(pin);
+      const result = await authApi.login(candidate);
       if (result.status === "authorized") {
         setPin("");
         refreshDestinations("personal");
@@ -414,10 +417,7 @@ export function useShareTarget(enabled = true) {
     try {
       const result = await roomsApi.create();
       const code = normalizeRoomCode(result.code || "");
-      if (code) {
-        autoRoomRef.current = code;
-        setRoomCode(code);
-      }
+      if (code) setRoomCode(code);
       refreshDestinations("room");
       setDirectSending(true);
       try {
@@ -458,14 +458,8 @@ export function useShareTarget(enabled = true) {
   useEffect(() => {
     if (!enabled || !hasContent || pin.length !== 4 || authBusy || sendBusy || autoPinRef.current === pin) return;
     autoPinRef.current = pin;
-    void submitPin();
+    void submitPin(pin);
   }, [authBusy, enabled, hasContent, pin, sendBusy, submitPin]);
-
-  useEffect(() => {
-    if (!enabled || !hasContent || !isCompleteRoomCode(roomCode) || authBusy || sendBusy || autoRoomRef.current === roomCode) return;
-    autoRoomRef.current = roomCode;
-    void submitRoom();
-  }, [authBusy, enabled, hasContent, roomCode, sendBusy, submitRoom]);
 
   return {
     payload,
@@ -483,12 +477,14 @@ export function useShareTarget(enabled = true) {
       setPin(normalized);
       setPinMessage("");
       setPinKind("");
+      if (enabled && hasContent && normalized.length === 4 && !authBusyRef.current && !sendBusyRef.current) {
+        autoPinRef.current = normalized;
+        void submitPin(normalized);
+      }
     },
     roomCode,
     setRoomCode: (value: string) => {
-      const normalized = normalizeRoomCode(value);
-      if (normalized !== autoRoomRef.current) autoRoomRef.current = "";
-      setRoomCode(normalized);
+      setRoomCode(normalizeRoomCode(value));
       setRoomMessage("");
       setRoomKind("");
     },

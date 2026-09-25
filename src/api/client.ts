@@ -39,11 +39,24 @@ function apiRoot() {
   return value;
 }
 
+function sessionStorageFor(key: string) {
+  return key === SESSION_KEY ? localStorage : sessionStorage;
+}
+
 function readSession(key: string): StoredSession | null {
+  const storage = sessionStorageFor(key);
   try {
-    const parsed = JSON.parse(sessionStorage.getItem(key) || "null") as Partial<StoredSession> | null;
+    let raw = storage.getItem(key);
+    if (!raw && key === SESSION_KEY) {
+      raw = sessionStorage.getItem(key);
+      if (raw) {
+        storage.setItem(key, raw);
+        sessionStorage.removeItem(key);
+      }
+    }
+    const parsed = JSON.parse(raw || "null") as Partial<StoredSession> | null;
     if (!parsed?.token || !Number.isFinite(parsed.expiresAt) || Number(parsed.expiresAt) <= Date.now()) {
-      sessionStorage.removeItem(key);
+      storage.removeItem(key);
       return null;
     }
     return {
@@ -52,18 +65,20 @@ function readSession(key: string): StoredSession | null {
       ...(parsed.roomId ? { roomId: String(parsed.roomId) } : {})
     };
   } catch {
-    sessionStorage.removeItem(key);
+    storage.removeItem(key);
     return null;
   }
 }
 
 function setSession(key: string, token: string, expiresInSeconds: number, extra: { roomId?: string } = {}) {
   const expiresAt = Date.now() + Math.max(1, Number(expiresInSeconds) || 0) * 1000;
-  sessionStorage.setItem(key, JSON.stringify({ token, expiresAt, ...extra }));
+  sessionStorageFor(key).setItem(key, JSON.stringify({ token, expiresAt, ...extra }));
+  if (key === SESSION_KEY) sessionStorage.removeItem(key);
 }
 
 function clearSession(key: string) {
-  sessionStorage.removeItem(key);
+  sessionStorageFor(key).removeItem(key);
+  if (key === SESSION_KEY) sessionStorage.removeItem(key);
 }
 
 function readRoomCodes(): RoomCodeStore {

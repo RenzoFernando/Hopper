@@ -20,6 +20,7 @@ export function TransferQueue({ entries, onRemove, onCancel, onRetry }: { entrie
     <div className={`selected-files ${grid ? "is-grid" : ""}`.trim()} id="selected-files" hidden={entries.length === 0} aria-label="Archivos seleccionados">
       {entries.map((entry) => {
         const status = statusValue(entry);
+        const compactStatus = grid && status.label === "Listo para enviar" ? "Listo" : status.label;
         const active = ["subiendo", "confirmando", "preparando"].includes(entry.status);
         const error = entry.status === "error";
         const fileInfo = fileTypeInfo(entry.file.name, entry.file.type);
@@ -29,7 +30,7 @@ export function TransferQueue({ entries, onRemove, onCancel, onRetry }: { entrie
             <div className="selected-file-copy">
               <span className="selected-file-name">{entry.file.name}</span>
               <span className="selected-file-size">{formatBytes(entry.file.size)}</span>
-              <span className={`selected-file-status selected-file-progress-label ${status.variant ? `is-${status.variant}` : ""}`.trim()}>{status.label}</span>
+              <span className={`selected-file-status selected-file-progress-label ${status.variant ? `is-${status.variant}` : ""}`.trim()}>{compactStatus}</span>
             </div>
             {active ? (
               <button className="remove-file-button is-cancel" type="button" data-action="cancel-selected-file" data-file-key={entry.key} aria-label={`Cancelar ${entry.file.name}`} title="Cancelar" onClick={() => onCancel(entry.key)}><CloseIcon /></button>
