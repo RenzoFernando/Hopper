@@ -158,6 +158,107 @@
   color: var(--danger);
 }
 
+.selected-files.is-grid {
+  grid-template-columns: repeat(auto-fill, minmax(88px, 98px));
+  align-content: start;
+  justify-content: start;
+  gap: 8px;
+}
+
+.selected-files.is-grid .selected-file {
+  aspect-ratio: 1 / 1;
+  min-height: 88px;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 9px 8px 8px;
+}
+
+.selected-files.is-grid .selected-file-icon {
+  width: 29px;
+  height: 29px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--text-soft);
+}
+
+.selected-files.is-grid .selected-file-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.selected-files.is-grid .selected-file-icon.is-image,
+.selected-files.is-grid .selected-file-icon.is-audio,
+.selected-files.is-grid .selected-file-icon.is-video {
+  color: var(--info);
+}
+
+.selected-files.is-grid .selected-file-icon.is-archive,
+.selected-files.is-grid .selected-file-icon.is-code,
+.selected-files.is-grid .selected-file-icon.is-markdown,
+.selected-files.is-grid .selected-file-icon.is-pdf,
+.selected-files.is-grid .selected-file-icon.is-table {
+  color: var(--accent);
+}
+
+.selected-files.is-grid .selected-file-copy {
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+
+.selected-files.is-grid .selected-file-name {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 0.69rem;
+  line-height: 1.18;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.selected-files.is-grid .selected-file-size,
+.selected-files.is-grid .selected-file-status {
+  overflow: hidden;
+  font-size: 0.61rem;
+  line-height: 1.16;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-files.is-grid .remove-file-button,
+.selected-files.is-grid .selected-file-retry-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 23px;
+  height: 23px;
+  background: rgb(255 255 255 / 0.86);
+  backdrop-filter: blur(3px);
+}
+
+.selected-files.is-grid .selected-file-retry-button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.selected-files.is-grid .remove-file-button.is-cancel {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.selected-files.is-grid .selected-file-retry-button {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
 .remove-file-button {
   position: relative;
   z-index: 1;

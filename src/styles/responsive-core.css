@@ -38,6 +38,16 @@
     display: none;
   }
 
+  .selected-files.is-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .selected-files.is-grid .selected-file {
+    aspect-ratio: auto;
+    min-height: 92px;
+  }
+
   .item-card {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;

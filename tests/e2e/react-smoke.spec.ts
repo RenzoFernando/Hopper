@@ -288,7 +288,7 @@ test("Share Target React confirma y limpia el payload antes de navegar", async (
   await expect(page.locator("#share-summary")).toContainText("Texto");
   await expect(page.locator("#share-summary")).toContainText("prueba.txt");
   await page.locator("#share-send").click();
-  await expect(page.locator("#share-message")).toHaveText("Contenido enviado y confirmado.");
+  await expect(page.locator("#toast-region")).toContainText("Contenido enviado y confirmado.");
   await expect(page).toHaveURL(/\/space$/);
 
   const pending = await page.evaluate(async () => {
@@ -307,4 +307,58 @@ test("Share Target React confirma y limpia el payload antes de navegar", async (
     return value;
   });
   expect(pending).toBeNull();
+});
+
+test("Share Target envía automáticamente al completar el PIN", async ({ page }) => {
+  await installApiMock(page);
+  await page.goto("/share");
+
+  await page.evaluate(async () => {
+    const request = indexedDB.open("hopper-share-target-v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("payloads")) request.result.createObjectStore("payloads");
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("payloads", "readwrite");
+      tx.objectStore("payloads").put({ title: "", text: "Desde compartir", url: "", files: [], createdAt: Date.now() }, "pending");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+
+  await page.reload();
+  await page.locator("#share-pin").fill("1234");
+  await expect(page).toHaveURL(/\/space$/);
+});
+
+test("Share Target puede crear una sala y enviar sin perder el payload", async ({ page }) => {
+  await installApiMock(page);
+  await page.goto("/share");
+
+  await page.evaluate(async () => {
+    const request = indexedDB.open("hopper-share-target-v1", 1);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains("payloads")) request.result.createObjectStore("payloads");
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("payloads", "readwrite");
+      tx.objectStore("payloads").put({ title: "", text: "A sala nueva", url: "", files: [], createdAt: Date.now() }, "pending");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+
+  await page.reload();
+  await page.locator("#share-create-room").click();
+  await expect(page).toHaveURL(/\/room\/AB-1234$/);
 });

@@ -4,7 +4,7 @@ import { fileTypeInfo } from "../../lib/file-types";
 import { formatBytes, formatCountdown, textPreview, ttlLabel } from "../../lib/format";
 import { extractHttpUrls, splitHttpText } from "../../lib/links";
 import type { HopperItem } from "../../schemas/item";
-import { ArchiveIcon, AudioIcon, CodeIcon, CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileIcon, ImageIcon, MarkdownIcon, PdfIcon, PlayIcon, PreviewIcon, ShareIcon, TableIcon, TextIcon } from "./icons";
+import { CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileKindIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
 
 type Props = {
   item: HopperItem;
@@ -31,18 +31,6 @@ function ActionButton({ label, className = "is-info", onClick, children }: { lab
 
 function ActionLink({ label, href, children }: { label: string; href: string; children: ReactNode }) {
   return <a className="action-button is-info" href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label}>{children}</a>;
-}
-
-function FileKindIcon({ kind }: { kind: ReturnType<typeof fileTypeInfo>["kind"] }) {
-  if (kind === "archive") return <ArchiveIcon />;
-  if (kind === "audio") return <AudioIcon />;
-  if (kind === "code") return <CodeIcon />;
-  if (kind === "image") return <ImageIcon />;
-  if (kind === "markdown") return <MarkdownIcon />;
-  if (kind === "pdf") return <PdfIcon />;
-  if (kind === "table") return <TableIcon />;
-  if (kind === "text") return <TextIcon />;
-  return <FileIcon />;
 }
 
 export function ItemCard(props: Props) {

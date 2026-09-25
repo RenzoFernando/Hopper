@@ -71,6 +71,21 @@
   gap: 8px;
 }
 
+.share-auth-row.is-auto {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.share-auto-hint {
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.share-create-room {
+  width: 100%;
+  min-height: 42px;
+}
+
 .share-auth-row input {
   min-width: 0;
   height: 44px;
@@ -163,3 +178,27 @@
   padding-bottom: 3px;
 }
 
+@media (max-width: 480px) {
+  .share-main {
+    align-items: start;
+    padding: 14px 12px 20px;
+  }
+
+  .share-card {
+    padding: 18px 15px;
+    border-radius: 15px;
+  }
+
+  .share-auth {
+    padding: 12px;
+  }
+
+  .share-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .share-actions button {
+    width: 100%;
+  }
+}

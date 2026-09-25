@@ -148,6 +148,8 @@ export function useShareTarget(enabled = true) {
   const [sendBusy, setSendBusy] = useState(false);
   const sendBusyRef = useRef(false);
   const [directSending, setDirectSending] = useState(false);
+  const autoPinRef = useRef("");
+  const autoRoomRef = useRef("");
 
   const destinations = useMemo<DestinationOption[]>(() => {
     const values: DestinationOption[] = [];
@@ -185,7 +187,8 @@ export function useShareTarget(enabled = true) {
       setPayload(stored);
       refreshDestinations(pendingDeliveryRef.current?.destination || "");
       if (!stored || !([stored.title, stored.text, stored.url].some(Boolean) || stored.files.length > 0)) {
-        setMessage("No hay contenido compartido pendiente.");
+        const shareError = new URLSearchParams(window.location.search).get("shareError");
+        setMessage(shareError ? "No fue posible recibir el contenido compartido. Inténtalo de nuevo desde la aplicación de origen." : "No hay contenido compartido pendiente.");
         setMessageKind("error");
       }
     })();
@@ -402,6 +405,35 @@ export function useShareTarget(enabled = true) {
     }
   }, [refreshDestinations, roomCode, send]);
 
+  const createRoomAndSend = useCallback(async () => {
+    if (authBusyRef.current || sendBusyRef.current) return;
+    authBusyRef.current = true;
+    setAuthBusy(true);
+    setRoomMessage("");
+    setRoomKind("");
+    try {
+      const result = await roomsApi.create();
+      const code = normalizeRoomCode(result.code || "");
+      if (code) {
+        autoRoomRef.current = code;
+        setRoomCode(code);
+      }
+      refreshDestinations("room");
+      setDirectSending(true);
+      try {
+        await send("room");
+      } finally {
+        setDirectSending(false);
+      }
+    } catch (error) {
+      setRoomMessage(errorMessage(error, "No fue posible crear la sala."));
+      setRoomKind("error");
+    } finally {
+      authBusyRef.current = false;
+      setAuthBusy(false);
+    }
+  }, [refreshDestinations, send]);
+
   const discard = useCallback(async () => {
     await clearSharedPayload().catch(() => undefined);
     payloadRef.current = null;
@@ -423,6 +455,18 @@ export function useShareTarget(enabled = true) {
   const hasDestination = destinations.length > 0;
   const hasContent = summary.length > 0;
 
+  useEffect(() => {
+    if (!enabled || !hasContent || pin.length !== 4 || authBusy || sendBusy || autoPinRef.current === pin) return;
+    autoPinRef.current = pin;
+    void submitPin();
+  }, [authBusy, enabled, hasContent, pin, sendBusy, submitPin]);
+
+  useEffect(() => {
+    if (!enabled || !hasContent || !isCompleteRoomCode(roomCode) || authBusy || sendBusy || autoRoomRef.current === roomCode) return;
+    autoRoomRef.current = roomCode;
+    void submitRoom();
+  }, [authBusy, enabled, hasContent, roomCode, sendBusy, submitRoom]);
+
   return {
     payload,
     summary,
@@ -433,9 +477,21 @@ export function useShareTarget(enabled = true) {
     setTtlMinutes,
     ttlOptions,
     pin,
-    setPin: (value: string) => { setPin(value.replace(/\D/g, "").slice(0, 4)); setPinMessage(""); setPinKind(""); },
+    setPin: (value: string) => {
+      const normalized = value.replace(/\D/g, "").slice(0, 4);
+      if (normalized !== autoPinRef.current) autoPinRef.current = "";
+      setPin(normalized);
+      setPinMessage("");
+      setPinKind("");
+    },
     roomCode,
-    setRoomCode: (value: string) => { setRoomCode(normalizeRoomCode(value)); setRoomMessage(""); setRoomKind(""); },
+    setRoomCode: (value: string) => {
+      const normalized = normalizeRoomCode(value);
+      if (normalized !== autoRoomRef.current) autoRoomRef.current = "";
+      setRoomCode(normalized);
+      setRoomMessage("");
+      setRoomKind("");
+    },
     pinMessage,
     pinKind,
     roomMessage,
@@ -452,6 +508,7 @@ export function useShareTarget(enabled = true) {
     hasContent,
     submitPin,
     submitRoom,
+    createRoomAndSend,
     send,
     discard
   };

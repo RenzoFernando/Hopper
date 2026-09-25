@@ -92,17 +92,23 @@ test("el Service Worker controla la SPA y persiste el POST de Share Target", asy
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const result = await new Promise<{ title?: string; text?: string; files?: File[] } | null>((resolve, reject) => {
+    const result = await new Promise<{ title?: string; text?: string; files?: Array<File | { name?: string; blob?: Blob }> } | null>((resolve, reject) => {
       const tx = db.transaction("payloads", "readonly");
       const get = tx.objectStore("payloads").get("pending");
-      get.onsuccess = () => resolve((get.result as { title?: string; text?: string; files?: File[] } | undefined) ?? null);
+      get.onsuccess = () => resolve((get.result as { title?: string; text?: string; files?: Array<File | { name?: string; blob?: Blob }> } | undefined) ?? null);
       get.onerror = () => reject(get.error);
     });
     db.close();
-    return result ? { title: result.title, text: result.text, fileNames: (result.files || []).map((file) => file.name) } : null;
+    return result ? {
+      title: result.title,
+      text: result.text,
+      fileNames: (result.files || []).map((file) => file instanceof File ? file.name : String(file.name || ""))
+    } : null;
   });
 
   expect(stored).toEqual({ title: "Compartido desde PWA", text: "Contenido pendiente", fileNames: ["nota.txt"] });
+  await page.goto("/share");
+  await expect(page.locator("#share-summary")).toContainText("nota.txt");
 });
 
 test("la SPA conserva su shell de navegación sin conexión", async ({ page, context }) => {

@@ -1,6 +1,7 @@
-import { formatBytes } from "../../lib/format";
 import type { SelectedFileEntry } from "../../features/transfers/types";
-import { CloseIcon, RefreshIcon } from "./icons";
+import { fileTypeInfo } from "../../lib/file-types";
+import { formatBytes } from "../../lib/format";
+import { CloseIcon, FileKindIcon, RefreshIcon } from "./icons";
 
 function statusValue(entry: SelectedFileEntry) {
   const progress = Math.max(0, Math.min(100, Number(entry.progress) || 0));
@@ -14,14 +15,17 @@ function statusValue(entry: SelectedFileEntry) {
 }
 
 export function TransferQueue({ entries, onRemove, onCancel, onRetry }: { entries: SelectedFileEntry[]; onRemove: (key: string) => void; onCancel: (key: string) => void; onRetry: (key: string) => void }) {
+  const grid = entries.length > 1;
   return (
-    <div className="selected-files" id="selected-files" hidden={entries.length === 0} aria-label="Archivos seleccionados">
+    <div className={`selected-files ${grid ? "is-grid" : ""}`.trim()} id="selected-files" hidden={entries.length === 0} aria-label="Archivos seleccionados">
       {entries.map((entry) => {
         const status = statusValue(entry);
         const active = ["subiendo", "confirmando", "preparando"].includes(entry.status);
         const error = entry.status === "error";
+        const fileInfo = fileTypeInfo(entry.file.name, entry.file.type);
         return (
-          <div className="selected-file" data-file-key={entry.key} key={entry.key}>
+          <div className="selected-file" data-file-key={entry.key} key={entry.key} title={entry.file.name}>
+            {grid && <span className={`selected-file-icon is-${fileInfo.kind}`} aria-hidden="true"><FileKindIcon kind={fileInfo.kind} /></span>}
             <div className="selected-file-copy">
               <span className="selected-file-name">{entry.file.name}</span>
               <span className="selected-file-size">{formatBytes(entry.file.size)}</span>

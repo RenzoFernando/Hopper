@@ -49,17 +49,34 @@ async function storeSharedPayload(payload: unknown) {
   }
 }
 
+function storedShareFile(value: FormDataEntryValue, index: number) {
+  if (!(value instanceof Blob) || value.size <= 0) return null;
+  const source = value as File;
+  return {
+    blob: value,
+    name: source.name || `archivo-compartido-${index + 1}`,
+    type: value.type || "application/octet-stream",
+    lastModified: Number(source.lastModified) || Date.now()
+  };
+}
+
 async function handleShareTarget(request: Request) {
-  const form = await request.formData();
-  const files = form.getAll("files").filter((value): value is File => value instanceof File && value.size > 0);
-  await storeSharedPayload({
-    title: String(form.get("title") || ""),
-    text: String(form.get("text") || ""),
-    url: String(form.get("url") || ""),
-    files,
-    createdAt: Date.now()
-  });
-  return Response.redirect(new URL("/share?received=1", request.url), 303);
+  try {
+    const form = await request.formData();
+    const files = form.getAll("files")
+      .map((value, index) => storedShareFile(value, index))
+      .filter((value): value is NonNullable<ReturnType<typeof storedShareFile>> => Boolean(value));
+    await storeSharedPayload({
+      title: String(form.get("title") || ""),
+      text: String(form.get("text") || ""),
+      url: String(form.get("url") || ""),
+      files,
+      createdAt: Date.now()
+    });
+    return Response.redirect(new URL("/share?received=1", request.url), 303);
+  } catch {
+    return Response.redirect(new URL("/share?received=0&shareError=storage", request.url), 303);
+  }
 }
 
 async function cacheResponse(cache: Cache, requestUrl: string, response: Response) {

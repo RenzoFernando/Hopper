@@ -33,8 +33,12 @@
     margin-top: 8px;
   }
 
-  .selected-files {
+  .selected-files:not(.is-grid) {
     max-height: 82px;
+  }
+
+  .selected-files.is-grid {
+    max-height: 188px;
   }
 
   .recent-header {
@@ -49,6 +53,10 @@
 }
 
 @media (max-width: 760px) {
+  .selected-files.is-grid {
+    max-height: 206px;
+  }
+
   .public-nav {
     gap: 2px;
   }
@@ -209,4 +217,3 @@
   width: min(100%, 430px);
   justify-self: center;
 }
-
