@@ -144,7 +144,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
       try {
         const response = await fetch(event.request, { cache: "no-cache" });
-        if (response.ok) {
+        // No reemplazar la shell PWA con una de las guías HTML indexables.
+        if (response.ok && (url.pathname === "/" || url.pathname === "/index.html")) {
           const cache = await caches.open(CACHE_NAME);
           await cache.put(absoluteUrl("/index.html"), response.clone());
         }

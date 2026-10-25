@@ -178,7 +178,7 @@ export function HomePage() {
         <section className="auth-screen screen" id="auth-screen" aria-labelledby="auth-title">
           <div className="auth-layout">
             <div className="auth-content">
-              <img className="auth-logo" src="/assets/favicon.svg" alt="" />
+              <img className="auth-logo" src="/assets/favicon.svg" alt="" width="60" height="60" />
               <p className="eyebrow">HOPPER</p><h1 id="auth-title">Pasa cosas. Rápido.</h1><p className="auth-copy">Un espacio temporal para mover texto y archivos entre dispositivos.</p>
               <PinForm pin={pin} loading={pinSubmitting} locked={locked} disabled={!configured && !visual} message={pinMessage} messageKind={pinKind} recoveryMessage={recoveryMessage} recoveryKind={recoveryKind} recoveryLoading={recoveryLoading} onPinChange={(value) => { setPin(value); setPinMessage(""); setPinKind(""); }} onSubmit={(value) => { void submitPin(value); }} onRecovery={() => { void requestRecovery(); }} />
             </div>

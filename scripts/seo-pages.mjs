@@ -1,4 +1,8 @@
-const SITE_URL = "https://hopper-transfer.pages.dev";
+import { readFileSync } from "node:fs";
+
+const SITE_URL = new URL(
+  JSON.parse(readFileSync(new URL("../config/production.json", import.meta.url), "utf8").replace(/^\uFEFF/, "")).publicAppUrl
+).origin;
 const APP_NAME = "Hopper";
 const REPOSITORY_URL = "https://github.com/RenzoFernando/Hopper";
 const AUTHOR = {
@@ -340,11 +344,12 @@ export function renderSitemap() {
 }
 
 export function renderRobots() {
-  return `User-agent: *\nAllow: /\nDisallow: /space\nDisallow: /admin\nDisallow: /room\nDisallow: /recover\nDisallow: /share\nDisallow: /404\nDisallow: /page/\n\nSitemap: ${SITE_URL}/sitemap.xml\n`;
+  // Permite leer X-Robots-Tag: el bloqueo de rastreo impediría aplicar noindex.
+  return `User-agent: *\nAllow: /\n\nSitemap: ${SITE_URL}/sitemap.xml\n`;
 }
 
 export function renderLlms() {
-  return `# Hopper\n\n> Hopper es una PWA para transferir temporalmente texto y archivos entre dispositivos mediante un espacio privado con PIN o salas temporales.\n\n## Aplicación\n\n- Producción: ${SITE_URL}/\n- Repositorio: ${REPOSITORY_URL}\n- Autor: ${AUTHOR.name}\n\n## Capacidades\n\n- Transferencia de texto, código, enlaces y archivos.\n- Mi espacio protegido por PIN de cuatro dígitos.\n- Retención personal de 5, 15 o 30 minutos, 1 hora, 6 horas, 1 día o indefinida.\n- Hasta 3 salas temporales simultáneas.\n- Salas con vida máxima de 10 minutos y cierre tras 5 minutos sin actividad.\n- Hasta 512 MB por archivo en Mi espacio.\n- Hasta 256 MB por archivo y 512 MB totales por sala.\n- PWA y Web Share Target.\n\n## Seguridad\n\nHopper usa HTTPS en producción, sesiones y tokens firmados, CORS explícito, Backblaze B2 privado y URLs firmadas temporales. Hopper no se presenta como cifrado de extremo a extremo: el Worker participa en el procesamiento del contenido.\n\n## Guías públicas\n\n${SEO_PAGES.map((page) => `- [${page.h1}](${SITE_URL}${page.path}): ${page.description}`).join("\n")}\n\n## Rutas privadas o no indexables\n\n- /space\n- /admin\n- /room/*\n- /recover\n- /share\n\nNo se deben inferir secretos, credenciales, contenido transferido ni datos de usuarios a partir de esta documentación.\n`;
+  return `# Hopper\n\n> Hopper es una PWA para transferir temporalmente texto y archivos entre dispositivos mediante un espacio privado con PIN o salas temporales.\n\n## Aplicación\n\n- Producción: ${SITE_URL}/\n- Repositorio: ${REPOSITORY_URL}\n- Autor: ${AUTHOR.name}\n\n## Capacidades\n\n- Transferencia de texto, código, enlaces y archivos.\n- Mi espacio protegido por PIN de cuatro dígitos.\n- Retención personal de 5, 15 o 30 minutos, 1 hora, 6 horas, 1 día o indefinida.\n- Hasta 3 salas temporales simultáneas.\n- Salas con vida máxima de 10 minutos y cierre tras 5 minutos sin actividad.\n- Hasta 512 MB por archivo en Mi espacio.\n- Hasta 256 MB por archivo y 512 MB totales por sala.\n- PWA y Web Share Target.\n\n## Seguridad\n\nHopper usa HTTPS en producción, sesiones y tokens firmados, CORS explícito, Backblaze B2 privado y URLs firmadas temporales. Hopper no se presenta como cifrado de extremo a extremo: el Worker participa en el procesamiento del contenido.\n\n## Guías públicas\n\n${SEO_PAGES.map((page) => `- [${page.h1}](${SITE_URL}${page.path}): ${page.description}`).join("\n")}\n\n## Rutas privadas o no indexables\n\n- /space\n- /admin\n- /room/*\n- /recover\n- /share\n- /404 y rutas inexistentes\n\nNo se deben inferir secretos, credenciales, contenido transferido ni datos de usuarios a partir de esta documentación.\n`;
 }
 
 export const SEO_SITE = { SITE_URL, APP_NAME, REPOSITORY_URL, AUTHOR };

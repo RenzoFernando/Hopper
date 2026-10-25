@@ -28,3 +28,28 @@
 
 /llms.txt
   Cache-Control: public, max-age=3600
+
+# Las rutas privadas se excluyen por cabecera HTTP, incluso antes de ejecutar React.
+/space
+  X-Robots-Tag: noindex, nofollow
+
+/admin
+  X-Robots-Tag: noindex, nofollow
+
+/room
+  X-Robots-Tag: noindex, nofollow
+
+/room/*
+  X-Robots-Tag: noindex, nofollow
+
+/recover
+  X-Robots-Tag: noindex, nofollow
+
+/share
+  X-Robots-Tag: noindex, nofollow
+
+/404
+  X-Robots-Tag: noindex, nofollow
+
+/page/*
+  X-Robots-Tag: noindex, nofollow

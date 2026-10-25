@@ -156,12 +156,28 @@ test("las guías SEO se sirven con URL limpia, un H1 y metadatos propios", async
   }
 });
 
+test("las rutas privadas no conservan los metadatos de la portada", async ({ page }) => {
+  await page.goto("/recover");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex,nofollow");
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+  await expect(page.locator('meta[property="og:url"]')).toHaveCount(0);
+  const privateSchemaText = await page.locator('script[data-hopper-home-schema]').evaluate((script) => script.textContent ?? "");
+  expect(privateSchemaText.trim()).toBe("");
+
+  await page.goto("/");
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /index,follow/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", "https://hopper-transfer.pages.dev/");
+  const publicSchemaText = await page.locator('script[data-hopper-home-schema]').evaluate((script) => script.textContent ?? "");
+  const publicSchema = JSON.parse(publicSchemaText) as { "@graph"?: Array<{ "@type"?: string }> };
+  expect(publicSchema["@graph"]).toEqual(expect.arrayContaining([expect.objectContaining({ "@type": "WebSite" })]));
+});
+
 test("robots, sitemap y llms exponen solo las rutas públicas previstas", async ({ request }) => {
   const robots = await request.get("/robots.txt");
   expect(robots.ok()).toBe(true);
   const robotsText = await robots.text();
-  expect(robotsText).toContain("Disallow: /page/");
-  expect(robotsText).toContain("Disallow: /admin");
+  expect(robotsText).toContain("Allow: /");
+  expect(robotsText).not.toContain("Disallow:");
   expect(robotsText).toContain("Sitemap: https://hopper-transfer.pages.dev/sitemap.xml");
 
   const sitemap = await request.get("/sitemap.xml");

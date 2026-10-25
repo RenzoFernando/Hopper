@@ -52,6 +52,7 @@ test("el Service Worker conserva rutas limpias y activa builds nuevos sin quedar
   assert.match(sw, /\/manifest\.webmanifest/);
   assert.match(sw, /hopper-shell-v6/);
   assert.match(sw, /self\.skipWaiting\(\)/);
+  assert.match(sw, /url\.pathname === "\/" \|\| url\.pathname === "\/index\.html"/);
 
   const pwa = read("src/hooks/usePwa.tsx");
   assert.match(pwa, /next\.update\(\)/);
@@ -229,7 +230,8 @@ test("los límites visibles y del Worker comparten la configuración actual del 
 });
 
 test("la capa SEO pública tiene metadatos, contenido semántico, FAQ, sitemap, robots y llms", async () => {
-  const { SEO_PAGES, renderLlms, renderRobots, renderSeoPage, renderSitemap } = await import("../scripts/seo-pages.mjs");
+  const { SEO_PAGES, SEO_SITE, renderLlms, renderRobots, renderSeoPage, renderSitemap } = await import("../scripts/seo-pages.mjs");
+  assert.equal(SEO_SITE.SITE_URL, new URL(readJson("config/production.json").publicAppUrl).origin);
   assert.equal(SEO_PAGES.length, 4);
   assert.equal(new Set(SEO_PAGES.map((page) => page.intent)).size, SEO_PAGES.length);
   assert.equal(new Set(SEO_PAGES.map((page) => page.title)).size, SEO_PAGES.length);
@@ -259,15 +261,16 @@ test("la capa SEO pública tiene metadatos, contenido semántico, FAQ, sitemap, 
   }
 
   const index = read("index.html");
-  assert.match(index, /<link rel="canonical" href="https:\/\/hopper-transfer\.pages\.dev\/">/);
+  assert.match(index, /<link rel="canonical" href="__HOPPER_SITE_ORIGIN__\/">/);
   assert.match(index, /<meta property="og:title"/);
   assert.match(index, /WebApplication/);
+  assert.match(index, /data-hopper-home-schema/);
   assert.match(index, /Person/);
   assert.doesNotMatch(index, /LocalBusiness/);
 
   const robots = renderRobots();
-  assert.match(robots, /Disallow: \/page\//);
-  assert.match(robots, /Disallow: \/admin/);
+  assert.doesNotMatch(robots, /Disallow:/);
+  assert.equal(robots, read("public/robots.txt"));
   assert.match(robots, /Sitemap: https:\/\/hopper-transfer\.pages\.dev\/sitemap\.xml/);
 
   const sitemap = renderSitemap();
@@ -297,5 +300,14 @@ test("las rutas privadas declaran noindex y la portada conserva indexación", ()
   assert.match(router, /INDEX_ROBOTS = "index,follow/);
   assert.match(router, /path="\/"[\s\S]*indexable canonicalPath="\/"/);
   assert.match(router, /canonical\?\.remove\(\)/);
+  assert.match(router, /appConfig\.publicAppUrl/);
+  assert.match(router, /updateSocialMetadata\(title, description/);
+  assert.match(router, /updateHomeStructuredData\(indexable\)/);
+  const headers = read("public/_headers");
+  for (const path of ["/space", "/admin", "/room", "/room/*", "/recover", "/share", "/404", "/page/*"]) {
+    assert.match(headers, new RegExp(`${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n  X-Robots-Tag: noindex, nofollow`));
+  }
+  const build = read("scripts/prepare-pages-preview.mjs");
+  assert.match(build, /replaceAll\("__HOPPER_SITE_ORIGIN__", SEO_SITE\.SITE_URL\)/);
   assert.doesNotMatch(notFound, /meta\[name="robots"\]|useLayoutEffect/);
 });

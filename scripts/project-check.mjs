@@ -58,8 +58,16 @@ if (vite.includes("js/config.js") || vite.includes("modern/index.html")) {
 }
 
 const robots = await readFile(resolve(root, "public/robots.txt"), "utf8");
-if (!robots.includes("Disallow: /page/") || !robots.includes("Sitemap: https://hopper-transfer.pages.dev/sitemap.xml")) {
-  throw new Error("robots.txt no contiene las reglas SEO requeridas.");
+const siteUrl = new URL(production.publicAppUrl).origin;
+if (robots.includes("Disallow:") || !robots.includes(`Sitemap: ${siteUrl}/sitemap.xml`)) {
+  throw new Error("robots.txt debe permitir que los buscadores lean las cabeceras noindex.");
+}
+
+const headers = await readFile(resolve(root, "public/_headers"), "utf8");
+for (const route of ["/space", "/admin", "/room", "/room/*", "/recover", "/share", "/404"]) {
+  if (!headers.includes(`${route}\n  X-Robots-Tag: noindex, nofollow`)) {
+    throw new Error(`Falta la protección noindex en la ruta ${route}.`);
+  }
 }
 
 const sitemap = await readFile(resolve(root, "public/sitemap.xml"), "utf8");

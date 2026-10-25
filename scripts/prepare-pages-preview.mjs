@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { access, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import { SEO_PAGES, renderLlms, renderRobots, renderSeoPage, renderSitemap } from "./seo-pages.mjs";
+import { SEO_PAGES, SEO_SITE, renderLlms, renderRobots, renderSeoPage, renderSitemap } from "./seo-pages.mjs";
 
 const rootDir = resolve(".");
 const distDir = resolve("dist");
@@ -84,7 +84,9 @@ await writeFile(headersPath, headers, "utf8");
 
 const indexPath = resolve(distDir, "index.html");
 let indexHtml = await readFile(indexPath, "utf8");
-indexHtml = indexHtml.replaceAll("__HOPPER_GA4_ID__", escapeHtml(ga4MeasurementId));
+indexHtml = indexHtml
+  .replaceAll("__HOPPER_SITE_ORIGIN__", SEO_SITE.SITE_URL)
+  .replaceAll("__HOPPER_GA4_ID__", escapeHtml(ga4MeasurementId));
 if (gscVerification) {
   indexHtml = indexHtml.replace(
     /(<meta name="robots"[^>]*>)/,
