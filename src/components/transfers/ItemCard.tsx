@@ -8,7 +8,6 @@ import { ClockIcon, CopyIcon, DeleteIcon, DownloadIcon, EditTimeIcon, ExternalLi
 
 type Props = {
   item: HopperItem;
-  arriving?: boolean;
   now: number;
   api: TransferApi;
   allowTtlReset: boolean;
@@ -82,7 +81,7 @@ export function ItemCard(props: Props) {
   const canPreview = item.type === "file" && Boolean(fileInfo?.previewKind);
 
   return (
-    <article className={`item-card ${props.selected ? "is-selected" : ""} ${props.arriving ? "is-arriving" : ""}`.trim()} data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
+    <article className={`item-card ${props.selected ? "is-selected" : ""}`.trim()} data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
       <div className="item-main">
         <label className="item-select" title={`Seleccionar ${item.type === "text" ? "texto" : item.name || "archivo"}`}><input type="checkbox" checked={props.selected} aria-label={`Seleccionar ${item.type === "text" ? "texto" : item.name || "archivo"}`} onChange={(event) => props.onSelectionChange(item, event.target.checked)} /><span aria-hidden="true" /></label>
         <div className={`item-type-mark ${item.type === "text" ? "is-text" : item.audio ? "is-audio" : "is-file"}`}>

@@ -1,8 +1,8 @@
 "use strict";
 
 const APP_URL = "https://hopper-transfer.pages.dev/";
-const MAX_FILE_BYTES = 32 * 1024 * 1024;
-const CHUNK_SIZE = 128 * 1024;
+const MAX_FILE_BYTES = 128 * 1024 * 1024;
+const CHUNK_SIZE = 192 * 1024;
 const byId = (id) => document.getElementById(id);
 let hopperTabId = null;
 let files = [];
@@ -143,7 +143,7 @@ function encodeBase64(buffer) {
 
 async function addFile(file) {
   if (file.size <= 0 || file.size > MAX_FILE_BYTES) {
-    return showMessage(`${file.name}: máximo 32 MB desde la extensión. Usa la aplicación para archivos más grandes.`);
+    return showMessage(`${file.name}: máximo 128 MB desde la extensión. Usa la aplicación para archivos más grandes.`);
   }
   const key = crypto.randomUUID();
   try {
@@ -204,8 +204,37 @@ byId("content").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void sendText(); }
 });
 byId("paste").addEventListener("click", async () => {
-  try { byId("content").value += await navigator.clipboard.readText(); }
-  catch { showMessage("No se pudo acceder al portapapeles. Usa Ctrl + V."); }
+  const textarea = byId("content");
+  try {
+    let clipboardText = "";
+    if (navigator.clipboard?.readText) {
+      try { clipboardText = await navigator.clipboard.readText(); }
+      catch { /* Algunos navegadores requieren pegar desde un campo enfocado. */ }
+    }
+    if (!clipboardText) {
+      // Compatibilidad con navegadores que aún permiten paste mediante execCommand.
+      const scratch = document.createElement("textarea");
+      scratch.style.position = "fixed";
+      scratch.style.opacity = "0";
+      document.body.append(scratch);
+      scratch.focus();
+      try { if (document.execCommand("paste")) clipboardText = scratch.value; }
+      finally { scratch.remove(); }
+    }
+    if (!clipboardText) {
+      textarea.focus();
+      showMessage("No se pudo leer el portapapeles. Pulsa Ctrl + V.");
+      return;
+    }
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.setRangeText(clipboardText, start, end, "end");
+    textarea.focus();
+    showMessage("");
+  } catch {
+    textarea.focus();
+    showMessage("No se pudo leer el portapapeles. Pulsa Ctrl + V.");
+  }
 });
 byId("capture").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

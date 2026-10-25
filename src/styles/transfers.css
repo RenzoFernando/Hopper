@@ -685,7 +685,8 @@
 }
 
 .preview-dialog,
-.confirm-dialog {
+.confirm-dialog,
+.download-directory-dialog {
   border: 1px solid var(--border);
   border-radius: 18px;
   background: var(--surface);
@@ -694,7 +695,8 @@
 }
 
 .preview-dialog::backdrop,
-.confirm-dialog::backdrop {
+.confirm-dialog::backdrop,
+.download-directory-dialog::backdrop {
   background: rgb(32 33 35 / 0.42);
 }
 
@@ -704,6 +706,37 @@
   padding: 0;
   overflow: hidden;
 }
+
+.download-directory-dialog {
+  width: min(92vw, 680px);
+  max-height: 80dvh;
+  padding: 0;
+  overflow: hidden;
+}
+
+.directory-file-list {
+  max-height: 52dvh;
+  overflow-y: auto;
+  padding: 8px 18px;
+}
+
+.directory-file {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 43px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.79rem;
+}
+
+.directory-file:last-child { border-bottom: 0; }
+.directory-file svg { width: 17px; height: 17px; flex: 0 0 auto; color: var(--info); }
+.directory-file span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.directory-file small { margin-left: auto; flex: 0 0 auto; color: var(--text-faint); }
+.directory-empty { margin: 18px 0; color: var(--text-soft); font-size: 0.83rem; }
+.directory-file-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding: 13px 18px; border-top: 1px solid var(--border); }
 
 .dialog-header {
   min-height: 70px;
@@ -1095,7 +1128,7 @@
 .compose-panel .selected-files {
   max-height: 126px;
   overflow-y: auto;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 .compose-panel .selected-files.is-grid {
@@ -1109,7 +1142,7 @@
 }
 
 .compose-files .composer-actions {
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .compose-panel .send-button {
@@ -1128,15 +1161,7 @@
   height: 20px;
 }
 
-.item-card.is-arriving {
-  animation: hopper-item-arrive 370ms cubic-bezier(0.19, 1.2, 0.32, 1) both;
-}
 
-@keyframes hopper-item-arrive {
-  from { opacity: 0.28; transform: translateY(-12px) scale(0.992); }
-  76% { opacity: 1; transform: translateY(2px) scale(1); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
 
 @media (max-width: 760px) {
   .compose-panels { grid-template-columns: 1fr; }
@@ -1150,18 +1175,15 @@
 @media (max-width: 480px) {
   .composer-heading { align-items: flex-start; }
   .ttl-field-inline { flex-wrap: wrap; justify-content: flex-end; }
-  .upload-help { max-width: 145px; }
   .compose-panel-heading { flex-wrap: wrap; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .item-card.is-arriving { animation: none; }
-}
+
 
 /* Refinamiento de la distribución: se conserva la estética original de Hopper. */
 @media (min-width: 761px) {
   .workspace-inner { width: min(100%, 1480px); padding-top: 10px; padding-bottom: 10px; gap: 10px; }
-  .compose-panels { grid-template-columns: minmax(200px, 1fr) minmax(0, 3fr); gap: 10px; }
+  .compose-panels { grid-template-columns: minmax(275px, 1fr) minmax(0, 2fr); gap: 10px; }
   .composer-card { padding: 11px 14px 12px; }
   .composer-heading { margin-bottom: 8px; }
   .compose-panel { padding: 10px; }
@@ -1260,13 +1282,8 @@
   cursor: pointer;
   padding: 0;
 }
-.item-card.is-arriving { animation: hopper-item-arrive 530ms cubic-bezier(0.22, 1.15, 0.36, 1) both; }
-@keyframes hopper-item-arrive {
-  0% { opacity: 0; transform: translateY(-17px) scale(0.986); background: var(--info-soft); }
-  72% { opacity: 1; transform: translateY(3px) scale(1.002); background: var(--info-soft); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
-}
-@media (prefers-reduced-motion: reduce) { .item-card.is-arriving { animation: none; } }
+
+
 
 @media (min-width: 761px) {
   .bulk-actions > .bulk-button[aria-label="Descargar todos los elementos"] { width: 34px; min-width: 34px; padding: 0; }
@@ -1278,4 +1295,9 @@
 @media (min-width: 761px) and (max-height: 760px) {
   .compose-panel #text-input { height: 70px; min-height: 70px; max-height: 70px; }
   .compose-panel .selected-files, .compose-panel .selected-files.is-grid { max-height: 78px; }
+}
+
+/* La distribución del editor es 1:2; los controles permanecen alineados. */
+@media (min-width: 761px) {
+  .compose-panels { grid-template-columns: minmax(275px, 1fr) minmax(0, 2fr); }
 }

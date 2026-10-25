@@ -8,6 +8,7 @@ import { ToastRegion } from "../ui/ToastRegion";
 import { Composer } from "./Composer";
 import { ItemList } from "./ItemList";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { FolderIcon, RefreshIcon } from "./icons";
 
 type SyncVariant = "" | "busy" | "offline" | "ok";
 type Props = TransferWorkspaceOptions & { roomMode?: boolean; showRoomSync?: boolean; toastController?: ToastController };
@@ -23,6 +24,7 @@ export function TransferWorkspace(props: Props) {
   const now = useNow();
   const previewRef = useRef<HTMLDialogElement>(null);
   const deleteRef = useRef<HTMLDialogElement>(null);
+  const directoryRef = useRef<HTMLDialogElement>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [bulkDeleteTargets, setBulkDeleteTargets] = useState<HopperItem[]>([]);
@@ -42,6 +44,11 @@ export function TransferWorkspace(props: Props) {
     if (hasDeleteTarget && !deleteRef.current?.open) deleteRef.current?.showModal();
     if (!hasDeleteTarget && deleteRef.current?.open) deleteRef.current.close();
   }, [bulkDeleteTargets, workspace.deleteTarget]);
+
+  useEffect(() => {
+    if (workspace.downloadDirectoryItems !== null && !directoryRef.current?.open) directoryRef.current?.showModal();
+    if (workspace.downloadDirectoryItems === null && directoryRef.current?.open) directoryRef.current.close();
+  }, [workspace.downloadDirectoryItems]);
 
   useEffect(() => {
     const available = new Set(workspace.items.map((item) => item.id));
@@ -106,8 +113,15 @@ export function TransferWorkspace(props: Props) {
   return <>
     <div className="workspace-inner">
       <Composer text={workspace.text} ttlMinutes={workspace.ttlMinutes} ttlOptions={workspace.ttlOptions} maxFileBytes={workspace.maxFileBytes} selectedFiles={workspace.selectedFiles} sending={workspace.sending} dragging={workspace.dragging} roomMode={Boolean(props.roomMode)} onTextChange={workspace.setText} onTtlChange={workspace.setTtlMinutes} onAddFiles={workspace.addFiles} onPasteFiles={addPastedFiles} onSendText={() => { void workspace.sendText(); }} onSendFiles={() => { void workspace.sendFiles(); }} onRemove={workspace.removeFile} onCancel={workspace.cancelFile} onRetry={(key) => { void workspace.retryFile(key); }} onDragging={workspace.setDragging} />
-      <ItemList items={workspace.items} now={now} loading={workspace.loading} refreshing={refreshing} batchBusy={workspace.batchBusy} syncLabel={sync.label} syncVariant={sync.variant} showSync={Boolean(props.showRoomSync)} emptyTitle={props.emptyTitle || (props.roomMode ? "La sala está vacía" : "La bandeja está vacía")} emptyCopy={props.emptyCopy || (props.roomMode ? "Envía texto o archivos y aparecerán aquí." : "Envía texto o archivos y aparecerán aquí en los demás dispositivos.")} api={workspace.api} allowTtlReset={workspace.allowTtlReset} ttlOptions={workspace.ttlOptions} selectedItemIds={selectedItemIds} downloadDirectorySupported={workspace.downloadDirectorySupported} downloadDirectoryName={workspace.downloadDirectoryName} onDisableDownloadDirectory={workspace.disableDownloadDirectory} onSelectionChange={setSelectedItemIds} onChooseDownloadDirectory={workspace.chooseDownloadDirectory} onDownloadMany={workspace.downloadItems} onDeleteManyRequest={requestBulkDelete} onRefresh={refresh} onCopy={workspace.copyItem} onCopyFile={workspace.copyFileItem} onDownload={workspace.downloadItem} onPreview={workspace.previewItem} onShare={workspace.shareItem} onDeleteRequest={requestSingleDelete} onResetTtl={workspace.resetTtl} onActivity={workspace.onActivity} onError={(message) => showToast(message, "error")} />
+      <ItemList items={workspace.items} now={now} loading={workspace.loading} refreshing={refreshing} batchBusy={workspace.batchBusy} syncLabel={sync.label} syncVariant={sync.variant} showSync={Boolean(props.showRoomSync)} emptyTitle={props.emptyTitle || (props.roomMode ? "La sala está vacía" : "La bandeja está vacía")} emptyCopy={props.emptyCopy || (props.roomMode ? "Envía texto o archivos y aparecerán aquí." : "Envía texto o archivos y aparecerán aquí en los demás dispositivos.")} api={workspace.api} allowTtlReset={workspace.allowTtlReset} ttlOptions={workspace.ttlOptions} selectedItemIds={selectedItemIds} downloadDirectorySupported={workspace.downloadDirectorySupported} downloadDirectoryName={workspace.downloadDirectoryName} onDisableDownloadDirectory={workspace.disableDownloadDirectory} onSelectionChange={setSelectedItemIds} onChooseDownloadDirectory={workspace.chooseDownloadDirectory} onViewDownloadDirectory={workspace.viewDownloadDirectory} onDownloadMany={workspace.downloadItems} onDeleteManyRequest={requestBulkDelete} onRefresh={refresh} onCopy={workspace.copyItem} onCopyFile={workspace.copyFileItem} onDownload={workspace.downloadItem} onPreview={workspace.previewItem} onShare={workspace.shareItem} onDeleteRequest={requestSingleDelete} onResetTtl={workspace.resetTtl} onActivity={workspace.onActivity} onError={(message) => showToast(message, "error")} />
     </div>
+    <dialog className="download-directory-dialog" ref={directoryRef} aria-label="Carpeta temporal" onClose={workspace.closeDownloadDirectory}>
+      <div className="dialog-header"><div><p className="eyebrow">DESCARGAS TEMPORALES</p><h2>{workspace.downloadDirectoryName}</h2></div><button className="icon-button" type="button" title="Cerrar" aria-label="Cerrar carpeta" onClick={workspace.closeDownloadDirectory}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></div>
+      <div className="directory-file-list">
+        {workspace.downloadDirectoryLoading ? <p className="directory-empty">Consultando archivos…</p> : workspace.downloadDirectoryItems?.length ? workspace.downloadDirectoryItems.map((file) => <div className="directory-file" key={file.id}><FolderIcon /><span title={file.name}>{file.name}</span><small>{file.expiresAt ? `Hasta ${new Date(file.expiresAt).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}` : "Sin expiración"}</small></div>) : <p className="directory-empty">No hay descargas temporales de Hopper en esta carpeta.</p>}
+      </div>
+      <div className="directory-file-actions"><button type="button" className="bulk-button" onClick={() => { void workspace.viewDownloadDirectory(); }}><RefreshIcon /> Actualizar</button><button type="button" className="bulk-button" onClick={workspace.browseDownloadDirectory}><FolderIcon /> Examinar en sistema</button></div>
+    </dialog>
     <dialog className="preview-dialog" id="preview-dialog" ref={previewRef} onClick={(event) => { if (event.target === event.currentTarget) closePreview(); }}><div className="dialog-header"><div><p className="eyebrow">VISTA PREVIA</p><h2 id="preview-title">{preview?.item.name || "Archivo"}</h2></div><button className="icon-button" id="preview-close" type="button" aria-label="Cerrar vista previa" onClick={closePreview}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></div><div className={`preview-body ${previewClass}`.trim()}>
       {preview?.kind === "image" && <img id="preview-image" src={preview.url} alt={`Vista previa de ${preview.item.name || "imagen"}`} />}
       {preview?.kind === "pdf" && <iframe className="pdf-preview" src={preview.url} title={`Vista previa de ${preview.item.name || "PDF"}`} />}

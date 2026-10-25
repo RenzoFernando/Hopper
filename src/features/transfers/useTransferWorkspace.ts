@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { copyTextToClipboard } from "../../lib/clipboard";
-import { chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownloads, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, loadDownloadDirectory, saveTemporaryDownload, supportsDownloadDirectory, temporaryFileName, type HopperDirectoryHandle } from "../../lib/download-directory";
+import { browseDownloadDirectory, chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownloads, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, listTemporaryDownloads, loadDownloadDirectory, saveTemporaryDownload, supportsDownloadDirectory, temporaryFileName, type HopperDirectoryHandle, type TemporaryDownloadInfo } from "../../lib/download-directory";
 import { fileExtension, fileTypeInfo } from "../../lib/file-types";
 import { formatBytes } from "../../lib/format";
 import { createZipBlob } from "../../lib/zip";
@@ -98,6 +98,9 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   const [preview, setPreviewState] = useState<PreviewState>(null);
   const [deleteTarget, setDeleteTarget] = useState<HopperItem | null>(null);
   const [downloadDirectory, setDownloadDirectory] = useState<HopperDirectoryHandle | null>(null);
+  const [downloadDirectoryItems, setDownloadDirectoryItems] = useState<TemporaryDownloadInfo[] | null>(null);
+  const [downloadDirectoryLoading, setDownloadDirectoryLoading] = useState(false);
+  const directoryRequest = useRef(0);
   const [batchBusy, setBatchBusy] = useState(false);
   const online = useRef(typeof navigator === "undefined" ? true : navigator.onLine);
   const selectedFilesRef = useRef<SelectedFileEntry[]>([]);
@@ -431,7 +434,9 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   const chooseDirectory = useCallback(async () => {
     try {
       const handle = await chooseDownloadDirectory();
+      directoryRequest.current += 1;
       setDownloadDirectory(handle);
+      setDownloadDirectoryItems(null);
       showToast(`Las descargas de Hopper se guardarán en ${handle.name}.`, "success");
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") return;
@@ -441,7 +446,9 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
 
   const disableDirectory = useCallback(async () => {
     await clearDownloadDirectory();
+    directoryRequest.current += 1;
     setDownloadDirectory(null);
+    setDownloadDirectoryItems(null);
     showToast("Las próximas descargas usarán la carpeta predeterminada del navegador.", "success");
   }, [showToast]);
 
@@ -453,6 +460,40 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
       return null;
     }
   }, [downloadDirectory]);
+
+  const viewDownloadDirectory = useCallback(async () => {
+    if (!downloadDirectory) return;
+    const requestId = ++directoryRequest.current;
+    setDownloadDirectoryItems([]);
+    setDownloadDirectoryLoading(true);
+    try {
+      const directory = await permittedDirectory();
+      if (!directory) throw new Error("Concede acceso a la carpeta para consultar sus archivos.");
+      const files = await listTemporaryDownloads(directory);
+      if (directoryRequest.current === requestId) setDownloadDirectoryItems(files);
+    } catch (caught) {
+      if (directoryRequest.current === requestId) {
+        showToast(errorInfo(caught).message, "error");
+        setDownloadDirectoryItems(null);
+      }
+    } finally {
+      if (directoryRequest.current === requestId) setDownloadDirectoryLoading(false);
+    }
+  }, [downloadDirectory, permittedDirectory, showToast]);
+
+  const closeDownloadDirectory = useCallback(() => {
+    directoryRequest.current += 1;
+    setDownloadDirectoryItems(null);
+    setDownloadDirectoryLoading(false);
+  }, []);
+
+  const browseDirectory = useCallback(() => {
+    if (!downloadDirectory) return;
+    void browseDownloadDirectory(downloadDirectory).catch((caught: unknown) => {
+      if (caught instanceof DOMException && caught.name === "AbortError") return;
+      showToast(errorInfo(caught).message, "error");
+    });
+  }, [downloadDirectory, showToast]);
 
   const triggerSignedDownload = useCallback(async (item: HopperItem) => {
     const result = await api.getFileUrl(item.id, "download");
@@ -601,6 +642,11 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     batchBusy,
     downloadDirectorySupported: supportsDownloadDirectory(),
     downloadDirectoryName: downloadDirectory?.name || "",
+    downloadDirectoryItems,
+    downloadDirectoryLoading,
+    viewDownloadDirectory,
+    closeDownloadDirectory,
+    browseDownloadDirectory: browseDirectory,
     maxFileBytes,
     allowTtlReset,
     setText,

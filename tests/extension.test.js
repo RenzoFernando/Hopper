@@ -67,3 +67,19 @@ test("puente de extensión: precarga invisible, envío de texto y publicación e
   assert.equal(calls.filter((call) => call.path.endsWith("/complete")).length, 1);
   assert.equal(calls.find((call) => call.path.endsWith("/complete")).body.ttlMinutes, 5);
 });
+
+
+test("límite de 128 MiB compartido por popup y puente", () => {
+  for (const file of ["popup.js", "bridge.js"]) {
+    const code = readFileSync(resolve(extension, file), "utf8");
+    assert.match(code, /MAX_FILE_BYTES = 128 \* 1024 \* 1024/);
+  }
+});
+
+test("el popup evita instrucciones técnicas y admite pegar con alternativa", () => {
+  const html = readFileSync(resolve(extension, "popup.html"), "utf8");
+  const code = readFileSync(resolve(extension, "popup.js"), "utf8");
+  assert.doesNotMatch(html, /se publican al enviar|se mantienen ocultos/i);
+  assert.match(code, /navigator\.clipboard\?\.readText/);
+  assert.match(code, /document\.execCommand\("paste"\)/);
+});

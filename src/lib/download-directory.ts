@@ -16,13 +16,14 @@ export type HopperDirectoryHandle = {
   kind: "directory";
   name: string;
   getFileHandle: (name: string, options: { create: boolean }) => Promise<HopperFileSystemFileHandle>;
+  isSameEntry?: (other: HopperDirectoryHandle) => Promise<boolean>;
   removeEntry?: (name: string) => Promise<void>;
   queryPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
   requestPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
 };
 
 type DirectoryWindow = Window & {
-  showDirectoryPicker?: (options?: { mode?: "read" | "readwrite" }) => Promise<HopperDirectoryHandle>;
+  showDirectoryPicker?: (options?: { mode?: "read" | "readwrite"; startIn?: HopperDirectoryHandle }) => Promise<HopperDirectoryHandle>;
 };
 
 const DB_NAME = "hopper-downloads-v1";
@@ -184,6 +185,43 @@ export async function saveTemporaryDownload(
   } finally {
     db.close();
   }
+}
+
+
+export type TemporaryDownloadInfo = { id: string; name: string; expiresAt: string | null };
+
+export async function listTemporaryDownloads(directory: HopperDirectoryHandle): Promise<TemporaryDownloadInfo[]> {
+  if (!directory.isSameEntry) throw new Error("El navegador no permite consultar esta carpeta.");
+  const db = await openDatabase();
+  try {
+    const entries = await new Promise<TemporaryDownload[]>((resolve, reject) => {
+      const transaction = db.transaction(TEMPORARY_STORE, "readonly");
+      const request = transaction.objectStore(TEMPORARY_STORE).getAll();
+      request.onsuccess = () => resolve(request.result as TemporaryDownload[]);
+      request.onerror = () => reject(request.error ?? new Error("No fue posible consultar las descargas temporales."));
+    });
+    const found: TemporaryDownloadInfo[] = [];
+    for (const entry of entries) {
+      if (!(await directory.isSameEntry(entry.directory))) continue;
+      try {
+        // Solo se muestran los archivos registrados por Hopper que aún existen.
+        await directory.getFileHandle(entry.name, { create: false });
+        found.push({ id: entry.id, name: entry.name, expiresAt: entry.expiresAt });
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
+      }
+    }
+    return found.reverse();
+  } finally {
+    db.close();
+  }
+}
+
+export function browseDownloadDirectory(directory: HopperDirectoryHandle) {
+  const picker = (window as DirectoryWindow).showDirectoryPicker;
+  if (!picker) throw new Error("Este navegador no permite examinar carpetas.");
+  // El selector se abre en la carpeta guardada, sin cambiar la carpeta activa.
+  return picker({ mode: "read", startIn: directory });
 }
 
 let cleanupInProgress = false;

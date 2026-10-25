@@ -71,7 +71,7 @@ export function Composer(props: Props) {
             <span className="drop-limit" id="drop-limit">Máx. {formatBytes(props.maxFileBytes)}</span>
           </div>
           <TransferQueue entries={props.selectedFiles} onRemove={props.onRemove} onCancel={props.onCancel} onRetry={props.onRetry} />
-          <div className="composer-actions"><span className="upload-help">Los archivos se mantienen ocultos hasta publicarlos.</span><button className="primary-button send-button" id="send-files-button" type="button" title="Publicar archivos preparados" aria-label="Enviar archivos" disabled={props.sending || !filesReady} onClick={props.onSendFiles}><SendIcon /><span className="send-caption">{props.sending ? "Procesando…" : `Enviar archivos${filesReady ? ` (${readyCount})` : ""}`}</span></button></div>
+          <div className="composer-actions"><button className="primary-button send-button" id="send-files-button" type="button" title="Publicar archivos preparados" aria-label="Enviar archivos" disabled={props.sending || !filesReady} onClick={props.onSendFiles}><SendIcon /><span className="send-caption">{props.sending ? "Procesando…" : `Enviar archivos${filesReady ? ` (${readyCount})` : ""}`}</span></button></div>
         </section>
       </div>
     </section>

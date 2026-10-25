@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { TransferApi } from "../../features/transfers/types";
 import type { HopperItem } from "../../schemas/item";
 import { ItemCard } from "./ItemCard";
@@ -23,6 +23,7 @@ type Props = {
   downloadDirectoryName: string;
   onSelectionChange: (ids: string[]) => void;
   onChooseDownloadDirectory: () => Promise<void>;
+  onViewDownloadDirectory: () => Promise<void>;
   onDisableDownloadDirectory: () => Promise<void>;
   onDownloadMany: (items: HopperItem[]) => Promise<void>;
   onDeleteManyRequest: (items: HopperItem[]) => void;
@@ -51,33 +52,45 @@ export function ItemList(props: Props) {
   const knownIds = useRef<Set<string> | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const previousPositions = useRef(new Map<string, number>());
-  const arriving = knownIds.current === null ? new Set<string>() : new Set(activeItems.filter((item) => !knownIds.current?.has(item.id)).map((item) => item.id));
-  useEffect(() => {
-    knownIds.current = new Set(activeItems.map((item) => item.id));
-  }, [activeItems]);
+  const itemIds = activeItems.map((item) => item.id).join("\u0000");
 
   useLayoutEffect(() => {
     const container = listRef.current;
-    if (!container) return;
+    if (!container || props.loading) return;
+    const previousIds = knownIds.current;
     const nextPositions = new Map<string, number>();
-    const containerTop = container.getBoundingClientRect().top;
-    const reducedMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    for (const element of Array.from(container.querySelectorAll<HTMLElement>("[data-item-id]"))) {
-      const id = element.dataset.itemId;
+    const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-item-id]"));
+    const newIds = rows.filter((row) => row.dataset.itemId && !previousIds?.has(row.dataset.itemId));
+    const canAnimate = previousIds !== null && newIds.length > 0 &&
+      typeof window.matchMedia === "function" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    for (const row of rows) {
+      const id = row.dataset.itemId;
       if (!id) continue;
-      const top = element.getBoundingClientRect().top - containerTop + container.scrollTop;
+      // offsetTop no incluye transformaciones de animaciones aún en curso.
+      const top = row.offsetTop;
       nextPositions.set(id, top);
-      const previous = previousPositions.current.get(id);
-      const offset = previous === undefined ? 0 : previous - top;
-      if (!reducedMotion && Math.abs(offset) > 2 && typeof element.animate === "function") {
-        element.animate(
-          [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
-          { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+      if (!canAnimate || typeof row.animate !== "function") continue;
+      if (!previousIds?.has(id)) {
+        row.animate(
+          [{ opacity: 0, transform: "translateY(-18px)" }, { opacity: 1, transform: "translateY(0)" }],
+          { duration: 360, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
         );
+      } else {
+        const previous = previousPositions.current.get(id);
+        const offset = previous === undefined ? 0 : previous - top;
+        if (Math.abs(offset) > 1) {
+          row.animate(
+            [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
+            { duration: 360, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+          );
+        }
       }
     }
+    knownIds.current = new Set(rows.map((row) => row.dataset.itemId).filter((id): id is string => Boolean(id)));
     previousPositions.current = nextPositions;
-  }, [activeItems]);
+  }, [itemIds, props.loading]);
 
   const invoke = (operation: () => Promise<void>) => {
     void operation().catch((error: unknown) => props.onError(error instanceof Error ? error.message : "No fue posible completar la acción."));
@@ -101,6 +114,7 @@ export function ItemList(props: Props) {
         <div className="bulk-actions">
           {props.downloadDirectorySupported && <>
             <button type="button" className={`bulk-button ${props.downloadDirectoryName ? "is-active" : ""}`.trim()} title={props.downloadDirectoryName ? `Carpeta activa: ${props.downloadDirectoryName}` : "Seleccionar carpeta para descargas temporales"} disabled={props.batchBusy} onClick={() => { void props.onChooseDownloadDirectory(); }}><FolderIcon /><span>{props.downloadDirectoryName || "Elegir carpeta"}</span></button>
+            {props.downloadDirectoryName && <button type="button" className="bulk-button" aria-label="Ver carpeta temporal" title="Ver archivos descargados en esta carpeta" disabled={props.batchBusy} onClick={() => invoke(props.onViewDownloadDirectory)}><FolderIcon /><span>Ver carpeta</span></button>}
             {props.downloadDirectoryName && <button type="button" className="bulk-button" aria-label="Volver a Descargas" title="Dejar de usar la carpeta y volver a las descargas normales" disabled={props.batchBusy} onClick={() => invoke(props.onDisableDownloadDirectory)}><DownloadIcon /><span>Usar Descargas</span></button>}
           </>}
           {activeItems.length > 0 && <button type="button" className="bulk-button" aria-label="Descargar todos los elementos" title="Descargar todos" disabled={props.batchBusy} onClick={() => invoke(() => props.onDownloadMany(activeItems))}><DownloadIcon /><span>{activeItems.length === 1 ? "Descargar elemento" : "Descargar todos"}</span></button>}
@@ -112,7 +126,7 @@ export function ItemList(props: Props) {
         <div className="loading-state" id="loading-state" hidden={!props.loading}><span className="spinner" aria-hidden="true" /><span>Cargando contenido temporal…</span></div>
         <div className="empty-state" id="empty-state" hidden={props.loading || activeItems.length > 0}><div className="empty-mark" aria-hidden="true"><EmptyIcon /></div><h3>{props.emptyTitle}</h3><p>{props.emptyCopy}</p></div>
         <div className="item-list" ref={listRef} id="item-list" aria-live="polite" hidden={props.loading || activeItems.length === 0}>
-          {activeItems.map((item) => <ItemCard key={item.id} arriving={arriving.has(item.id)} item={item} now={props.now} api={props.api} allowTtlReset={props.allowTtlReset} ttlOptions={props.ttlOptions} selected={selectedSet.has(item.id)} onSelectionChange={toggleItem} onCopy={props.onCopy} onCopyFile={props.onCopyFile} onDownload={props.onDownload} onPreview={props.onPreview} onShare={props.onShare} onDeleteRequest={props.onDeleteRequest} onResetTtl={props.onResetTtl} onActivity={props.onActivity} onError={props.onError} />)}
+          {activeItems.map((item) => <ItemCard key={item.id} item={item} now={props.now} api={props.api} allowTtlReset={props.allowTtlReset} ttlOptions={props.ttlOptions} selected={selectedSet.has(item.id)} onSelectionChange={toggleItem} onCopy={props.onCopy} onCopyFile={props.onCopyFile} onDownload={props.onDownload} onPreview={props.onPreview} onShare={props.onShare} onDeleteRequest={props.onDeleteRequest} onResetTtl={props.onResetTtl} onActivity={props.onActivity} onError={props.onError} />)}
         </div>
       </div>
     </section>

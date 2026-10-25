@@ -187,8 +187,8 @@ test("el compositor prioriza archivos y mantiene controles iconográficos accesi
     const files = document.querySelector<HTMLElement>(".compose-files")?.getBoundingClientRect().width || 0;
     return { text, files, resize: getComputedStyle(document.querySelector("#text-input")!).resize };
   });
-  expect(widths.text / (widths.text + widths.files)).toBeGreaterThan(0.22);
-  expect(widths.text / (widths.text + widths.files)).toBeLessThan(0.28);
+  expect(widths.text / (widths.text + widths.files)).toBeGreaterThan(0.32);
+  expect(widths.text / (widths.text + widths.files)).toBeLessThan(0.35);
   expect(widths.resize).toBe("none");
   await expect(page.getByRole("button", { name: "Enviar texto" })).toBeVisible();
   await page.locator("#text-input").fill("Control de tiempo");

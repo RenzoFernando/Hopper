@@ -4,7 +4,7 @@
 
   const API_ROOT = "https://hopper-api.renzofernando.workers.dev";
   const SESSION_KEY = "hopper-session-v1";
-  const MAX_FILE_BYTES = 32 * 1024 * 1024;
+  const MAX_FILE_BYTES = 128 * 1024 * 1024;
   const STAGING_TIMEOUT_MS = 19 * 60 * 1000;
   const pending = new Map();
 
@@ -83,7 +83,7 @@
       const { key, name, size, mimeType, ttlMinutes } = payload;
       if (typeof key !== "string" || !key || pending.has(key)) throw new Error("Identificador de archivo inválido.");
       if (typeof name !== "string" || !name || !Number.isInteger(size) || size <= 0 || size > MAX_FILE_BYTES) {
-        throw new Error("La extensión permite archivos de hasta 32 MB. Para archivos grandes, abre Hopper.");
+        throw new Error("La extensión permite archivos de hasta 128 MB. Para archivos grandes, abre Hopper.");
       }
       const initialized = await api("/api/uploads/init", "POST", {
         name, size, mimeType: mimeType || "application/octet-stream", ttlMinutes
