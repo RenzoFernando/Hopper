@@ -217,3 +217,34 @@
   width: min(100%, 430px);
   justify-self: center;
 }
+
+/* Mobile parity: icon-first, compact composer, consistent headings. */
+@media (max-width: 760px) {
+  .workspace-inner { padding: 10px 10px 15px; gap: 11px; display: flex; flex-direction: column; min-height: calc(100dvh - var(--header-height)); height: auto; }
+  .composer-card { padding: 12px; border-radius: 15px; flex: 0 0 auto; }
+  .composer-heading { align-items: center; margin-bottom: 9px; }
+  .ttl-field-inline { flex: 0 0 auto; flex-wrap: nowrap; gap: 7px; }
+  .ttl-field-inline select { width: auto; min-width: 100px; }
+  .compose-panels { gap: 8px; grid-template-columns: minmax(0, 1fr); }
+  .compose-panel { padding: 10px; border-radius: 12px; }
+  .compose-panel-heading { margin-bottom: 7px; align-items: baseline; flex-wrap: nowrap; }
+  .compose-panel-heading > span { font-size: .69rem; text-align: right; }
+  .compose-panel #text-input { height: 86px; min-height: 86px; max-height: 86px; }
+  .compose-panel .drop-zone { min-height: 49px; padding-block: 10px; }
+  .compose-panel .composer-actions { padding-top: 6px; justify-content: flex-end; align-items: center; }
+  .compose-panel .send-button { min-width: 40px; width: 40px; min-height: 36px; padding: 0; }
+  .compose-panel .send-caption { display: none; }
+  .items-frame { min-height: 360px; flex: 1 0 auto; }
+  .item-list { max-height: none; }
+  .recent-header { margin-top: 2px; }
+  .bulk-toolbar { gap: 7px; }
+}
+@media (max-width: 380px) {
+  .compose-panel-heading > span { max-width: 60%; }
+  .ttl-field-inline { gap: 5px; }
+}
+
+@media(max-width:760px){.compose-text .compose-panel-heading>span{display:none;}
+.workspace-inner{overscroll-behavior-y:contain;}
+.recent-section{min-height:320px;}
+}

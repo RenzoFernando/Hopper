@@ -8,6 +8,7 @@ import { RecoverPage } from "../pages/RecoverPage";
 import { RoomPage } from "../pages/RoomPage";
 import { ShareTargetPage } from "../pages/ShareTargetPage";
 import { SpacePage } from "../pages/SpacePage";
+import { SuperPage } from "../pages/SuperPage";
 
 const PUBLIC_APP_URL = new URL(appConfig.publicAppUrl).origin;
 let homeSchemaContents: string | null = null;
@@ -104,6 +105,7 @@ export function AppRouter() {
       <Route path="/space" element={<PageFrame bodyClass="app-page" title="Mi espacio privado para transferencias | Hopper" description="Espacio privado de Hopper para transferir temporalmente texto y archivos entre tus dispositivos."><SpacePage /></PageFrame>} />
       <Route path="/room/:code" element={<PageFrame bodyClass="app-page" title="Sala temporal para compartir archivos | Hopper" description="Sala temporal de Hopper para compartir texto y archivos mediante un código independiente."><RoomPage /></PageFrame>} />
       <Route path="/room" element={<PageFrame bodyClass="app-page" title="Entrar a una sala temporal | Hopper" description="Introduce un código de sala de Hopper para compartir temporalmente texto y archivos."><RoomPage /></PageFrame>} />
+      <Route path="/admin/super" element={<PageFrame bodyClass="document-page" title="Carga exclusiva | Hopper" description="Área administrativa de carga exclusiva de Hopper."><SuperPage /></PageFrame>} />
       <Route path="/admin" element={<PageFrame bodyClass="document-page" title="Panel de administración de Hopper" description="Panel privado para consultar uso, salud, límites, salas y mantenimiento de Hopper."><AdminPage /></PageFrame>} />
       <Route path="/recover" element={<PageFrame bodyClass="document-page compact-document-page" title="Recuperar el acceso a Hopper" description="Restablece de forma segura el PIN de acceso a Mi espacio mediante un enlace temporal."><RecoverPage /></PageFrame>} />
       <Route path="/share" element={<PageFrame bodyClass="document-page compact-document-page" title="Enviar contenido compartido a Hopper" description="Selecciona un destino de Hopper para recibir contenido desde Web Share Target."><ShareTargetPage /></PageFrame>} />

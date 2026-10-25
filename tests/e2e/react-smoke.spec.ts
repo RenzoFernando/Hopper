@@ -140,7 +140,7 @@ test("login, texto, archivo y logout funcionan en React", async ({ page }) => {
   await page.locator("#pin-input").fill("1234");
   await expect(page).toHaveURL(/\/space$/);
   await expect(page.locator("#workspace-screen")).toBeVisible();
-  await expect(page.locator("#ttl-select option")).toHaveText(["5 min", "15 min", "30 min", "1 hora", "6 horas", "1 día", "Indefinido"]);
+  await expect(page.locator("#ttl-select option")).toHaveText(["5 min", "15 min", "30 min", "1 hora", "6 horas", "12 horas", "1 día", "Anclado"]);
 
   await page.locator("#text-input").fill("Texto desde React");
   await page.locator("#send-button").click();
@@ -259,6 +259,30 @@ test("Administración permite cerrar la sesión directamente", async ({ page }) 
   await expect(page.locator("#auth-screen")).toBeVisible();
   const session = await page.evaluate(() => localStorage.getItem("hopper-session-v1"));
   expect(session).toBeNull();
+});
+
+test("carga exclusiva no ofrece borrado si el Worker aún no tiene la ruta", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.route("**/api/admin/super/status", (route) => json(route, { ok: false, code: "not-found", message: "Ruta no encontrada." }, 404));
+  await page.goto("/admin/super");
+  await expect(page.getByRole("heading", { name: "Carga exclusiva" })).toBeVisible();
+  await expect(page.getByText("La API de carga exclusiva no está desplegada.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Vaciar y activar" })).toHaveCount(0);
+  await expect(page.getByText("No disponible", { exact: true })).toBeVisible();
+});
+
+test("carga exclusiva permite ver la preparación solo con API comprobada", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.route("**/api/admin/super/status", (route) => json(route, {
+    ok: true, active: false, status: "inactive", expiresAt: null,
+    limitBytes: 10 * 1024 * 1024 * 1024, files: []
+  }));
+  await page.goto("/admin/super");
+  await expect(page.getByText("Inactiva", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Vaciar y activar" })).toBeDisabled();
+  await expect(page.getByRole("option", { name: "12 horas" })).toHaveCount(1);
 });
 
 test("recuperación verifica, limpia el hash y actualiza el PIN", async ({ page }) => {
@@ -405,4 +429,26 @@ test("Share Target puede crear una sala y enviar sin perder el payload", async (
   await page.reload();
   await page.locator("#share-create-room").click();
   await expect(page).toHaveURL(/\/room\/AB-1234$/);
+});
+
+
+test("PWA móvil conserva títulos de igual jerarquía y botones compactos", async ({ page }) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.addInitScript(() => { window.__HOPPER_VISUAL_TEST__ = true; });
+  await page.goto("/space");
+  await expect(page.getByRole("heading", {name:"Enviar",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading", {name:"Bandeja",exact:true})).toBeVisible();
+  const sizes=await page.evaluate(()=>({send:getComputedStyle(document.querySelector(".composer-heading h1")!).fontSize,inbox:getComputedStyle(document.querySelector(".recent-header h2")!).fontSize,caption:getComputedStyle(document.querySelector("#send-files-button .send-caption")!).display}));
+  expect(sizes.send).toBe(sizes.inbox);
+  expect(sizes.caption).toBe("none");
+  await expect(page.getByRole("button",{name:"Enviar archivos"})).toBeVisible();
+});
+
+test("Administración expone el acceso a carga exclusiva", async ({page})=>{
+  await page.addInitScript(() => { window.__HOPPER_VISUAL_TEST__ = true; });
+  await page.goto("/admin");
+  await expect(page.getByText("Carga exclusiva",{exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"Abrir",exact:true}).click();
+  await expect(page).toHaveURL(/\/admin\/super$/);
+  await expect(page.getByRole("heading",{name:"Carga exclusiva",exact:true})).toBeVisible();
 });

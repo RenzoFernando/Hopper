@@ -20,13 +20,13 @@ export function formatBytes(bytes: number) {
   return `${amount.toFixed(digits)} ${units[unitIndex] ?? "TB"}`;
 }
 
-export function formatCountdown(expiresAt: string | null | undefined, now = Date.now()) {
-  if (!expiresAt) return "Indefinido";
+export function formatCountdown(expiresAt: string | null | undefined, now = Date.now(), ttlMinutes?: number) {
+  if (!expiresAt) return "Anclado";
 
   const timestamp = Date.parse(expiresAt);
   if (!Number.isFinite(timestamp)) return "--:--";
 
-  const remaining = Math.max(0, timestamp - now);
+  const remaining = Math.max(0, Math.min(timestamp - now, typeof ttlMinutes === "number" && ttlMinutes > 0 ? ttlMinutes * 60_000 : Infinity));
   const totalSeconds = Math.ceil(remaining / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -40,9 +40,10 @@ export function formatCountdown(expiresAt: string | null | undefined, now = Date
 }
 
 export function ttlLabel(minutes: number) {
-  if (minutes === 0) return "Indefinido";
+  if (minutes === 0) return "Anclado";
   if (minutes === 60) return "1 hora";
   if (minutes === 360) return "6 horas";
+  if (minutes === 720) return "12 horas";
   if (minutes === 1440) return "1 día";
   return `${minutes} min`;
 }

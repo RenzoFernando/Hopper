@@ -20,6 +20,13 @@ type AppHeaderProps = {
   adminRefreshing?: boolean;
 };
 
+function SettingsIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M11 2h2l.5 2.1c.65.2 1.28.46 1.86.78l1.88-1.05 2.83 2.83-1.05 1.88c.32.58.58 1.21.78 1.86L22 11v2l-2.1.5c-.2.65-.46 1.28-.78 1.86l1.05 1.88-2.83 2.83-1.88-1.05c-.58.32-1.21.58-1.86.78L13 22h-2l-.5-2.1c-.65-.2-1.28-.46-1.86-.78l-1.88 1.05-2.83-2.83 1.05-1.88c-.32-.58-.58-1.21-.78-1.86L2 13v-2l2.1-.5c.2-.65.46-1.28.78-1.86L3.83 6.76l2.83-2.83 1.88 1.05c.58-.32 1.21-.58 1.86-.78L11 2Z" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinejoin="round" strokeLinecap="round" />
+    <circle cx="12" cy="12" r="3.15" fill="none" stroke="currentColor" strokeWidth="1.55" />
+  </svg>;
+}
+
 function HomeIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -88,7 +95,7 @@ export function AppHeader({
         </nav>
         <div className="header-session" id="header-session" hidden={!authenticated}>
           <span className={`sync-state ${syncVariant ? `is-${syncVariant}` : ""}`.trim()} id="sync-state" aria-live="polite">{syncLabel}</span>
-          <a className="header-link" href="/admin">Administración</a>
+          <a className="icon-button info-icon-button admin-nav-icon" href="/admin" aria-label="Administración" title="Administración"><SettingsIcon /></a>
           <button className="header-link header-button" id="install-button-session" type="button" hidden={!installVisible} onClick={onInstall}>Instalar</button>
           <button className="icon-button info-icon-button" id="update-button-session" type="button" aria-label="Actualizar Hopper" title="Actualizar" hidden={!updateVisible} onClick={onUpdate}><RefreshIcon /></button>
           <button className="icon-button logout-button" id="logout-button" type="button" aria-label="Salir" title="Salir" onClick={onLogout}><LogoutIcon /></button>

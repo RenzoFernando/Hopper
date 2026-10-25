@@ -19,8 +19,9 @@ describe("utilidades migradas a TypeScript", () => {
     expect(ttlLabel(5)).toBe("5 min");
     expect(ttlLabel(60)).toBe("1 hora");
     expect(ttlLabel(360)).toBe("6 horas");
+    expect(ttlLabel(720)).toBe("12 horas");
     expect(ttlLabel(1440)).toBe("1 día");
-    expect(ttlLabel(0)).toBe("Indefinido");
+    expect(ttlLabel(0)).toBe("Anclado");
   });
 
   it("conserva previews y cuenta regresiva", () => {
@@ -28,7 +29,8 @@ describe("utilidades migradas a TypeScript", () => {
     expect(fileTypeLabel("foto.png", "image/png")).toBe("PNG");
     expect(fileTypeLabel("archivo", "application/octet-stream")).toBe("Archivo");
     expect(formatCountdown("2026-09-10T00:05:00.000Z", Date.parse("2026-09-10T00:00:28.000Z"))).toBe("4:32");
-    expect(formatCountdown(null)).toBe("Indefinido");
+    expect(formatCountdown("2026-09-10T00:05:02.000Z", Date.parse("2026-09-10T00:00:00.000Z"), 5)).toBe("5:00");
+    expect(formatCountdown(null)).toBe("Anclado");
   });
 
 

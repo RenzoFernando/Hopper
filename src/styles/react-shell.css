@@ -96,3 +96,11 @@
   color: var(--info-hover);
 }
 
+
+.exclusive-lock-screen { position:fixed; inset:var(--header-height,60px) 0 0; z-index:190; display:grid; place-items:center; padding:20px; background:var(--page); }
+.exclusive-lock-message { width:min(100%,480px); padding:30px 22px; border:1px solid var(--border); border-radius:16px; background:var(--surface); text-align:center; }
+.exclusive-lock-message strong { font-size:1rem; }
+.exclusive-lock-message p { color:var(--text-soft); font-size:.86rem; }
+.exclusive-lock-message small { color:var(--text-faint); }
+
+.exclusive-admin-link { display:inline-flex; align-items:center; justify-content:center; margin-top:12px; padding:8px 13px; text-decoration:none; }

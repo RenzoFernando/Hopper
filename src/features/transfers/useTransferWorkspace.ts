@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { copyTextToClipboard } from "../../lib/clipboard";
-import { browseDownloadDirectory, chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownloads, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, listTemporaryDownloads, loadDownloadDirectory, saveTemporaryDownload, supportsDownloadDirectory, temporaryFileName, type HopperDirectoryHandle, type TemporaryDownloadInfo } from "../../lib/download-directory";
+import { chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownloads, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, listTemporaryDownloads, loadDownloadDirectory, saveTemporaryDownload, supportsDownloadDirectory, temporaryFileName, type HopperDirectoryHandle, type TemporaryDownloadInfo } from "../../lib/download-directory";
 import { fileExtension, fileTypeInfo } from "../../lib/file-types";
 import { formatBytes } from "../../lib/format";
 import { createZipBlob } from "../../lib/zip";
@@ -487,14 +487,6 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     setDownloadDirectoryLoading(false);
   }, []);
 
-  const browseDirectory = useCallback(() => {
-    if (!downloadDirectory) return;
-    void browseDownloadDirectory(downloadDirectory).catch((caught: unknown) => {
-      if (caught instanceof DOMException && caught.name === "AbortError") return;
-      showToast(errorInfo(caught).message, "error");
-    });
-  }, [downloadDirectory, showToast]);
-
   const triggerSignedDownload = useCallback(async (item: HopperItem) => {
     const result = await api.getFileUrl(item.id, "download");
     const link = document.createElement("a");
@@ -646,7 +638,6 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     downloadDirectoryLoading,
     viewDownloadDirectory,
     closeDownloadDirectory,
-    browseDownloadDirectory: browseDirectory,
     maxFileBytes,
     allowTtlReset,
     setText,

@@ -65,6 +65,9 @@ jobs:
       - name: Regresión backend
         run: npm run test:legacy
 
+      - name: Regresión de carga exclusiva y carpetas locales
+        run: node --experimental-strip-types --test tests/exclusive.test.js tests/directory-list.test.js
+
       - name: Persistencia de métricas
         run: node --experimental-strip-types --test tests/usage.test.js
 

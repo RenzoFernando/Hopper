@@ -11,7 +11,8 @@ import { TestD1 } from "./d1-test-helper.js";
 
 const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 const tuning = readFileSync(new URL("../worker/migrations/0002_product_tuning.sql", import.meta.url), "utf8");
-const schema = `${baseline}\n${tuning}`;
+const exclusive = readFileSync(new URL("../worker/migrations/0003_exclusive_transfer.sql", import.meta.url), "utf8");
+const schema = `${baseline}\n${tuning}\n${exclusive}`;
 
 test("las métricas administrativas persisten en D1 y agregan siete días", async () => {
   const db = new TestD1(schema);

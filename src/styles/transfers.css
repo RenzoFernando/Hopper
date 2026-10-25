@@ -1301,3 +1301,6 @@
 @media (min-width: 761px) {
   .compose-panels { grid-template-columns: minmax(275px, 1fr) minmax(0, 2fr); }
 }
+
+/* Un mismo sistema de títulos y controles para escritorio y PWA. */
+.composer-heading h1, .recent-header h2, .recent-header h1 { font-size: 1rem; font-weight: 720; line-height: 1.25; letter-spacing: -.015em; }

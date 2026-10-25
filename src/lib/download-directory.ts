@@ -17,6 +17,7 @@ export type HopperDirectoryHandle = {
   name: string;
   getFileHandle: (name: string, options: { create: boolean }) => Promise<HopperFileSystemFileHandle>;
   isSameEntry?: (other: HopperDirectoryHandle) => Promise<boolean>;
+  values?: () => AsyncIterable<HopperFileSystemFileHandle | { kind: "directory"; name: string }>;
   removeEntry?: (name: string) => Promise<void>;
   queryPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
   requestPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
@@ -188,10 +189,10 @@ export async function saveTemporaryDownload(
 }
 
 
-export type TemporaryDownloadInfo = { id: string; name: string; expiresAt: string | null };
+export type TemporaryDownloadInfo = { id: string; name: string; expiresAt: string | null; managed: boolean };
 
 export async function listTemporaryDownloads(directory: HopperDirectoryHandle): Promise<TemporaryDownloadInfo[]> {
-  if (!directory.isSameEntry) throw new Error("El navegador no permite consultar esta carpeta.");
+  if (!directory.values) throw new Error("El navegador no permite consultar directamente el contenido de esta carpeta.");
   const db = await openDatabase();
   try {
     const entries = await new Promise<TemporaryDownload[]>((resolve, reject) => {
@@ -200,28 +201,24 @@ export async function listTemporaryDownloads(directory: HopperDirectoryHandle): 
       request.onsuccess = () => resolve(request.result as TemporaryDownload[]);
       request.onerror = () => reject(request.error ?? new Error("No fue posible consultar las descargas temporales."));
     });
-    const found: TemporaryDownloadInfo[] = [];
+    const records = new Map<string, TemporaryDownload>();
+    // Los metadatos de expiración se aplican solo a archivos guardados por Hopper.
     for (const entry of entries) {
-      if (!(await directory.isSameEntry(entry.directory))) continue;
-      try {
-        // Solo se muestran los archivos registrados por Hopper que aún existen.
-        await directory.getFileHandle(entry.name, { create: false });
-        found.push({ id: entry.id, name: entry.name, expiresAt: entry.expiresAt });
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "NotFoundError")) throw error;
-      }
+      if (directory.isSameEntry && await directory.isSameEntry(entry.directory)) records.set(entry.name, entry);
     }
-    return found.reverse();
+    const found: TemporaryDownloadInfo[] = [];
+    for await (const handle of directory.values()) {
+      if (handle.kind !== "file") continue;
+      const entry = records.get(handle.name);
+      found.push({ id: entry?.id || `local:${handle.name}`, name: handle.name, expiresAt: entry?.expiresAt ?? null, managed: Boolean(entry) });
+      // Evita bloquear la PWA si la carpeta contiene miles de archivos.
+      if (found.length >= 300) break;
+    }
+    found.sort((a, b) => Number(b.managed) - Number(a.managed) || a.name.localeCompare(b.name, "es"));
+    return found;
   } finally {
     db.close();
   }
-}
-
-export function browseDownloadDirectory(directory: HopperDirectoryHandle) {
-  const picker = (window as DirectoryWindow).showDirectoryPicker;
-  if (!picker) throw new Error("Este navegador no permite examinar carpetas.");
-  // El selector se abre en la carpeta guardada, sin cambiar la carpeta activa.
-  return picker({ mode: "read", startIn: directory });
 }
 
 let cleanupInProgress = false;

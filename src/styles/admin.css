@@ -446,3 +446,24 @@
   font-size: 0.73rem;
 }
 
+
+/* Almacenamiento exclusivo: misma línea visual de Administración, sin documentación técnica en la UI. */
+.super-entry { display:flex; gap:16px; align-items:center; justify-content:space-between; }
+.super-entry h2, .super-panel h2 { margin:0 0 8px; font-size:1rem; }
+.super-entry p, .super-panel p { margin:5px 0 12px; color:var(--text-soft); font-size:.8rem; line-height:1.5; }
+.super-panel { display:grid; gap:12px; margin-bottom:16px; }
+.super-heading { display:flex; justify-content:space-between; gap:10px; }
+.super-panel label:not(.super-confirm) { display:grid; gap:7px; color:var(--text-soft); font-size:.82rem; font-weight:650; }
+.super-panel input[type="password"], .super-panel select, .super-panel input[type="file"] { width:100%; padding:10px; border:1px solid var(--border); border-radius:9px; background:var(--surface); color:var(--text); }
+.super-confirm { display:flex; align-items:center; gap:9px; font-size:.8rem; }
+.super-panel button { justify-self:start; }
+.super-caption { color:var(--text-soft); font-size:.78rem; }
+.super-files { display:grid; gap:8px; }
+.super-file { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid var(--border); border-radius:10px; min-width:0; }
+.super-file > div:first-child { display:grid; gap:4px; min-width:0; overflow-wrap:anywhere; }
+.super-file > div:last-child { display:flex; gap:6px; }
+.super-file small { color:var(--text-faint); }
+.super-file button { min-height:36px; padding:6px 10px; }
+.super-message { font-size:.83rem; color:var(--text); }
+.super-panel progress { width:100%; }
+@media(max-width:600px) { .super-entry {align-items:flex-start;} .super-file {flex-direction:column;align-items:stretch;} .super-file > div:last-child {justify-content:flex-end;} }

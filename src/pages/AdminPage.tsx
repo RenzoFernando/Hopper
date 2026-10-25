@@ -156,6 +156,7 @@ export function AdminPage() {
         <div className="admin-heading"><div><p className="eyebrow">HOPPER</p><h1>Administración</h1></div></div>
         <AdminMetrics usage={usageData} />
         <div className="admin-columns"><AdminHealth health={healthData?.health} /><AdminLimits usage={usageData} /></div>
+        <section className="admin-panel super-entry"><div><h2>Carga exclusiva</h2><p>Reserva temporal del almacenamiento completo para archivos de hasta 10 GiB.</p></div><button type="button" className="secondary-button" onClick={() => navigate("/admin/super")}>Abrir</button></section>
         <AdminRooms rooms={roomsData?.rooms ?? []} maximum={usageData ? Math.max(usageData.rooms.maximum, usageData.limits.maxRooms) : null} now={now} busyRoom={busyRoom} onOpen={(room) => { void openRoom(room); }} onClose={(room) => { void closeRoom(room); }} />
         <MaintenanceActions busyAction={busyAction} onAction={(action, currentPin) => { void runAction(action, currentPin); }} onChangePin={changePin} />
       </main>

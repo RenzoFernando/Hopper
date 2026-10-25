@@ -5,7 +5,8 @@ import { TestD1 } from "./d1-test-helper.js";
 
 const baseline = readFileSync(new URL("../worker/migrations/0001_baseline.sql", import.meta.url), "utf8");
 const tuning = readFileSync(new URL("../worker/migrations/0002_product_tuning.sql", import.meta.url), "utf8");
-const schema = `${baseline}\n${tuning}`;
+const exclusive = readFileSync(new URL("../worker/migrations/0003_exclusive_transfer.sql", import.meta.url), "utf8");
+const schema = `${baseline}\n${tuning}\n${exclusive}`;
 
 test("las migraciones crean el esquema actual y sus índices", async () => {
   const db = new TestD1(schema);
@@ -22,6 +23,8 @@ test("las migraciones crean el esquema actual y sus índices", async () => {
     for (const name of [
       "blocked_clients",
       "drop_items",
+      "exclusive_mode",
+      "exclusive_uploads",
       "maintenance_state",
       "pin_credentials",
       "rate_limits",

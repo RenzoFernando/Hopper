@@ -12,6 +12,7 @@ test("normaliza únicamente los TTL disponibles", () => {
   assert.equal(normalizeTtlMinutes("5"), 5);
   assert.equal(normalizeTtlMinutes("15"), 15);
   assert.equal(normalizeTtlMinutes(30), 30);
+  assert.equal(normalizeTtlMinutes(720), 720);
   assert.equal(normalizeTtlMinutes(1440), 1440);
   assert.equal(normalizeTtlMinutes(0), 0);
   assert.throws(() => normalizeTtlMinutes(10));

@@ -33,6 +33,7 @@ const required = [
   "worker/wrangler.jsonc",
   "worker/migrations/0001_baseline.sql",
   "worker/migrations/0002_product_tuning.sql",
+  "worker/migrations/0003_exclusive_transfer.sql",
   ".github/workflows/ci.yml",
   ".github/workflows/deploy-frontend.yml",
   ".github/workflows/deploy-worker.yml"
@@ -64,7 +65,7 @@ if (robots.includes("Disallow:") || !robots.includes(`Sitemap: ${siteUrl}/sitema
 }
 
 const headers = await readFile(resolve(root, "public/_headers"), "utf8");
-for (const route of ["/space", "/admin", "/room", "/room/*", "/recover", "/share", "/404"]) {
+for (const route of ["/space", "/admin", "/admin/super", "/room", "/room/*", "/recover", "/share", "/404"]) {
   if (!headers.includes(`${route}\n  X-Robots-Tag: noindex, nofollow`)) {
     throw new Error(`Falta la protección noindex en la ruta ${route}.`);
   }

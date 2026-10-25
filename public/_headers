@@ -36,6 +36,9 @@
 /admin
   X-Robots-Tag: noindex, nofollow
 
+/admin/super
+  X-Robots-Tag: noindex, nofollow
+
 /room
   X-Robots-Tag: noindex, nofollow
 
