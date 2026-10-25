@@ -34,6 +34,10 @@ export const fileUploadBodySchema = z.object({
   ttlMinutes: z.union([z.number(), z.string()])
 }).strip();
 
+export const completeUploadBodySchema = z.object({
+  ttlMinutes: z.union([z.number(), z.string()]).optional()
+}).strip();
+
 export const ttlBodySchema = z.object({
   ttlMinutes: z.union([z.number(), z.string()])
 }).strip();

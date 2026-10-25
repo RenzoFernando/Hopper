@@ -562,7 +562,7 @@ export async function initializeFileUpload(env: Env, payload: { name?: unknown; 
   }
 }
 
-export async function completeFileUpload(env: Env, id: unknown, context: ItemContext = personalContext()) {
+export async function completeFileUpload(env: Env, id: unknown, context: ItemContext = personalContext(), ttlValue?: unknown) {
   const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
 
@@ -596,7 +596,8 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
   }
 
   const createdAt = new Date();
-  const expiresAt = effectiveExpiry(item.ttlMinutes, scope, createdAt.getTime());
+  const confirmedTtl = ttlValue === undefined ? item.ttlMinutes : normalizeTtlMinutes(ttlValue, scope.ttlOptions);
+  const expiresAt = effectiveExpiry(confirmedTtl, scope, createdAt.getTime());
   const mimeType = normalizeMimeType(metadata.contentType || item.mimeType);
   const now = createdAt.toISOString();
 
@@ -608,6 +609,7 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
       mime_type = ?3,
       created_at = ?4,
       expires_at = ?5,
+      ttl_minutes = ?7,
       updated_at = ?4,
       etag = ?6
     WHERE id = ?1 AND status = 'pending'
@@ -617,7 +619,8 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
     mimeType,
     now,
     expiresAt?.toISOString() ?? null,
-    metadata.etag || metadata.versionId || null
+    metadata.etag || metadata.versionId || null,
+    confirmedTtl
   ).run();
 
   const readyItem = await getDropItem(env, item.id);

@@ -2,6 +2,7 @@ import { ROOM_DEFAULT_TTL_MINUTES } from "../lib/constants.ts";
 import { HttpError, getClientInfo } from "../lib/http.ts";
 import {
   emptyBodySchema,
+  completeUploadBodySchema,
   fileUploadBodySchema,
   idParamSchema,
   parseJsonBody,
@@ -131,8 +132,8 @@ export function registerRoomRoutes(app: HopperApp): void {
   app.post("/api/room/uploads/:id/complete", async (c: HopperContext) => {
     const auth = await authorizeRoom(c, "room-uploads-complete", 60, 60, true);
     const { id } = parseParams({ id: c.req.param("id") }, idParamSchema);
-    await parseJsonBody(c.req.raw, emptyBodySchema);
-    const item = await completeFileUpload(c.env, id, auth.context);
+    const body = await parseJsonBody(c.req.raw, completeUploadBodySchema);
+    const item = await completeFileUpload(c.env, id, auth.context, body.ttlMinutes);
     return criticalJson(itemResponseSchema, { ok: true, item }, 200, responseOrigin(c));
   });
 

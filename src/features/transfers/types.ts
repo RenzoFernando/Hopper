@@ -9,6 +9,7 @@ export type SelectedFileEntry = {
   status: SelectedFileStatus;
   uploadId: string;
   controller: AbortController | null;
+  preparedAt: number;
 };
 
 export type TransferApi = {
@@ -16,7 +17,7 @@ export type TransferApi = {
   createText: (content: string, ttlMinutes: number) => Promise<ItemResponse>;
   initializeUpload: (file: File, ttlMinutes: number) => Promise<UploadResponse>;
   uploadToSignedUrl: (file: File, uploadUrl: string, onProgress?: (progress: number) => void, contentType?: string, signal?: AbortSignal) => Promise<void>;
-  completeUpload: (id: string) => Promise<ItemResponse>;
+  completeUpload: (id: string, ttlMinutes: number) => Promise<ItemResponse>;
   cancelUpload: (id: string, failed?: boolean) => Promise<unknown>;
   getFileUrl: (id: string, mode?: "download" | "preview" | "stream") => Promise<FileUrlResponse>;
   deleteItem: (id: string) => Promise<unknown>;

@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
 import { copyTextToClipboard } from "../../lib/clipboard";
-import { chooseDownloadDirectory, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, loadDownloadDirectory, saveBlobToDirectory, supportsDownloadDirectory, type HopperDirectoryHandle } from "../../lib/download-directory";
+import { chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownloads, downloadBlobWithBrowser, ensureDownloadDirectoryPermission, loadDownloadDirectory, saveTemporaryDownload, supportsDownloadDirectory, temporaryFileName, type HopperDirectoryHandle } from "../../lib/download-directory";
 import { fileExtension, fileTypeInfo } from "../../lib/file-types";
 import { formatBytes } from "../../lib/format";
 import { createZipBlob } from "../../lib/zip";
@@ -91,6 +91,7 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   const [selectedFiles, setSelectedFiles] = useState<SelectedFileEntry[]>([]);
   const [sending, setSending] = useState(false);
   const sendingRef = useRef(false);
+  const uploadTasks = useRef(new Set<string>());
   const [text, setText] = useState("");
   const [ttlMinutes, setTtlMinutes] = useState(defaultTtlMinutes);
   const [dragging, setDragging] = useState(false);
@@ -101,6 +102,11 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   const online = useRef(typeof navigator === "undefined" ? true : navigator.onLine);
   const selectedFilesRef = useRef<SelectedFileEntry[]>([]);
   const itemQueryKey = useMemo(() => ["hopper-items", queryKey] as const, [queryKey]);
+  const replaceSelected = useCallback((updater: (files: SelectedFileEntry[]) => SelectedFileEntry[]) => {
+    const next = updater(selectedFilesRef.current);
+    selectedFilesRef.current = next;
+    setSelectedFiles(next);
+  }, []);
 
   const {
     data: queryData,
@@ -156,59 +162,64 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   }, [onSyncChange, refetch]);
 
   useEffect(() => {
-    selectedFilesRef.current = selectedFiles;
-  }, [selectedFiles]);
-
-  useEffect(() => {
     if (!supportsDownloadDirectory()) return;
     void loadDownloadDirectory().then(setDownloadDirectory).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!enabled || !queryData || queryIsError) return;
+    void cleanupTemporaryDownloads(queryData.items, queryKey).catch(() => undefined);
+  }, [enabled, queryData, queryIsError, queryKey]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const interval = window.setInterval(() => {
+      void cleanupTemporaryDownloads(null, queryKey).catch(() => undefined);
+    }, 10_000);
+    return () => window.clearInterval(interval);
+  }, [enabled, queryKey]);
 
   useEffect(() => () => {
     if (preview?.url?.startsWith("blob:")) URL.revokeObjectURL(preview.url);
   }, [preview]);
 
   useEffect(() => () => {
-    for (const entry of selectedFilesRef.current) entry.controller?.abort();
-  }, []);
+    for (const entry of selectedFilesRef.current) {
+      entry.controller?.abort();
+      if (entry.uploadId) void api.cancelUpload(entry.uploadId).catch(() => undefined);
+    }
+  }, [api]);
 
   const setPreview = useCallback((next: PreviewState) => setPreviewState(next), []);
 
   const updateSelected = useCallback((key: string, patch: Partial<SelectedFileEntry>) => {
-    setSelectedFiles((current) => current.map((entry) => entry.key === key ? { ...entry, ...patch } : entry));
-  }, []);
+    replaceSelected((current) => current.map((entry) => entry.key === key ? { ...entry, ...patch } : entry));
+  }, [replaceSelected]);
 
   const addFiles = useCallback((fileList: FileList | File[]) => {
     const files = Array.from(fileList);
     if (files.length === 0) return;
-
     const availableSlots = Math.max(0, maxSelectedFiles - selectedFilesRef.current.length);
     const accepted = files.slice(0, availableSlots);
     if (files.length > availableSlots) showToast(`Puedes preparar hasta ${maxSelectedFiles} archivos por envío.`, "error");
-
     const entries: SelectedFileEntry[] = [];
     for (const file of accepted) {
       if (file.size > maxFileBytes) {
         showToast(`${file.name} supera el límite de ${formatBytes(maxFileBytes)}.`, "error");
         continue;
       }
-      entries.push({ key: crypto.randomUUID(), file, progress: 0, status: "", uploadId: "", controller: null });
+      entries.push({ key: crypto.randomUUID(), file, progress: 0, status: "queued", uploadId: "", controller: null, preparedAt: 0 });
     }
-
-    if (entries.length > 0) {
-      setSelectedFiles((current) => [...current, ...entries].slice(0, maxSelectedFiles));
-    }
+    if (entries.length > 0) replaceSelected((current) => [...current, ...entries]);
     onActivity();
-  }, [maxFileBytes, maxSelectedFiles, onActivity, showToast]);
+  }, [maxFileBytes, maxSelectedFiles, onActivity, replaceSelected, showToast]);
 
-  const completeUploadWithRetry = useCallback(async (id: string) => {
+  const completeUploadWithRetry = useCallback(async (id: string, ttl: number) => {
     let lastError: ApiError | null = null;
     const retryableCodes = new Set(["upload-not-found", "storage-error", "network-error"]);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
-        const result = await api.completeUpload(id);
-        if (attempt > 0) showToast("La confirmación se recuperó tras un reintento.", "success");
-        return result;
+        return await api.completeUpload(id, ttl);
       } catch (caught) {
         const error = errorInfo(caught);
         lastError = error;
@@ -216,8 +227,8 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
         await new Promise((resolve) => window.setTimeout(resolve, 700 * (attempt + 1)));
       }
     }
-    throw lastError ?? new ApiError("No fue posible confirmar la subida.");
-  }, [api, showToast]);
+    throw lastError ?? new ApiError("No fue posible publicar el archivo.");
+  }, [api]);
 
   const putWithRetry = useCallback(async (entry: SelectedFileEntry, uploadUrl: string, mimeType: string) => {
     let lastError: ApiError | null = null;
@@ -233,40 +244,61 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
         lastError = error;
         const status = error.status;
         const retryable = status === 0 || status === 408 || status === 425 || status === 429 || status >= 500;
-        if (error.code === "upload-aborted" || !retryable || attempt === 1) throw error;
+        if (error.code === "upload-aborted" || entry.controller?.signal.aborted || !retryable || attempt === 1) throw error;
         await new Promise((resolve) => window.setTimeout(resolve, 900));
       }
     }
     throw lastError ?? new ApiError("No fue posible subir el archivo.");
   }, [api, onActivity, updateSelected]);
 
-  const uploadEntry = useCallback(async (entry: SelectedFileEntry, ttl: number) => {
+  const stageFile = useCallback(async (entry: SelectedFileEntry) => {
     let uploadId = "";
     const controller = new AbortController();
+    updateSelected(entry.key, { status: "preparando", progress: 0, controller, uploadId: "", preparedAt: 0 });
     try {
-      updateSelected(entry.key, { status: "preparando", progress: 0, controller });
-      const initialized = await api.initializeUpload(entry.file, ttl);
+      const initializedAt = Date.now();
+      const initialized = await api.initializeUpload(entry.file, ttlMinutes);
       uploadId = initialized.upload.id;
-      const uploadUrl = initialized.upload.uploadUrl;
-      const mimeType = initialized.upload.mimeType || entry.file.type || "application/octet-stream";
-      const activeEntry = { ...entry, controller };
-      updateSelected(entry.key, { status: "subiendo", uploadId, controller });
-      await putWithRetry(activeEntry, uploadUrl, mimeType);
-      updateSelected(entry.key, { status: "confirmando", progress: 100 });
-      await completeUploadWithRetry(uploadId);
-      updateSelected(entry.key, { status: "listo", progress: 100, controller: null });
-      return { ok: true as const, key: entry.key, cancelled: false };
+      if (controller.signal.aborted || !selectedFilesRef.current.some((item) => item.key === entry.key)) {
+        void api.cancelUpload(uploadId).catch(() => undefined);
+        return;
+      }
+      const active = { ...entry, controller };
+      updateSelected(entry.key, { status: "subiendo", uploadId });
+      await putWithRetry(active, initialized.upload.uploadUrl, initialized.upload.mimeType || entry.file.type || "application/octet-stream");
+      if (controller.signal.aborted || !selectedFilesRef.current.some((item) => item.key === entry.key)) {
+        void api.cancelUpload(uploadId).catch(() => undefined);
+        return;
+      }
+      // El objeto ya está en B2, pero sigue privado hasta confirmar la publicación.
+      updateSelected(entry.key, { status: "listo", progress: 100, controller: null, preparedAt: initializedAt });
     } catch (caught) {
       const error = errorInfo(caught);
       if (uploadId) void api.cancelUpload(uploadId, error.code !== "upload-aborted").catch(() => undefined);
-      if (error.code === "upload-aborted") {
-        setSelectedFiles((current) => current.filter((item) => item.key !== entry.key));
-        return { ok: false as const, key: entry.key, cancelled: true, error };
+      if (controller.signal.aborted || error.code === "upload-aborted") {
+        replaceSelected((current) => current.filter((item) => item.key !== entry.key));
+        return;
       }
-      updateSelected(entry.key, { status: "error", controller: null });
-      return { ok: false as const, key: entry.key, cancelled: false, error };
+      updateSelected(entry.key, { status: "error", controller: null, uploadId: "", preparedAt: 0 });
+      showToast(`${entry.file.name}: ${error.message}`, "error");
     }
-  }, [api, completeUploadWithRetry, putWithRetry, updateSelected]);
+  }, [api, putWithRetry, replaceSelected, showToast, ttlMinutes, updateSelected]);
+
+  const pumpRef = useRef<() => void>(() => undefined);
+  const pumpUploads = useCallback(() => {
+    if (!enabled) return;
+    const capacity = Math.max(1, uploadConcurrency) - uploadTasks.current.size;
+    const queued = selectedFilesRef.current.filter((entry) => entry.status === "queued" && !uploadTasks.current.has(entry.key));
+    for (const entry of queued.slice(0, Math.max(0, capacity))) {
+      uploadTasks.current.add(entry.key);
+      void stageFile(entry).finally(() => {
+        uploadTasks.current.delete(entry.key);
+        pumpRef.current();
+      });
+    }
+  }, [enabled, stageFile, uploadConcurrency]);
+  pumpRef.current = pumpUploads;
+  useEffect(() => { pumpUploads(); }, [selectedFiles, pumpUploads]);
 
   const refresh = useCallback(async () => {
     if (!navigator.onLine) {
@@ -276,74 +308,94 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     await refetch();
   }, [onSyncChange, refetch]);
 
-  const send = useCallback(async () => {
+  const sendText = useCallback(async () => {
     if (sendingRef.current) return;
-    const files = selectedFiles.filter((entry) => entry.status !== "listo");
-    const hasText = Boolean(text.trim());
-    if (!hasText && files.length === 0) {
-      showToast("Pega texto o adjunta al menos un archivo.", "error");
+    if (!text.trim()) {
+      showToast("Escribe o pega contenido antes de enviar texto.", "error");
       return;
     }
-    onActivity();
     sendingRef.current = true;
     setSending(true);
-    const failures: Array<{ label: string; error: ApiError }> = [];
-    let textCreated = false;
     try {
-      if (hasText) {
-        try {
-          await api.createText(text, ttlMinutes);
-          textCreated = true;
-        } catch (caught) {
-          failures.push({ label: "texto", error: errorInfo(caught) });
-        }
-      }
-      const results = await runWithConcurrency(files, uploadConcurrency, (entry) => uploadEntry(entry, ttlMinutes));
-      for (const result of results) {
-        if (!result.ok && !result.cancelled) {
-          const entry = files.find((item) => item.key === result.key);
-          failures.push({ label: entry?.file.name || "archivo", error: result.error });
-        }
-      }
-      if (textCreated) setText("");
-      const successful = new Set(results.filter((result) => result.ok).map((result) => result.key));
-      setSelectedFiles((current) => current.filter((entry) => !successful.has(entry.key)));
-      if (failures.length === 0) showToast("Contenido disponible en Hopper.", "success");
-      else if (failures.length === 1) showToast(`${failures[0]?.label ?? "Elemento"}: ${failures[0]?.error.message || "no pudo enviarse"}`, "error");
-      else showToast(`${failures.length} elementos no pudieron enviarse.`, "error");
+      await api.createText(text, ttlMinutes);
+      setText("");
+      showToast("Texto disponible en Hopper.", "success");
       await queryClient.invalidateQueries({ queryKey: itemQueryKey });
+      onActivity();
+    } catch (caught) {
+      showToast(errorInfo(caught).message || "No fue posible enviar el texto.", "error");
     } finally {
       sendingRef.current = false;
       setSending(false);
     }
-  }, [api, itemQueryKey, onActivity, queryClient, selectedFiles, showToast, text, ttlMinutes, uploadConcurrency, uploadEntry]);
+  }, [api, itemQueryKey, onActivity, queryClient, showToast, text, ttlMinutes]);
 
-  const retryFile = useCallback(async (key: string) => {
+  const sendFiles = useCallback(async () => {
     if (sendingRef.current) return;
-    const entry = selectedFiles.find((item) => item.key === key);
-    if (!entry) return;
+    const files = selectedFilesRef.current;
+    if (!files.length) {
+      showToast("Adjunta archivos para enviarlos.", "error");
+      return;
+    }
+    if (files.some((entry) => entry.status !== "listo")) {
+      showToast("Espera a que todas las subidas terminen o reintenta los archivos con error.", "error");
+      return;
+    }
+    const stale = files.filter((entry) => !entry.preparedAt || Date.now() - entry.preparedAt > 19 * 60_000);
+    if (stale.length > 0) {
+      for (const entry of stale) {
+        if (entry.uploadId) void api.cancelUpload(entry.uploadId).catch(() => undefined);
+        updateSelected(entry.key, { status: "queued", progress: 0, uploadId: "", preparedAt: 0 });
+      }
+      showToast("Algunos archivos preparados caducaron; se están subiendo de nuevo.", "error");
+      return;
+    }
     sendingRef.current = true;
     setSending(true);
     try {
-      const result = await uploadEntry(entry, ttlMinutes);
-      if (result.ok) {
-        setSelectedFiles((current) => current.filter((item) => item.key !== key));
-        await queryClient.invalidateQueries({ queryKey: itemQueryKey });
-        showToast("Archivo enviado.", "success");
-      } else if (!result.cancelled) showToast(result.error.message || "No fue posible reenviar el archivo.", "error");
+      const results = await runWithConcurrency(files, uploadConcurrency, async (entry) => {
+        updateSelected(entry.key, { status: "confirmando" });
+        try {
+          await completeUploadWithRetry(entry.uploadId, ttlMinutes);
+          return { key: entry.key, ok: true as const };
+        } catch (caught) {
+          const error = errorInfo(caught);
+          if (error.code === "upload-expired") {
+            updateSelected(entry.key, { status: "queued", progress: 0, uploadId: "", preparedAt: 0 });
+          } else {
+            updateSelected(entry.key, { status: "listo" });
+          }
+          return { key: entry.key, ok: false as const, error };
+        }
+      });
+      const published = new Set(results.filter((result) => result.ok).map((result) => result.key));
+      replaceSelected((current) => current.filter((entry) => !published.has(entry.key)));
+      const failures = results.filter((result) => !result.ok);
+      if (!failures.length) showToast(`${published.size} ${published.size === 1 ? "archivo publicado" : "archivos publicados"}.`, "success");
+      else showToast(`${published.size} publicados; ${failures.length} no pudieron publicarse.`, "error");
+      if (published.size) await queryClient.invalidateQueries({ queryKey: itemQueryKey });
+      onActivity();
     } finally {
       sendingRef.current = false;
       setSending(false);
     }
-  }, [itemQueryKey, queryClient, selectedFiles, showToast, ttlMinutes, uploadEntry]);
+  }, [api, completeUploadWithRetry, itemQueryKey, onActivity, queryClient, replaceSelected, showToast, ttlMinutes, updateSelected, uploadConcurrency]);
 
-  const removeFile = useCallback((key: string) => setSelectedFiles((current) => current.filter((entry) => entry.key !== key)), []);
-  const cancelFile = useCallback((key: string) => {
-    const entry = selectedFiles.find((item) => item.key === key);
+  const removeFile = useCallback((key: string) => {
+    const entry = selectedFilesRef.current.find((item) => item.key === key);
     entry?.controller?.abort();
     if (entry?.uploadId) void api.cancelUpload(entry.uploadId).catch(() => undefined);
-    removeFile(key);
-  }, [api, removeFile, selectedFiles]);
+    replaceSelected((current) => current.filter((item) => item.key !== key));
+  }, [api, replaceSelected]);
+
+  const retryFile = useCallback(async (key: string) => {
+    const entry = selectedFilesRef.current.find((item) => item.key === key);
+    if (!entry || entry.status !== "error") return;
+    if (entry.uploadId) await api.cancelUpload(entry.uploadId).catch(() => undefined);
+    updateSelected(key, { status: "queued", progress: 0, uploadId: "", controller: null, preparedAt: 0 });
+  }, [api, updateSelected]);
+
+  const cancelFile = removeFile;
 
   const copyItem = useCallback(async (item: HopperItem) => {
     await copyTextToClipboard(item.content || "");
@@ -387,6 +439,12 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     }
   }, [showToast]);
 
+  const disableDirectory = useCallback(async () => {
+    await clearDownloadDirectory();
+    setDownloadDirectory(null);
+    showToast("Las próximas descargas usarán la carpeta predeterminada del navegador.", "success");
+  }, [showToast]);
+
   const permittedDirectory = useCallback(async () => {
     if (!downloadDirectory) return null;
     try {
@@ -410,40 +468,53 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
 
   const downloadItem = useCallback(async (item: HopperItem) => {
     const directory = await permittedDirectory();
+    if (item.type === "text") {
+      const name = `texto-hopper-${item.id.slice(0, 8)}.txt`;
+      const blob = new Blob([item.content || ""], { type: "text/plain;charset=utf-8" });
+      if (directory) {
+        const downloadId = crypto.randomUUID();
+        await saveTemporaryDownload(directory, temporaryFileName(name, downloadId), blob, `${queryKey}:text:${downloadId}`, queryKey, [item.id], item.expiresAt);
+        showToast(`Texto temporal guardado en ${directory.name}.`, "success");
+      } else downloadBlobWithBrowser(name, blob);
+      return;
+    }
     if (!directory) {
       await triggerSignedDownload(item);
       return;
     }
     const blob = await fetchItemBlob(item);
-    await saveBlobToDirectory(directory, item.name || "archivo", blob);
-    showToast(`Guardado en ${directory.name}.`, "success");
-  }, [fetchItemBlob, permittedDirectory, showToast, triggerSignedDownload]);
+    const downloadId = crypto.randomUUID();
+    await saveTemporaryDownload(directory, temporaryFileName(item.name || "archivo", downloadId), blob, `${queryKey}:file:${downloadId}`, queryKey, [item.id], item.expiresAt);
+    showToast(`Archivo temporal guardado en ${directory.name}.`, "success");
+  }, [fetchItemBlob, permittedDirectory, queryKey, showToast, triggerSignedDownload]);
 
   const downloadItems = useCallback(async (items: HopperItem[]) => {
-    const files = items.filter((item) => item.type === "file");
-    if (files.length === 0) throw new ApiError("No hay archivos para descargar.");
-    if (files.length === 1 && files[0]) {
-      await downloadItem(files[0]);
+    if (items.length === 0) throw new ApiError("No hay elementos para descargar.");
+    if (items.length === 1 && items[0]) {
+      await downloadItem(items[0]);
       return;
     }
-
     setBatchBusy(true);
     try {
       const directory = await permittedDirectory();
-      const entries = [];
-      for (const item of files) {
-        const blob = await fetchItemBlob(item);
-        entries.push({ name: item.name || "archivo", blob, modifiedAt: new Date(item.createdAt) });
+      const entries: Array<{ name: string; blob: Blob; modifiedAt: Date }> = [];
+      for (const item of items) {
+        const isText = item.type === "text";
+        const blob = isText ? new Blob([item.content || ""], { type: "text/plain;charset=utf-8" }) : await fetchItemBlob(item);
+        entries.push({ name: isText ? `texto-hopper-${item.id.slice(0, 8)}.txt` : item.name || "archivo", blob, modifiedAt: new Date(item.createdAt) });
       }
       const zip = await createZipBlob(entries);
       const name = zipFileName();
-      if (directory) await saveBlobToDirectory(directory, name, zip);
-      else downloadBlobWithBrowser(name, zip);
-      showToast(`${files.length} archivos empaquetados en ${name}.`, "success");
+      if (directory) {
+        const downloadId = crypto.randomUUID();
+        const expiresAt = items.map((item) => item.expiresAt).filter((value): value is string => Boolean(value)).sort()[0] ?? null;
+        await saveTemporaryDownload(directory, temporaryFileName(name, downloadId), zip, `${queryKey}:bundle:${downloadId}`, queryKey, items.map((item) => item.id), expiresAt);
+      } else downloadBlobWithBrowser(name, zip);
+      showToast(`${items.length} elementos empaquetados en ZIP.`, "success");
     } finally {
       setBatchBusy(false);
     }
-  }, [downloadItem, fetchItemBlob, permittedDirectory, showToast]);
+  }, [downloadItem, fetchItemBlob, permittedDirectory, queryKey, showToast]);
 
   const previewItem = useCallback(async (item: HopperItem) => {
     const info = fileTypeInfo(item.name || "", item.mimeType || "");
@@ -539,13 +610,16 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     setDeleteTarget,
     addFiles,
     refresh,
-    send,
+    send: sendText,
+    sendText,
+    sendFiles,
     retryFile,
     removeFile,
     cancelFile,
     copyItem,
     copyFileItem,
     chooseDownloadDirectory: chooseDirectory,
+    disableDownloadDirectory: disableDirectory,
     downloadItem,
     downloadItems,
     previewItem,

@@ -8,6 +8,7 @@ import { CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileKindIcon, Pla
 
 type Props = {
   item: HopperItem;
+  arriving?: boolean;
   now: number;
   api: TransferApi;
   allowTtlReset: boolean;
@@ -81,9 +82,9 @@ export function ItemCard(props: Props) {
   const canPreview = item.type === "file" && Boolean(fileInfo?.previewKind);
 
   return (
-    <article className={`item-card ${props.selected ? "is-selected" : ""}`.trim()} data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
+    <article className={`item-card ${props.selected ? "is-selected" : ""} ${props.arriving ? "is-arriving" : ""}`.trim()} data-item-id={item.id} data-expires-at={item.expiresAt || undefined}>
       <div className="item-main">
-        {item.type === "file" && <label className="item-select" title={`Seleccionar ${item.name || "archivo"}`}><input type="checkbox" checked={props.selected} aria-label={`Seleccionar ${item.name || "archivo"}`} onChange={(event) => props.onSelectionChange(item, event.target.checked)} /><span aria-hidden="true" /></label>}
+        <label className="item-select" title={`Seleccionar ${item.type === "text" ? "texto" : item.name || "archivo"}`}><input type="checkbox" checked={props.selected} aria-label={`Seleccionar ${item.type === "text" ? "texto" : item.name || "archivo"}`} onChange={(event) => props.onSelectionChange(item, event.target.checked)} /><span aria-hidden="true" /></label>
         <div className={`item-type-mark ${item.type === "text" ? "is-text" : item.audio ? "is-audio" : "is-file"}`}>
           {item.type === "text" ? <TextIcon /> : <FileKindIcon kind={fileInfo?.kind || "file"} />}
         </div>
@@ -105,7 +106,7 @@ export function ItemCard(props: Props) {
             {props.ttlOptions.map((minutes) => <option value={minutes} key={minutes}>{ttlLabel(minutes)}</option>)}
           </select>}
         </div>
-        {item.type === "text" ? <>{textLinks[0] && <ActionLink label="Abrir enlace" href={textLinks[0]}><ExternalLinkIcon /></ActionLink>}<ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton></> : <>
+        {item.type === "text" ? <>{textLinks[0] && <ActionLink label="Abrir enlace" href={textLinks[0]}><ExternalLinkIcon /></ActionLink>}<ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton><ActionButton label="Descargar TXT" onClick={() => invoke(() => props.onDownload(item))}><DownloadIcon /></ActionButton></> : <>
           {canPreview && <ActionButton label="Ver" onClick={() => invoke(() => props.onPreview(item))}><PreviewIcon /></ActionButton>}
           {(fileInfo?.copyable || fileInfo?.previewKind === "image") && <ActionButton label={fileInfo.previewKind === "image" ? "Copiar imagen" : "Copiar contenido"} onClick={() => invoke(() => props.onCopyFile(item))}><CopyIcon /></ActionButton>}
           <ActionButton label="Descargar" onClick={() => invoke(() => props.onDownload(item))}><DownloadIcon /></ActionButton>

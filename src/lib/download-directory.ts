@@ -16,6 +16,7 @@ export type HopperDirectoryHandle = {
   kind: "directory";
   name: string;
   getFileHandle: (name: string, options: { create: boolean }) => Promise<HopperFileSystemFileHandle>;
+  removeEntry?: (name: string) => Promise<void>;
   queryPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
   requestPermission?: (descriptor: PermissionMode) => Promise<PermissionState>;
 };
@@ -27,12 +28,23 @@ type DirectoryWindow = Window & {
 const DB_NAME = "hopper-downloads-v1";
 const STORE_NAME = "settings";
 const DIRECTORY_KEY = "download-directory";
+const TEMPORARY_STORE = "temporary-files";
+
+type TemporaryDownload = {
+  id: string;
+  scope: string;
+  itemIds: string[];
+  expiresAt: string | null;
+  name: string;
+  directory: HopperDirectoryHandle;
+};
 
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    const request = indexedDB.open(DB_NAME, 2);
     request.onupgradeneeded = () => {
       if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME);
+      if (!request.result.objectStoreNames.contains(TEMPORARY_STORE)) request.result.createObjectStore(TEMPORARY_STORE, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("No fue posible abrir la configuración local de descargas."));
@@ -122,4 +134,103 @@ export function downloadBlobWithBrowser(name: string, blob: Blob) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function clearDownloadDirectory(): Promise<void> {
+  if (!supportsDownloadDirectory()) return;
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, "readwrite");
+      transaction.objectStore(STORE_NAME).delete(DIRECTORY_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("No fue posible restaurar las descargas predeterminadas."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+// Los nombres asociados al identificador impiden sobrescribir documentos ajenos a Hopper.
+export function temporaryFileName(name: string, id: string): string {
+  const sanitized = safeFileName(name);
+  const dot = sanitized.lastIndexOf(".");
+  const stem = dot > 0 ? sanitized.slice(0, dot) : sanitized;
+  const extension = dot > 0 ? sanitized.slice(dot) : "";
+  return safeFileName(`${stem} (hopper-${id.slice(0, 12)})${extension}`);
+}
+
+export async function saveTemporaryDownload(
+  directory: HopperDirectoryHandle,
+  name: string,
+  blob: Blob,
+  id: string,
+  scope: string,
+  itemIds: string[],
+  expiresAt: string | null
+): Promise<void> {
+  if (!directory.removeEntry) throw new Error("Esta carpeta no admite la limpieza automática de archivos temporales.");
+  // El registro local se crea únicamente después de guardar correctamente el archivo.
+  await saveBlobToDirectory(directory, name, blob);
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(TEMPORARY_STORE, "readwrite");
+      const entry: TemporaryDownload = { id, scope, itemIds, expiresAt, name, directory };
+      transaction.objectStore(TEMPORARY_STORE).put(entry);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("No fue posible registrar el archivo temporal."));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+let cleanupInProgress = false;
+
+export async function cleanupTemporaryDownloads(activeItems: Array<{ id: string; expiresAt: string | null }> | null, scope: string, now = Date.now()): Promise<void> {
+  if (!supportsDownloadDirectory() || cleanupInProgress) return;
+  cleanupInProgress = true;
+  try {
+    const db = await openDatabase();
+    try {
+      const entries = await new Promise<TemporaryDownload[]>((resolve, reject) => {
+        const transaction = db.transaction(TEMPORARY_STORE, "readonly");
+        const request = transaction.objectStore(TEMPORARY_STORE).getAll();
+        request.onsuccess = () => resolve(request.result as TemporaryDownload[]);
+        request.onerror = () => reject(request.error ?? new Error("No fue posible comprobar las descargas temporales."));
+      });
+      const active = activeItems === null ? null : new Map(activeItems.map((item) => [item.id, item.expiresAt]));
+      for (const entry of entries) {
+        const missing = active !== null && entry.scope === scope && activeItems!.length < 100 && entry.itemIds.some((id) => !active.has(id));
+        const expiry = active !== null && entry.scope === scope && entry.itemIds.every((id) => active.has(id))
+          ? entry.itemIds.map((id) => active.get(id)).filter((value): value is string => Boolean(value)).sort()[0] ?? null
+          : entry.expiresAt;
+        const expired = expiry !== null && Date.parse(expiry) <= now;
+        if (!expired && !missing) continue;
+        if (!entry.directory.removeEntry) continue;
+        // No solicitamos permisos de forma automática: el navegador exige interacción del usuario.
+        try {
+          if (entry.directory.queryPermission && (await entry.directory.queryPermission({ mode: "readwrite" })) !== "granted") continue;
+        } catch {
+          continue;
+        }
+        try {
+          await entry.directory.removeEntry(entry.name);
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === "NotFoundError")) continue;
+        }
+        await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction(TEMPORARY_STORE, "readwrite");
+          transaction.objectStore(TEMPORARY_STORE).delete(entry.id);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error ?? new Error("No fue posible actualizar la limpieza temporal."));
+        });
+      }
+    } finally {
+      db.close();
+    }
+  } finally {
+    cleanupInProgress = false;
+  }
 }

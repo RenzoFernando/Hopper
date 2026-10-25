@@ -147,12 +147,34 @@ test("login, texto, archivo y logout funcionan en React", async ({ page }) => {
   await expect(page.locator("#item-list")).toContainText("Texto desde React");
 
   await page.locator("#file-input").setInputFiles({ name: "prueba.txt", mimeType: "text/plain", buffer: Buffer.from("hola") });
-  await page.locator("#send-button").click();
+  await expect(page.locator(".selected-file-status")).toContainText("100% · Preparado");
+  await expect(page.locator("#item-list")).not.toContainText("prueba.txt");
+  await page.locator("#ttl-select").selectOption("15");
+  const completionRequest = page.waitForRequest((request) => request.url().includes(`/api/uploads/${uploadId}/complete`) && request.method() === "POST");
+  await page.locator("#send-files-button").click();
+  expect((await completionRequest).postDataJSON()).toEqual({ ttlMinutes: 15 });
   await expect(page.locator("#item-list")).toContainText("prueba.txt");
+  await expect(page.getByRole("heading", { name: "Bandeja" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Descargar TXT" })).toBeVisible();
 
   await page.locator("#logout-button").click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#auth-screen")).toBeVisible();
+});
+
+
+test("los textos admiten selección y descarga como TXT", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.goto("/space");
+  await page.locator("#text-input").fill("Contenido temporal de prueba");
+  await page.locator("#send-button").click();
+  await expect(page.locator("#item-list")).toContainText("Contenido temporal de prueba");
+  await page.locator(".bulk-select-all input").check();
+  await expect(page.getByRole("button", { name: /Descargar selección \(1\)/ })).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Descargar TXT" }).click();
+  expect((await downloadPromise).suggestedFilename()).toMatch(/\.txt$/);
 });
 
 test("crear y entrar a una sala conserva el flujo legado", async ({ page }) => {

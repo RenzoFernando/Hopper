@@ -11,7 +11,7 @@ import {
 } from "../services/items.ts";
 import type { ItemContext } from "../services/items.ts";
 import {
-  emptyBodySchema,
+  completeUploadBodySchema,
   fileUploadBodySchema,
   idParamSchema,
   parseJsonBody,
@@ -68,8 +68,8 @@ export function registerItemRoutes(app: HopperApp): void {
   app.post("/api/uploads/:id/complete", async (c: HopperContext) => {
     await authorizePersonal(c, "uploads-complete", 60, 60);
     const { id } = parseParams({ id: c.req.param("id") }, idParamSchema);
-    await parseJsonBody(c.req.raw, emptyBodySchema);
-    const item = await completeFileUpload(c.env, id, PERSONAL_CONTEXT);
+    const body = await parseJsonBody(c.req.raw, completeUploadBodySchema);
+    const item = await completeFileUpload(c.env, id, PERSONAL_CONTEXT, body.ttlMinutes);
     return criticalJson(itemResponseSchema, { ok: true, item }, 200, responseOrigin(c));
   });
 
