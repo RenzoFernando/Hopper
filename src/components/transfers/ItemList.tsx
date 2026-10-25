@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TransferApi } from "../../features/transfers/types";
 import type { HopperItem } from "../../schemas/item";
 import { ItemCard } from "./ItemCard";
@@ -39,13 +39,20 @@ type Props = {
 };
 
 export function ItemList(props: Props) {
-  const activeItems = props.items.filter((item) => item.expiresAt === null || Date.parse(item.expiresAt || "") > props.now);
+  const activeItems = useMemo(
+    () => props.items.filter(
+      (item) => item.expiresAt === null || Date.parse(item.expiresAt || "") > props.now
+    ),
+    [props.items, props.now]
+  );
   const selectedSet = new Set(props.selectedItemIds);
   const selectedItems = activeItems.filter((item) => selectedSet.has(item.id));
   const allSelected = activeItems.length > 0 && selectedItems.length === activeItems.length;
   const knownIds = useRef<Set<string> | null>(null);
   const arriving = knownIds.current === null ? new Set<string>() : new Set(activeItems.filter((item) => !knownIds.current?.has(item.id)).map((item) => item.id));
-  useEffect(() => { knownIds.current = new Set(activeItems.map((item) => item.id)); }, [props.items]);
+  useEffect(() => {
+    knownIds.current = new Set(activeItems.map((item) => item.id));
+  }, [activeItems]);
 
   const invoke = (operation: () => Promise<void>) => {
     void operation().catch((error: unknown) => props.onError(error instanceof Error ? error.message : "No fue posible completar la acción."));

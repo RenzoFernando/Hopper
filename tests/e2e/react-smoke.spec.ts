@@ -310,8 +310,10 @@ test("Share Target React confirma y limpia el payload antes de navegar", async (
   await expect(page.locator("#share-summary")).toContainText("Texto");
   await expect(page.locator("#share-summary")).toContainText("prueba.txt");
   await page.locator("#share-send").click();
-  await expect(page.locator("#toast-region")).toContainText("Contenido enviado y confirmado.");
   await expect(page).toHaveURL(/\/space$/);
+  await expect(page.locator("#workspace-screen")).toBeVisible();
+  await expect(page.locator("#item-list")).toContainText("Texto compartido");
+  await expect(page.locator("#item-list")).toContainText("prueba.txt");
 
   const pending = await page.evaluate(async () => {
     const request = indexedDB.open("hopper-share-target-v1", 1);

@@ -52,11 +52,11 @@ function serializedDelivery(delivery: ActiveDelivery): PendingShareDelivery {
   };
 }
 
-async function confirmWithRetry(api: ShareTransferApi, id: string) {
+async function confirmWithRetry(api: ShareTransferApi, id: string, ttlMinutes: number) {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      return await api.completeUpload(id);
+      return await api.completeUpload(id, ttlMinutes);
     } catch (error) {
       lastError = error;
       const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code || "") : "";
@@ -243,7 +243,7 @@ export function useShareTarget(enabled = true) {
       if (!uploadId || !uploadUrl) throw new Error("Hopper no devolvió una URL de subida válida.");
       await putWithRetry(api, file, uploadUrl, (value) => setProgress(`${index + 1}/${total} · ${value}% · ${file.name || "archivo"}`), initialized.upload.mimeType || file.type || "application/octet-stream");
       setProgress(`${index + 1}/${total} · 100% · Confirmando`);
-      const confirmed = await confirmWithRetry(api, uploadId);
+      const confirmed = await confirmWithRetry(api, uploadId, ttl);
       if (!confirmed.item.id || confirmed.item.id !== uploadId) throw new Error("Hopper no confirmó correctamente el archivo compartido.");
       return confirmed.item.id;
     } catch (error) {
