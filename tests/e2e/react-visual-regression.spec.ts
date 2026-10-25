@@ -6,8 +6,26 @@ async function openModern(page: Page, path: string, width = 1440, height = 1000)
     window.__HOPPER_VISUAL_TEST__ = true;
   });
   await page.goto(path);
-  await page.locator("#root").waitFor({ state: "attached" });
-  await page.evaluate(() => document.fonts.ready);
+
+  // React Router carga varias páginas mediante Suspense. #root puede existir
+  // cuando la página solicitada todavía no se ha montado (fallback=null).
+  // No capturar la pantalla de carga: verificar el contenido real de la ruta.
+  const viewSelector = path.startsWith("/room") ? "#room-join-title"
+    : path.startsWith("/recover") ? "#recovery-title"
+    : path.startsWith("/share") ? "#share-title"
+    : path.startsWith("/admin") ? ".document-shell"
+    : path.startsWith("/space") ? "#workspace-screen"
+    : "#auth-title";
+  await expect(page.locator(viewSelector)).toBeVisible({ timeout: 15_000 });
+
+  // Esperar a las fuentes tras montar la ruta, no antes. Dos frames permiten
+  // finalizar el layout sin usar esperas arbitrarias ni relajar los snapshots.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+  });
 }
 
 async function stabilizeCapacityCounter(page: Page, selector: string, expected: string, baseline: string) {
@@ -154,6 +172,8 @@ test("React conserva salas", async ({ page }) => {
   await expect(page).toHaveScreenshot("room-created.png", { fullPage: true });
 
   await openModern(page, "/room/AB-1234");
+  await expect(page.locator("#room-join-screen")).toBeVisible();
+  await expect(page.locator("#room-code-input")).toBeVisible();
   await expect(page).toHaveScreenshot("room-entry.png", { fullPage: true });
 
   await page.evaluate(() => {
@@ -185,6 +205,7 @@ test("React conserva administración", async ({ page }) => {
 
 test("React conserva recuperación", async ({ page }) => {
   await openModern(page, "/recover#baseline", 900, 900);
+  await expect(page.locator("#recovery-loading")).toBeVisible();
   await expect(page).toHaveScreenshot("recover.png", { fullPage: true });
 });
 
@@ -194,6 +215,8 @@ test("compatibilidad Share Target conserva estados", async ({ page }) => {
     const summary = document.querySelector<HTMLElement>("#share-summary");
     if (summary) summary.innerHTML = '<div class="share-item">captura.png · 284 KB</div>';
   });
+  await expect(page.locator("#share-summary .share-item")).toHaveText("captura.png · 284 KB");
+  await expect(page.locator("#share-auth")).toBeVisible();
   await expect(page).toHaveScreenshot("share-unauthenticated.png", { fullPage: true });
 
   await page.evaluate(() => {
@@ -202,5 +225,7 @@ test("compatibilidad Share Target conserva estados", async ({ page }) => {
     if (auth) auth.hidden = true;
     if (destination) destination.innerHTML = '<option>Mi espacio</option><option>Sala AB-1234</option>';
   });
+  await expect(page.locator("#share-auth")).toBeHidden();
+  await expect(page.locator("#share-destination option")).toHaveCount(2);
   await expect(page).toHaveScreenshot("share-authenticated.png", { fullPage: true });
 });
