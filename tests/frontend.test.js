@@ -50,7 +50,7 @@ test("el Service Worker conserva rutas limpias y activa builds nuevos sin quedar
   assert.match(sw, /event\.request\.mode === "navigate"/);
   assert.match(sw, /hopper-share-target-v1/);
   assert.match(sw, /\/manifest\.webmanifest/);
-  assert.match(sw, /hopper-shell-v6/);
+  assert.match(sw, /const CACHE_NAME = "hopper-shell-v\d+"/);
   assert.match(sw, /self\.skipWaiting\(\)/);
   assert.match(sw, /url\.pathname === "\/" \|\| url\.pathname === "\/index\.html"/);
 

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { isVisualTestRuntime } from "../lib/runtime";
+import { isTransferActive } from "../lib/transfer-activity";
 
 type InstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -35,7 +36,10 @@ function usePwaController(): PwaController {
     if (isVisualTestRuntime() || !("serviceWorker" in navigator)) return;
     let alive = true;
     let reloaded = false;
+    let reloadPending = false;
     const hadController = Boolean(navigator.serviceWorker.controller);
+    let lastUpdateCheck = 0;
+    let activeRegistration: ServiceWorkerRegistration | null = null;
     const target = serviceWorkerTarget();
 
     const activateWaitingWorker = (worker: ServiceWorker | null) => {
@@ -47,9 +51,17 @@ function usePwaController(): PwaController {
     navigator.serviceWorker.register(target.url, target.options)
       .then((next) => {
         if (!alive) return;
+        activeRegistration = next;
         setRegistration(next);
         activateWaitingWorker(next.waiting);
-        void next.update().catch(() => undefined);
+        const checkNewVersion = () => {
+          if (!alive || !navigator.onLine || document.visibilityState !== "visible") return;
+          const now = Date.now();
+          if (now - lastUpdateCheck < 60_000) return;
+          lastUpdateCheck = now;
+          void next.update().catch(() => undefined);
+        };
+        checkNewVersion();
         next.addEventListener("updatefound", () => {
           const worker = next.installing;
           worker?.addEventListener("statechange", () => {
@@ -61,15 +73,35 @@ function usePwaController(): PwaController {
       })
       .catch(() => setInstallPrompt(null));
 
-    const controllerChange = () => {
+    const reloadWhenSafe = () => {
       if (!hadController || reloaded) return;
+      if (isTransferActive()) { reloadPending = true; return; }
       reloaded = true;
       window.location.reload();
     };
+    const controllerChange = () => reloadWhenSafe();
+    const onTransferIdle = () => { if (reloadPending) reloadWhenSafe(); };
     navigator.serviceWorker.addEventListener("controllerchange", controllerChange);
+    window.addEventListener("hopper:transfers-idle", onTransferIdle);
+    const checkOnResume = () => {
+      if (!alive || !activeRegistration || !navigator.onLine || document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastUpdateCheck < 60_000) return;
+      lastUpdateCheck = now;
+      void activeRegistration.update().catch(() => undefined);
+    };
+    const periodicCheck = window.setInterval(checkOnResume, 180_000);
+    window.addEventListener("focus", checkOnResume);
+    window.addEventListener("online", checkOnResume);
+    document.addEventListener("visibilitychange", checkOnResume);
     return () => {
       alive = false;
+      window.clearInterval(periodicCheck);
+      window.removeEventListener("focus", checkOnResume);
+      window.removeEventListener("online", checkOnResume);
+      document.removeEventListener("visibilitychange", checkOnResume);
       navigator.serviceWorker.removeEventListener("controllerchange", controllerChange);
+      window.removeEventListener("hopper:transfers-idle", onTransferIdle);
     };
   }, []);
 

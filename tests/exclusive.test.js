@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TestD1 } from "./d1-test-helper.js";
-import { activateExclusiveMode, closeExclusiveMode, completeExclusiveUpload, EXCLUSIVE_CHUNK, getExclusiveMode, initiateExclusiveUpload, listExclusiveFiles, publicExclusiveStatus, requireExclusiveActive, signExclusivePart } from "../worker/src/services/exclusive.ts";
+import { activateExclusiveMode, closeExclusiveMode, completeExclusiveUpload, EXCLUSIVE_CHUNK, EXCLUSIVE_LIMIT, extendExclusiveMode, getExclusiveMode, initiateExclusiveUpload, listExclusiveFiles, exclusiveUsage, publicExclusiveStatus, requireExclusiveActive, signExclusivePart } from "../worker/src/services/exclusive.ts";
 import { getSessionVersion, createSessionToken } from "../worker/src/services/security.ts";
 import worker from "../worker/src/index.ts";
 const root = new URL("../worker/migrations/",import.meta.url);
@@ -62,16 +62,54 @@ test("el modo exclusivo bloquea por D1, limpia, renueva sesión y usa multiparte
   }finally{globalThis.fetch=originalFetch;db.close();}
 });
 
-test("la reserva atómica no admite más de 10 GiB",async()=>{
+test("la reserva atómica limita a 10 GB entre todos los archivos",async()=>{
   const db=new TestD1(schema);
   const env={DB:db,SESSION_SECRET:"secret-2026-very-long-test-secret-abcdef1234567890",B2_BUCKET_NAME:"hopper-test",B2_ENDPOINT:"https://s3.us-east-005.backblazeb2.com",B2_KEY_ID:"testkey",B2_APPLICATION_KEY:"test-application-key-not-a-real-key"};
   const originalFetch=globalThis.fetch;globalThis.fetch=mockB2(new Set());
   try{
     await activateExclusiveMode(env,60,client);
-    const u=await initiateExclusiveUpload(env,{name:"gigante.bin",size:10*1024**3,mimeType:"application/octet-stream"});
+    const u=await initiateExclusiveUpload(env,{name:"gigante.bin",size:EXCLUSIVE_LIMIT,mimeType:"application/octet-stream"});
     assert.ok(u.id);
     await assert.rejects(initiateExclusiveUpload(env,{name:"extra.bin",size:1,mimeType:"application/octet-stream"}),e=>e.status===409);
   }finally{globalThis.fetch=originalFetch;db.close();}
+});
+
+test("la duración puede actualizarse mientras el bloqueo permanece activo", async () => {
+  const db = new TestD1(schema);
+  const env = { DB: db, SESSION_SECRET: "secret-2026-very-long-test-secret-abcdef1234567890", B2_BUCKET_NAME: "hopper-test", B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com", B2_KEY_ID: "testkey", B2_APPLICATION_KEY: "test-application-key-not-a-real-key" };
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = mockB2(new Set());
+  try {
+    const started = await activateExclusiveMode(env, 60, client);
+    const previousExpiry = started.expiresAt;
+    const longer = await extendExclusiveMode(env, 720);
+    assert.equal(longer.status, "active");
+    assert.ok(Date.parse(longer.expiresAt) > Date.parse(previousExpiry));
+    assert.equal((await getExclusiveMode(env)).status, "active");
+    await assert.rejects(extendExclusiveMode(env, 0), error => error.status === 400);
+    await closeExclusiveMode(env);
+    await assert.rejects(extendExclusiveMode(env, 60), error => error.status === 423);
+  } finally { globalThis.fetch = oldFetch; db.close(); }
+});
+
+test("la descarga firmada obliga al navegador a descargar como adjunto", async () => {
+  const db = new TestD1(schema);
+  const env = { DB: db, SESSION_SECRET: "secret-2026-very-long-test-secret-abcdef1234567890", B2_BUCKET_NAME: "hopper-test", B2_ENDPOINT: "https://s3.us-east-005.backblazeb2.com", B2_KEY_ID: "testkey", B2_APPLICATION_KEY: "test-application-key-not-a-real-key" };
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = mockB2(new Set());
+  try {
+    await activateExclusiveMode(env, 60, client);
+    const upload = await initiateExclusiveUpload(env, { name: "informe 2026.pdf", size: EXCLUSIVE_CHUNK + 4, mimeType: "application/pdf" });
+    const etag = "a".repeat(32);
+    await completeExclusiveUpload(env, upload.id, [{ partNumber: 1, etag }, { partNumber: 2, etag }]);
+    const { exclusiveDownload } = await import("../worker/src/services/exclusive.ts");
+    const { url } = await exclusiveDownload(env, upload.id);
+    const query = new URL(url).searchParams;
+    assert.match(query.get("response-content-disposition") || "", /^attachment;/);
+    assert.match(query.get("response-content-disposition") || "", /informe%202026.pdf/);
+    assert.equal(query.get("response-content-type"), "application/octet-stream");
+    assert.ok(query.get("X-Amz-Signature"));
+  } finally { globalThis.fetch = oldFetch; db.close(); }
 });
 
 test("un fallo de B2 al vaciar conserva el bloqueo hasta una limpieza confirmada",async()=>{
@@ -128,5 +166,21 @@ test("la API exclusiva responde con el esquema migrado sin borrar datos", async 
     }), env);
     assert.equal(adminResponse.status, 200);
     assert.deepEqual((await adminResponse.json()).files, []);
+  } finally { db.close(); }
+});
+
+test("la cuota real comprende todos los archivos aunque la lista tenga 200 filas", async () => {
+  const db = new TestD1(schema);
+  try {
+    const env = { DB: db };
+    for (let i = 0; i < 201; i += 1) {
+      await db.prepare(`INSERT INTO exclusive_uploads (id,name,size,mime_type,storage_key,status,created_at)
+        VALUES (?1,?2,?3,'application/octet-stream',?4,'ready',?5)`)
+        .bind(crypto.randomUUID(), `archivo-${i}`, 1_000, `drop/super/test-${i}`, new Date(Date.now() + i).toISOString()).run();
+    }
+    const files = await listExclusiveFiles(env);
+    const usage = await exclusiveUsage(env);
+    assert.equal(files.length, 200);
+    assert.deepEqual(usage, { fileCount: 201, usedBytes: 201_000 });
   } finally { db.close(); }
 });

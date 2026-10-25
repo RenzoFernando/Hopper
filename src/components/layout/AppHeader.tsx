@@ -1,3 +1,5 @@
+import { Link } from "react-router-dom";
+
 type AppHeaderVariant = "home" | "room" | "admin" | "simple";
 
 type SyncVariant = "" | "busy" | "offline" | "ok";
@@ -61,10 +63,10 @@ function ShareIcon() {
 
 function Brand({ homeLabel }: { homeLabel: string }) {
   return (
-    <a className="brand" href="/" aria-label={homeLabel}>
+    <Link className="brand" to="/" aria-label={homeLabel}>
       <img className="brand-mark" src="/assets/favicon.svg" alt="" />
       <span className="brand-name">HOPPER</span>
-    </a>
+    </Link>
   );
 }
 
@@ -95,7 +97,7 @@ export function AppHeader({
         </nav>
         <div className="header-session" id="header-session" hidden={!authenticated}>
           <span className={`sync-state ${syncVariant ? `is-${syncVariant}` : ""}`.trim()} id="sync-state" aria-live="polite">{syncLabel}</span>
-          <a className="icon-button info-icon-button admin-nav-icon" href="/admin" aria-label="Administración" title="Administración"><SettingsIcon /></a>
+          <Link className="icon-button info-icon-button admin-nav-icon" to="/admin" aria-label="Administración" title="Administración"><SettingsIcon /></Link>
           <button className="header-link header-button" id="install-button-session" type="button" hidden={!installVisible} onClick={onInstall}>Instalar</button>
           <button className="icon-button info-icon-button" id="update-button-session" type="button" aria-label="Actualizar Hopper" title="Actualizar" hidden={!updateVisible} onClick={onUpdate}><RefreshIcon /></button>
           <button className="icon-button logout-button" id="logout-button" type="button" aria-label="Salir" title="Salir" onClick={onLogout}><LogoutIcon /></button>
@@ -123,7 +125,7 @@ export function AppHeader({
       <header className="site-header">
         <Brand homeLabel="Volver a Hopper" />
         <div className="header-session">
-          <a className="icon-button info-icon-button" href="/space" aria-label="Mi espacio" title="Mi espacio"><HomeIcon /></a>
+          <Link className="icon-button info-icon-button" to="/space" aria-label="Mi espacio" title="Mi espacio"><HomeIcon /></Link>
           <button className={`icon-button refresh-button${adminRefreshing ? " is-spinning" : ""}`} id="admin-refresh-button" type="button" aria-label="Actualizar panel" title="Actualizar" disabled={adminRefreshing} onClick={onRefreshAdmin}><RefreshIcon /></button>
           <button className="icon-button logout-button" id="admin-logout-button" type="button" aria-label="Salir" title="Salir" onClick={onLogout}><LogoutIcon /></button>
         </div>

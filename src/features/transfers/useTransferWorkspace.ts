@@ -6,6 +6,7 @@ import { chooseDownloadDirectory, clearDownloadDirectory, cleanupTemporaryDownlo
 import { fileExtension, fileTypeInfo } from "../../lib/file-types";
 import { formatBytes } from "../../lib/format";
 import { createZipBlob } from "../../lib/zip";
+import { beginTransfer } from "../../lib/transfer-activity";
 import type { HopperItem, ItemsResponse } from "../../schemas/item";
 import type { PreviewState, SelectedFileEntry, TransferWorkspaceOptions } from "./types";
 
@@ -28,6 +29,9 @@ function runWithConcurrency<T, R>(values: T[], limit: number, worker: (value: T)
   });
   return Promise.all(runners).then(() => results);
 }
+
+// Un callback predeterminado debe conservar su identidad entre renderizados.
+const noop = () => undefined;
 
 const TEXT_PREVIEW_LIMIT_BYTES = 4 * 1024 * 1024;
 
@@ -84,8 +88,8 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     maxSelectedFiles = 20,
     allowTtlReset = true,
     onUnauthorized,
-    onActivity = () => {},
-    onSyncChange = () => {}
+    onActivity = noop,
+    onSyncChange = noop
   } = options;
   const queryClient = useQueryClient();
   const [selectedFiles, setSelectedFiles] = useState<SelectedFileEntry[]>([]);
@@ -104,6 +108,7 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   const [batchBusy, setBatchBusy] = useState(false);
   const online = useRef(typeof navigator === "undefined" ? true : navigator.onLine);
   const selectedFilesRef = useRef<SelectedFileEntry[]>([]);
+  const transferReleaseRef = useRef<(() => void) | null>(null);
   const itemQueryKey = useMemo(() => ["hopper-items", queryKey] as const, [queryKey]);
   const replaceSelected = useCallback((updater: (files: SelectedFileEntry[]) => SelectedFileEntry[]) => {
     const next = updater(selectedFilesRef.current);
@@ -127,6 +132,22 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     refetchOnWindowFocus: true,
     retry: 1
   });
+
+  useEffect(() => {
+    const uploading = sending || selectedFiles.some((entry) =>
+      entry.status === "preparando" || entry.status === "subiendo" || entry.status === "confirmando"
+    );
+    if (uploading && !transferReleaseRef.current) transferReleaseRef.current = beginTransfer();
+    if (!uploading && transferReleaseRef.current) {
+      transferReleaseRef.current();
+      transferReleaseRef.current = null;
+    }
+  }, [selectedFiles, sending]);
+
+  useEffect(() => () => {
+    transferReleaseRef.current?.();
+    transferReleaseRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (!enabled) return;

@@ -31,9 +31,9 @@ export function AdminPage() {
   const refreshingRef = useRef(false);
   const { toasts, showToast } = useToasts(3800);
   const now = useNow();
-  const { data: usageData, error: usageError, refetch: refetchUsage } = useQuery({ queryKey: ["admin-usage"], queryFn: adminApi.usage, enabled: hasSession && !visual });
-  const { data: healthData, error: healthError, refetch: refetchHealth } = useQuery({ queryKey: ["admin-health"], queryFn: adminApi.health, enabled: hasSession && !visual });
-  const { data: roomsData, error: roomsError, refetch: refetchRooms } = useQuery({ queryKey: ["admin-rooms"], queryFn: adminApi.rooms, enabled: hasSession && !visual });
+  const { data: usageData, error: usageError, refetch: refetchUsage } = useQuery({ queryKey: ["admin-usage"], queryFn: adminApi.usage, enabled: hasSession && !visual, refetchInterval: 15_000, refetchOnWindowFocus: true });
+  const { data: healthData, error: healthError, refetch: refetchHealth } = useQuery({ queryKey: ["admin-health"], queryFn: adminApi.health, enabled: hasSession && !visual, refetchInterval: 15_000, refetchOnWindowFocus: true });
+  const { data: roomsData, error: roomsError, refetch: refetchRooms } = useQuery({ queryKey: ["admin-rooms"], queryFn: adminApi.rooms, enabled: hasSession && !visual, refetchInterval: 15_000, refetchOnWindowFocus: true });
 
   const goHome = useCallback(() => {
     sessionStore.clearPersonal();
@@ -156,7 +156,7 @@ export function AdminPage() {
         <div className="admin-heading"><div><p className="eyebrow">HOPPER</p><h1>Administración</h1></div></div>
         <AdminMetrics usage={usageData} />
         <div className="admin-columns"><AdminHealth health={healthData?.health} /><AdminLimits usage={usageData} /></div>
-        <section className="admin-panel super-entry"><div><h2>Carga exclusiva</h2><p>Reserva temporal del almacenamiento completo para archivos de hasta 10 GiB.</p></div><button type="button" className="secondary-button" onClick={() => navigate("/admin/super")}>Abrir</button></section>
+        <section className="admin-panel super-entry"><div><h2>Supercarga</h2><p>Hasta 10 GB para transferencias temporales.</p></div><button type="button" className="secondary-button" onClick={() => navigate("/admin/super")}>Abrir</button></section>
         <AdminRooms rooms={roomsData?.rooms ?? []} maximum={usageData ? Math.max(usageData.rooms.maximum, usageData.limits.maxRooms) : null} now={now} busyRoom={busyRoom} onOpen={(room) => { void openRoom(room); }} onClose={(room) => { void closeRoom(room); }} />
         <MaintenanceActions busyAction={busyAction} onAction={(action, currentPin) => { void runAction(action, currentPin); }} onChangePin={changePin} />
       </main>

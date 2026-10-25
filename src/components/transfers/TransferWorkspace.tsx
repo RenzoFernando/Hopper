@@ -17,7 +17,11 @@ export function TransferWorkspace(props: Props) {
   const localToasts = useToasts();
   const { toasts, showToast } = props.toastController ?? localToasts;
   const [sync, setSync] = useState<{ label: string; variant: SyncVariant }>({ label: "Sincronizado", variant: "" });
-  const internalSync = useCallback((label: string, variant: SyncVariant) => setSync({ label, variant }), []);
+  const internalSync = useCallback((label: string, variant: SyncVariant) => {
+    setSync((current) => current.label === label && current.variant === variant
+      ? current
+      : { label, variant });
+  }, []);
   const syncCallback = props.onSyncChange ?? internalSync;
   const workspace = useTransferWorkspace({ ...props, onSyncChange: syncCallback }, showToast);
   const { addFiles } = workspace;

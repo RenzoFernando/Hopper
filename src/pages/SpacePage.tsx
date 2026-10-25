@@ -17,6 +17,14 @@ export function SpacePage() {
   const visual = isVisualTestRuntime();
   const pwa = usePwa();
   const [sync, setSync] = useState<{ label: string; variant: SyncVariant }>({ label: "Sincronizado", variant: "" });
+  // Mantener estable la referencia: el hook de transferencias publica cambios de
+  // sincronización desde un efecto dependiente de este callback. Una función inline
+  // recreada en cada render provocaba un ciclo de actualizaciones e impedía navegar.
+  const updateSync = useCallback((label: string, variant: SyncVariant) => {
+    setSync((current) => current.label === label && current.variant === variant
+      ? current
+      : { label, variant });
+  }, []);
   const hasSession = visual || sessionStore.hasPersonal();
 
   const goHome = useCallback(() => {
@@ -38,7 +46,7 @@ export function SpacePage() {
     <div className="app-shell">
       <AppHeader variant="home" authenticated={hasSession} syncLabel={sync.label} syncVariant={sync.variant} installVisible={pwa.installVisible} updateVisible={pwa.updateVisible} onInstall={() => { void pwa.install(); }} onUpdate={pwa.update} onLogout={goHome} />
       <main className="app-main" id="app-main">
-        <section className="workspace-screen screen" id="workspace-screen" hidden={!hasSession} aria-labelledby="workspace-title"><TransferWorkspace api={itemsApi} queryKey="personal" enabled={hasSession && !visual} maxFileBytes={appConfig.maxFileBytes} defaultTtlMinutes={appConfig.defaultTtlMinutes} ttlOptions={[...PERSONAL_TTL_OPTIONS]} pollIntervalMs={appConfig.pollIntervalMs} uploadConcurrency={appConfig.uploadConcurrency} onUnauthorized={goHome} onSyncChange={(label, variant) => setSync({ label, variant })} emptyTitle="La bandeja está vacía" emptyCopy="Envía texto o archivos y aparecerán aquí en los demás dispositivos." /></section>
+        <section className="workspace-screen screen" id="workspace-screen" hidden={!hasSession} aria-labelledby="workspace-title"><TransferWorkspace api={itemsApi} queryKey="personal" enabled={hasSession && !visual} maxFileBytes={appConfig.maxFileBytes} defaultTtlMinutes={appConfig.defaultTtlMinutes} ttlOptions={[...PERSONAL_TTL_OPTIONS]} pollIntervalMs={appConfig.pollIntervalMs} uploadConcurrency={appConfig.uploadConcurrency} onUnauthorized={goHome} onSyncChange={updateSync} emptyTitle="La bandeja está vacía" emptyCopy="Envía texto o archivos y aparecerán aquí en los demás dispositivos." /></section>
       </main>
     </div>
     <AppFooter />

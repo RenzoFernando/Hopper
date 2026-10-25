@@ -1227,33 +1227,6 @@
   margin: auto;
 }
 .remove-file-button svg { width: 14px; height: 14px; }
-.bulk-select-all input, .item-select input {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 17px;
-  height: 17px;
-  flex: 0 0 17px;
-  margin: 0;
-  border: 1.5px solid var(--border-strong);
-  border-radius: 5px;
-  background: var(--surface);
-  display: inline-grid;
-  place-content: center;
-  vertical-align: middle;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.bulk-select-all input:checked, .item-select input:checked { border-color: var(--info); background: var(--info); }
-.bulk-select-all input:checked::before, .item-select input:checked::before {
-  content: "";
-  width: 8px;
-  height: 5px;
-  border-left: 2px solid #fff;
-  border-bottom: 2px solid #fff;
-  transform: translateY(-1px) rotate(-45deg);
-}
-.bulk-select-all input:disabled { opacity: 0.5; cursor: not-allowed; }
-.bulk-select-all input:focus-visible, .item-select input:focus-visible { outline: 3px solid rgb(79 111 143 / 0.22); outline-offset: 2px; }
 .item-select > span { display: none; }
 .expiry-countdown { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
 .expiry-countdown svg { width: 14px; height: 14px; display: block; }

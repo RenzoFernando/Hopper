@@ -4,7 +4,8 @@ import { request } from "./client";
 const base = "/api/admin/super";
 const anyResponse = z.object({ ok: z.boolean() }).passthrough();
 const fileSchema = z.object({ id: z.string(), name: z.string(), size: z.number(), mime_type: z.string(), status: z.string(), created_at: z.string() });
-const statusSchema = anyResponse.extend({ active: z.boolean(), status: z.string(), expiresAt: z.string().nullable(), limitBytes: z.number(), files: z.array(fileSchema) });
+const statusSchema = anyResponse.extend({ active: z.boolean(), status: z.string(), expiresAt: z.string().nullable(), limitBytes: z.number(), files: z.array(fileSchema), usedBytes: z.number().nonnegative().optional(), fileCount: z.number().int().nonnegative().optional() });
+export type ExclusiveStatus = z.infer<typeof statusSchema>;
 const initSchema = anyResponse.extend({ upload: z.object({ id: z.string(), chunkSize: z.number(), partCount: z.number() }) });
 const partSchema = anyResponse.extend({ url: z.string() });
 const downloadSchema = anyResponse.extend({ url: z.string().url(), name: z.string() });
@@ -13,6 +14,7 @@ const startSchema = anyResponse.extend({ token: z.string(), expiresIn: z.number(
 export const exclusiveApi = {
   status: () => request(`${base}/status`, statusSchema, {auth:"personal"}),
   start: (currentPin: string, durationMinutes: number) => request(`${base}/start`, startSchema, {auth:"personal",method:"POST",body:{currentPin,confirmation:"BORRAR TODO Y BLOQUEAR",durationMinutes}}),
+  extend: (durationMinutes: number) => request(`${base}/extend`,anyResponse,{auth:"personal",method:"POST",body:{durationMinutes}}),
   retry: (currentPin: string) => request(`${base}/retry`,startSchema,{auth:"personal",method:"POST",body:{currentPin,confirmation:"REINTENTAR LIMPIEZA"}}),
   end: (currentPin: string) => request(`${base}/end`,anyResponse,{auth:"personal",method:"POST",body:{currentPin,confirmation:"FINALIZAR CARGA"}}),
   init: (file: File) => request(`${base}/uploads`,initSchema,{auth:"personal",method:"POST",body:{name:file.name,size:file.size,mimeType:file.type||"application/octet-stream"}}),

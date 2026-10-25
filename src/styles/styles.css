@@ -1,6 +1,7 @@
 @import "./foundation.css";
 @import "./auth.css";
 @import "./transfers.css";
+@import "./controls.css";
 @import "./recovery.css";
 @import "./responsive-core.css";
 @import "./navigation.css";

@@ -467,3 +467,48 @@
 .super-message { font-size:.83rem; color:var(--text); }
 .super-panel progress { width:100%; }
 @media(max-width:600px) { .super-entry {align-items:flex-start;} .super-file {flex-direction:column;align-items:stretch;} .super-file > div:last-child {justify-content:flex-end;} }
+
+/* Supercarga: un solo sistema de controles, sin componentes nativos sin estilizar. */
+.super-main { padding-top: 25px; }
+.super-panel .super-capacity { display: grid; gap: 7px; }
+.super-capacity-label { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: .79rem; font-weight: 650; }
+.super-capacity small { color: var(--text-faint); font-size: .74rem; }
+.super-capacity progress, .super-upload-progress progress { display: block; width: 100%; height: 7px; border: none; border-radius: 99px; overflow: hidden; background: var(--border); accent-color: var(--accent); }
+.super-capacity progress::-webkit-progress-bar, .super-upload-progress progress::-webkit-progress-bar { background: var(--border); border-radius: 99px; }
+.super-capacity progress::-webkit-progress-value, .super-upload-progress progress::-webkit-progress-value { background: var(--accent); border-radius: 99px; }
+.super-capacity progress::-moz-progress-bar, .super-upload-progress progress::-moz-progress-bar { background: var(--accent); border-radius: 99px; }
+.super-duration-controls { display: flex; align-items: end; gap: 12px; }
+.super-duration-controls label { flex: 1; min-width: 0; }
+.super-duration-controls button { white-space: nowrap; }
+.super-file-input { position: absolute; width: 1px !important; height: 1px !important; opacity: 0; pointer-events: none; clip-path: inset(50%); }
+.super-dropzone { display: flex; align-items: center; gap: 12px; min-height: 66px; width: 100%; padding: 15px; border: 1px dashed var(--border-strong); border-radius: 12px; background: var(--page); cursor: pointer; font-size: .84rem; transition: border-color .15s ease, background-color .15s ease; }
+.super-dropzone:hover, .super-dropzone.is-dragging, .super-dropzone:focus-visible { border-color: var(--accent); background: var(--surface); outline-offset: 3px; }
+.super-dropzone > svg { flex: 0 0 22px; width: 22px; height: 22px; color: var(--info); }
+.super-dropzone > span { flex: 1; min-width: 0; }
+.super-dropzone small { margin-left: auto; font-size: .7rem; color: var(--text-faint); text-align: right; }
+.super-selected { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; overflow-wrap: anywhere; font-size: .82rem; }
+.super-file-clear { background: none; border: none; color: var(--text-soft); font-size: 1.25rem; cursor: pointer; padding: 3px 7px; }
+.super-upload-progress { display: flex; align-items: center; gap: 12px; }
+.super-upload-progress small { min-width: 3ch; color: var(--text-soft); font-size: .75rem; }
+.super-upload-actions { display: flex; justify-content: flex-end; }
+.super-upload-actions button { margin-left: auto; }
+.super-login > input { width: 100%; padding: 12px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); font-size: 1.2rem; letter-spacing: .28em; text-align: center; }
+.super-login > input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.super-dialog { width: min(92vw, 440px); max-height: 90vh; border: 1px solid var(--border); border-radius: 16px; padding: 22px; color: var(--text); background: var(--surface); box-shadow: 0 20px 70px #0003; }
+.super-dialog::backdrop { background: #16191baa; }
+.super-dialog h2 { margin: 0 0 12px; font-size: 1rem; }
+.super-dialog p { margin: 0 0 20px; color: var(--text-soft); font-size: .85rem; line-height: 1.5; }
+.super-dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 600px) { .super-duration-controls { align-items: stretch; flex-direction: column; } .super-duration-controls button { align-self: flex-end; } .super-dropzone { flex-wrap: wrap; } .super-dropzone small { flex-basis: 100%; text-align: left; padding-left: 34px; } }
+.super-panel input[type="password"] { max-width: 240px; text-align: center; letter-spacing: .25em; font-size: 1.07rem; }
+
+/* Estado de Supercarga: señales discretas, vocabulario visual uniforme. */
+.super-status { display:inline-flex; align-items:center; justify-content:center; padding:4px 10px; min-height:28px; border-radius:999px; font-size:.75rem; font-weight:700; background:var(--surface-subtle); color:var(--text-soft); white-space:nowrap; }
+.super-status.is-active { background:var(--accent-soft); color:var(--accent); }
+.super-status.is-preparing, .super-status.is-closing { background:var(--info-soft); color:var(--info); }
+.super-status.is-unavailable { background:var(--danger-soft); color:var(--danger); }
+.super-dropzone[aria-disabled="true"] { opacity:.65; cursor:not-allowed; }
+.super-panel .super-confirm { color:var(--text); font-weight:500; }
+@media (prefers-reduced-motion: reduce) {
+  .super-dropzone, .super-panel progress { transition:none; animation:none; }
+}

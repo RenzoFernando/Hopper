@@ -1,11 +1,11 @@
 import type { ClientInfo, Env } from "../types/env.ts";
 import { HttpError } from "../lib/http.ts";
-import { DOWNLOAD_URL_TTL_SECONDS, SESSION_TTL_SECONDS, STORAGE_REFERENCE_BYTES, UPLOAD_URL_TTL_SECONDS } from "../lib/constants.ts";
+import { DOWNLOAD_URL_TTL_SECONDS, SESSION_TTL_SECONDS, UPLOAD_URL_TTL_SECONDS } from "../lib/constants.ts";
 import { abortB2Multipart, abortB2MultipartByPrefix, completeB2Multipart, createB2Multipart, createSignedB2Url, deleteB2Version, getB2ObjectMetadata, listB2VersionsByPrefix } from "./b2.ts";
 import { resetAdminSystem } from "./admin.ts";
 import { createSessionToken, getSessionVersion, resetSecurityState } from "./security.ts";
 
-export const EXCLUSIVE_LIMIT = STORAGE_REFERENCE_BYTES; // 10 GiB nominales, nunca se presume espacio físico mayor.
+export const EXCLUSIVE_LIMIT = 10_000_000_000; // 10 GB decimales compartidos entre todos los archivos.
 export const EXCLUSIVE_CHUNK = 32 * 1024 * 1024;
 export const EXCLUSIVE_DURATIONS = [60, 360, 720, 1440] as const;
 type ModeRow = { status: string; started_at: string; expires_at: string };
@@ -18,6 +18,21 @@ export async function getExclusiveMode(env: Env): Promise<ModeRow | null> {
 
 export function publicExclusiveStatus(mode: ModeRow | null) {
   return { active: Boolean(mode), status: mode?.status || "inactive", startedAt: mode?.started_at || null, expiresAt: mode?.expires_at || null, limitBytes: EXCLUSIVE_LIMIT };
+}
+
+// Cada ajuste fija un nuevo vencimiento a partir del momento actual. Nunca admite duración indefinida.
+export async function extendExclusiveMode(env: Env, durationMinutes: number) {
+  if (!EXCLUSIVE_DURATIONS.includes(durationMinutes as typeof EXCLUSIVE_DURATIONS[number])) {
+    throw new HttpError(400, "invalid-duration", "Selecciona 1, 6, 12 o 24 horas.");
+  }
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + durationMinutes * 60_000).toISOString();
+  const updated = await env.DB.prepare(`UPDATE exclusive_mode SET expires_at=?1
+    WHERE id=1 AND status='active' AND expires_at>?2`).bind(expiresAt, now.toISOString()).run();
+  if (Number(updated.meta?.changes || 0) !== 1) {
+    throw new HttpError(423, "exclusive-not-ready", "La sesión ya no está activa. Actualiza el estado.");
+  }
+  return publicExclusiveStatus(await getExclusiveMode(env));
 }
 
 export async function requireExclusiveActive(env: Env): Promise<ModeRow> {
@@ -65,11 +80,18 @@ export async function listExclusiveFiles(env: Env) {
   return result.results || [];
 }
 
+/** El límite de las filas visibles no debe alterar la cuota real reservada en D1. */
+export async function exclusiveUsage(env: Env) {
+  const row = await env.DB.prepare("SELECT COUNT(*) AS total_files, COALESCE(SUM(size), 0) AS used_bytes FROM exclusive_uploads")
+    .first<{ total_files: number; used_bytes: number }>();
+  return { fileCount: Number(row?.total_files ?? 0), usedBytes: Number(row?.used_bytes ?? 0) };
+}
+
 export async function initiateExclusiveUpload(env: Env, input: { name: string; size: number; mimeType: string }) {
   await requireExclusiveActive(env);
   const name = String(input.name || "archivo").replace(/[\\/\x00-\x1f\x7f]/g, "-").trim().slice(0,180) || "archivo";
   const size = Number(input.size);
-  if (!Number.isSafeInteger(size) || size < 1 || size > EXCLUSIVE_LIMIT) throw new HttpError(413, "exclusive-size", "El archivo debe ocupar entre 1 byte y 10 GiB.");
+  if (!Number.isSafeInteger(size) || size < 1 || size > EXCLUSIVE_LIMIT) throw new HttpError(413, "exclusive-size", "El archivo debe ocupar entre 1 byte y 10 GB.");
   const id = crypto.randomUUID();
   const key = `drop/super/${id}/${encodeURIComponent(name)}`;
   // Reserva atómica para impedir el sobreconsumo incluso si el usuario agrega archivos simultáneos.
@@ -130,7 +152,8 @@ export async function exclusiveDownload(env:Env,id:string) {
   await requireExclusiveActive(env);
   const row=await item(env,id);
   if(row.status!=="ready")throw new HttpError(409,"exclusive-not-ready","Archivo pendiente de publicación.");
-  return {url:await createSignedB2Url(env,{method:"GET",objectName:row.storage_key,expiresSeconds:DOWNLOAD_URL_TTL_SECONDS}),name:row.name};
+  const disposition = `attachment; filename="Hopper"; filename*=UTF-8''${encodeURIComponent(row.name)}`;
+  return {url:await createSignedB2Url(env,{method:"GET",objectName:row.storage_key,expiresSeconds:DOWNLOAD_URL_TTL_SECONDS,queryParameters:{"response-content-disposition":disposition,"response-content-type":"application/octet-stream"}}),name:row.name};
 }
 
 export async function removeExclusiveFile(env:Env,id:string) {

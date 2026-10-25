@@ -182,10 +182,22 @@ test("el compositor prioriza archivos y mantiene controles iconográficos accesi
   await seedPersonalSession(page);
   await installApiMock(page);
   await page.goto("/space");
+  // Las pantallas privadas se cargan bajo demanda: esperar el montaje antes de medirlas.
+  await expect(page.locator("#text-input")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".compose-text")).toBeVisible();
+  await expect(page.locator(".compose-files")).toBeVisible();
   const widths = await page.evaluate(() => {
-    const text = document.querySelector<HTMLElement>(".compose-text")?.getBoundingClientRect().width || 0;
-    const files = document.querySelector<HTMLElement>(".compose-files")?.getBoundingClientRect().width || 0;
-    return { text, files, resize: getComputedStyle(document.querySelector("#text-input")!).resize };
+    const text = document.querySelector<HTMLElement>(".compose-text");
+    const files = document.querySelector<HTMLElement>(".compose-files");
+    const input = document.querySelector<HTMLTextAreaElement>("#text-input");
+    if (!text || !files || !input) {
+      throw new Error("El compositor no está montado: no se puede medir su distribución.");
+    }
+    return {
+      text: text.getBoundingClientRect().width,
+      files: files.getBoundingClientRect().width,
+      resize: getComputedStyle(input).resize
+    };
   });
   expect(widths.text / (widths.text + widths.files)).toBeGreaterThan(0.32);
   expect(widths.text / (widths.text + widths.files)).toBeLessThan(0.35);
@@ -266,8 +278,8 @@ test("carga exclusiva no ofrece borrado si el Worker aún no tiene la ruta", asy
   await installApiMock(page);
   await page.route("**/api/admin/super/status", (route) => json(route, { ok: false, code: "not-found", message: "Ruta no encontrada." }, 404));
   await page.goto("/admin/super");
-  await expect(page.getByRole("heading", { name: "Carga exclusiva" })).toBeVisible();
-  await expect(page.getByText("La API de carga exclusiva no está desplegada.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Supercarga" })).toBeVisible();
+  await expect(page.getByText("La API de supercarga no está desplegada.", { exact: false })).toBeVisible();
   await expect(page.getByRole("button", { name: "Vaciar y activar" })).toHaveCount(0);
   await expect(page.getByText("No disponible", { exact: true })).toBeVisible();
 });
@@ -283,6 +295,72 @@ test("carga exclusiva permite ver la preparación solo con API comprobada", asyn
   await expect(page.getByText("Inactiva", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Vaciar y activar" })).toBeDisabled();
   await expect(page.getByRole("option", { name: "12 horas" })).toHaveCount(1);
+});
+
+test("Supercarga comparte el checkbox visual y evita recargas completas al navegar", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.route("**/api/admin/super/status", route => json(route, {
+    ok: true, active: false, status: "inactive", expiresAt: null, limitBytes: 10_000_000_000, files: []
+  }));
+  await page.goto("/admin/super");
+  const checkbox = page.locator(".super-confirm input[type=checkbox]");
+  await expect(checkbox).toBeVisible();
+  await expect(checkbox).toHaveCSS("appearance", "none");
+  await checkbox.check();
+  await expect(checkbox).toBeChecked();
+  await expect(page.getByText("Inactiva", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => { (window as typeof window & { __hopperNavMarker?: boolean }).__hopperNavMarker = true; });
+  await page.getByRole("link", { name: "Mi espacio" }).click();
+  await expect(page).toHaveURL(/\/space$/);
+  expect(await page.evaluate(() => (window as typeof window & { __hopperNavMarker?: boolean }).__hopperNavMarker)).toBe(true);
+});
+
+test("Supercarga renueva duración y descarga sin abrir pestaña vacía", async ({ page, context }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  let expiresAt = "2099-09-10T04:05:00.000Z";
+  const files = [{ id: uploadId, name: "prueba.zip", size: 1024, status: "ready", mime_type: "application/zip", created_at: nowIso }];
+  await page.route("**/api/admin/super/status", route => json(route, {
+    ok: true, active: true, status: "active", expiresAt,
+    limitBytes: 10_000_000_000, files
+  }));
+  await page.route("**/api/admin/super/extend", route => {
+    expect(route.request().postDataJSON().durationMinutes).toBe(720);
+    expiresAt = "2099-09-10T12:05:00.000Z";
+    return json(route, { ok: true, active: true, status: "active", expiresAt, limitBytes: 10_000_000_000 });
+  });
+  await page.route(`**/api/admin/super/uploads/${uploadId}/url`, route => json(route, { ok: true, url: "https://storage.test/archivo.zip", name: "prueba.zip" }));
+  await page.goto("/admin/super");
+  await expect(page.getByRole("heading", { name: "Supercarga" })).toBeVisible();
+  await expect(page.getByText("10 GB en total")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Porcentaje de capacidad ocupada" })).toHaveCount(1);
+  await page.getByLabel("Nuevo tiempo").selectOption("720");
+  await page.getByRole("button", { name: "Actualizar tiempo" }).click();
+  await expect(page.getByText("Duración actualizada.")).toBeVisible();
+  const before = context.pages().length;
+  await page.getByRole("button", { name: "Descargar" }).click();
+  await expect(page.locator('iframe[src="https://storage.test/archivo.zip"]')).toHaveCount(1);
+  expect(context.pages().length).toBe(before);
+  await page.getByLabel("PIN actual").fill("1234");
+  await page.getByRole("button", { name: "Finalizar y liberar" }).first().click();
+  await expect(page.getByRole("dialog", { name: "Finalizar Supercarga" })).toBeVisible();
+  await page.getByRole("button", { name: "Cancelar" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("Supercarga inicia sesión automáticamente al completar los cuatro dígitos", async ({ page }) => {
+  await installApiMock(page);
+  await page.route("**/api/admin/super/status", route => json(route, {
+    ok: true, active: false, status: "inactive", expiresAt: null,
+    limitBytes: 10_000_000_000, files: []
+  }));
+  await page.goto("/admin/super");
+  await expect(page.getByLabel("PIN", { exact: true })).toBeVisible();
+  await page.locator("#super-login-pin").fill("1234");
+  await expect(page.getByText("Inactiva", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Entrar" })).toHaveCount(0);
 });
 
 test("recuperación verifica, limpia el hash y actualiza el PIN", async ({ page }) => {
@@ -305,12 +383,26 @@ test("los enlaces de navegación cambian también la pantalla y los textos HTTP(
   await page.goto("/space");
   await expect(page.locator("#workspace-screen")).toBeVisible();
 
+  // La navegación debe conservar la SPA y terminar de montar la ruta lazy.
+  await page.evaluate(() => { (window as typeof window & { __hopperNavMarker?: string }).__hopperNavMarker = "spa"; });
   await page.getByRole("link", { name: "Administración", exact: true }).click();
   await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.locator("main.admin-main")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("heading", { name: "Administración", exact: true })).toBeVisible();
+  await expect(page.locator("#workspace-screen")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as typeof window & { __hopperNavMarker?: string }).__hopperNavMarker)).toBe("spa");
 
   await page.getByRole("link", { name: "Mi espacio", exact: true }).click();
   await expect(page).toHaveURL(/\/space$/);
+  await expect(page.locator("#workspace-screen")).toBeVisible();
+  await expect(page.locator("main.admin-main")).toHaveCount(0);
+
+  // Repetir la transición para detectar bucles de renders del estado de sincronización.
+  await page.getByRole("link", { name: "Administración", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole("heading", { name: "Administración", exact: true })).toBeVisible();
+  await expect(page.locator("#workspace-screen")).toHaveCount(0);
+  await page.getByRole("link", { name: "Mi espacio", exact: true }).click();
   await expect(page.locator("#workspace-screen")).toBeVisible();
 
   await page.locator("#text-input").fill("Documentación https://example.com/hopper.");
@@ -444,11 +536,11 @@ test("PWA móvil conserva títulos de igual jerarquía y botones compactos", asy
   await expect(page.getByRole("button",{name:"Enviar archivos"})).toBeVisible();
 });
 
-test("Administración expone el acceso a carga exclusiva", async ({page})=>{
+test("Administración expone el acceso a Supercarga", async ({page})=>{
   await page.addInitScript(() => { window.__HOPPER_VISUAL_TEST__ = true; });
   await page.goto("/admin");
-  await expect(page.getByText("Carga exclusiva",{exact:true})).toBeVisible();
+  await expect(page.getByText("Supercarga",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"Abrir",exact:true}).click();
   await expect(page).toHaveURL(/\/admin\/super$/);
-  await expect(page.getByRole("heading",{name:"Carga exclusiva",exact:true})).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Supercarga",exact:true})).toBeVisible();
 });

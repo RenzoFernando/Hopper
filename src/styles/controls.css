@@ -1,0 +1,32 @@
+/* Selección consistente en bandeja y Supercarga; sin modificar la paleta. */
+.bulk-select-all input, .item-select input, .super-confirm input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  margin: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.bulk-select-all input:checked, .item-select input:checked, .super-confirm input[type="checkbox"]:checked { border-color: var(--info); background: var(--info); }
+.bulk-select-all input:checked::before, .item-select input:checked::before, .super-confirm input[type="checkbox"]:checked::before {
+  content: "";
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: translateY(-1px) rotate(-45deg);
+}
+.bulk-select-all input:disabled, .item-select input:disabled, .super-confirm input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+.bulk-select-all input:focus-visible, .item-select input:focus-visible, .super-confirm input[type="checkbox"]:focus-visible { outline: 3px solid rgb(79 111 143 / 0.22); outline-offset: 2px; }
+
+.super-confirm { min-height: 32px; cursor: pointer; }
+.super-confirm input[type="checkbox"] { margin: 0; }
+.super-confirm:has(input:disabled) { opacity: .6; cursor: not-allowed; }

@@ -6,8 +6,8 @@ import { parseJsonBody } from "../schemas/requests.ts";
 import { z } from "zod";
 import { logSecurityEvent, requireCurrentPin } from "../services/security.ts";
 import {
-  activateExclusiveMode, closeExclusiveMode, completeExclusiveUpload, exclusiveDownload, getExclusiveMode,
-  initiateExclusiveUpload, listExclusiveFiles, publicExclusiveStatus, removeExclusiveFile, signExclusivePart
+  activateExclusiveMode, closeExclusiveMode, completeExclusiveUpload, exclusiveDownload, extendExclusiveMode, getExclusiveMode,
+  initiateExclusiveUpload, listExclusiveFiles, exclusiveUsage, publicExclusiveStatus, removeExclusiveFile, signExclusivePart
 } from "../services/exclusive.ts";
 
 const beginSchema = z.object({ currentPin: z.string(), confirmation: z.literal("BORRAR TODO Y BLOQUEAR"), durationMinutes: z.union([z.literal(60),z.literal(360),z.literal(720),z.literal(1440)]) }).strip();
@@ -20,7 +20,13 @@ function result(c: HopperContext, data: Record<string,unknown>, status=200) {ret
 export function registerExclusiveRoutes(app: HopperApp) {
   // Consulta pública sin datos de los archivos: necesaria para mostrar el bloqueo en cualquier PWA.
   app.get("/api/exclusive/status",async c => result(c,publicExclusiveStatus(await getExclusiveMode(c.env))));
-  app.get("/api/admin/super/status",async c=> {await authorizePersonal(c,"super-status",80,60);return result(c,{...publicExclusiveStatus(await getExclusiveMode(c.env)),files:await listExclusiveFiles(c.env)});});
+  app.get("/api/admin/super/status", async c => {
+    await authorizePersonal(c, "super-status", 80, 60);
+    const [mode, files, usage] = await Promise.all([
+      getExclusiveMode(c.env), listExclusiveFiles(c.env), exclusiveUsage(c.env)
+    ]);
+    return result(c, { ...publicExclusiveStatus(mode), files, ...usage });
+  });
   app.post("/api/admin/super/start",async c=>{
     const client=await authorizePersonal(c,"super-start",2,3600);
     const data=await parseJsonBody(c.req.raw,beginSchema);
@@ -28,6 +34,13 @@ export function registerExclusiveRoutes(app: HopperApp) {
     const mode=await activateExclusiveMode(c.env,data.durationMinutes,client);
     await logSecurityEvent(c.env.DB,"super-started",client,{durationMinutes:data.durationMinutes});
     return result(c,mode);
+  });
+  app.post("/api/admin/super/extend",async c=>{
+    const client=await authorizePersonal(c,"super-extend",12,3600);
+    const data=await parseJsonBody(c.req.raw,z.object({durationMinutes:z.union([z.literal(60),z.literal(360),z.literal(720),z.literal(1440)])}).strip());
+    const updated=await extendExclusiveMode(c.env,data.durationMinutes);
+    await logSecurityEvent(c.env.DB,"super-duration-changed",client,{durationMinutes:data.durationMinutes});
+    return result(c,updated);
   });
   app.post("/api/admin/super/retry",async c=>{
     const client=await authorizePersonal(c,"super-retry",3,3600);
