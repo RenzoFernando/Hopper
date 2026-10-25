@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { compareServiceWorkerAssets, inspectServiceWorkerAsset } from "./service-worker-verification.mjs";
 
 const config = JSON.parse((await readFile(resolve("config", "production.json"), "utf8")).replace(/^\uFEFF/, ""));
 const appUrl = String(process.env.HOPPER_PUBLIC_APP_URL || config.publicAppUrl || "").replace(/\/+$/, "");
@@ -118,12 +119,54 @@ if (manifestJson?.share_target?.action !== "/share") {
   throw new Error("El manifest de producción no publica /share como Share Target.");
 }
 
-const serviceWorker = await request(`${appUrl}/sw.js?build=${localVersion.buildId}`);
-if (!serviceWorker.ok) throw new Error(`sw.js respondió HTTP ${serviceWorker.status}.`);
-const serviceWorkerSource = await serviceWorker.text();
-if (!serviceWorkerSource.includes("hopper-shell-v6")) {
-  throw new Error("Producción todavía no sirve el Service Worker v6 esperado.");
+// La versión del Service Worker se obtiene del artefacto realmente generado,
+// nunca de una cadena fija que haya que actualizar en cada release.
+let expectedServiceWorker;
+try {
+  expectedServiceWorker = inspectServiceWorkerAsset(await readFile(resolve("dist", "sw.js")));
+} catch (error) {
+  throw new Error(`No se puede verificar dist/sw.js: ${error instanceof Error ? error.message : String(error)}`);
 }
+
+async function remoteServiceWorkerState(baseUrl, attempt) {
+  const response = await request(`${baseUrl}/sw.js?build=${localVersion.buildId}&attempt=${attempt}`);
+  if (!response.ok) return { matches: false, detail: `HTTP ${response.status}` };
+
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("text/html") || /^\s*<!doctype html/i.test(bytes.toString("utf8", 0, 160))) {
+    return { matches: false, detail: "sw.js devolvió HTML en lugar del Service Worker" };
+  }
+
+  try {
+    return compareServiceWorkerAssets(expectedServiceWorker, inspectServiceWorkerAsset(bytes));
+  } catch (error) {
+    return { matches: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function verifyServiceWorkerAt(baseUrl, label, attempts) {
+  let detail = "sin respuesta";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const state = await remoteServiceWorkerState(baseUrl, attempt);
+      detail = state.detail;
+      if (state.matches) {
+        console.log(`${label} confirmado: ${state.detail}`);
+        return;
+      }
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < attempts) await wait(2_000);
+  }
+  throw new Error(`${label} no coincide con dist/sw.js (${expectedServiceWorker.cacheName}). Última respuesta: ${detail}.`);
+}
+
+if (deploymentUrl) {
+  await verifyServiceWorkerAt(deploymentUrl, "Service Worker del despliegue inmutable", 3);
+}
+await verifyServiceWorkerAt(appUrl, "Service Worker de producción", 15);
 
 const page = await request(`${appUrl}/?build=${localVersion.buildId}`);
 const csp = page.headers.get("content-security-policy") || "";

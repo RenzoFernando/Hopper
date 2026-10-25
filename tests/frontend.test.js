@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { compareServiceWorkerAssets, inspectServiceWorkerAsset } from "../scripts/service-worker-verification.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const read = (path) => readFileSync(resolve(root, path), "utf8");
@@ -142,7 +143,10 @@ test("Pages publica y verifica exactamente el mismo build antes de aprobar produ
   assert.match(verify, /HOPPER_DEPLOYMENT_URL/);
   assert.match(verify, /version\.json devolvió HTML/);
   assert.match(verify, /Build de producción/);
-  assert.match(verify, /hopper-shell-v6/);
+  assert.match(verify, /inspectServiceWorkerAsset/);
+  assert.match(verify, /compareServiceWorkerAssets/);
+  assert.match(verify, /dist", "sw\.js/);
+  assert.doesNotMatch(verify, /serviceWorkerSource\.includes\("hopper-shell-v\d+"\)/);
   assert.match(headers, /\/version\.json[\s\S]*no-store/);
   assert.match(headers, /\/sw\.js[\s\S]*no-store/);
   assert.match(admin, /Invoke-FullValidation[\s\S]*Build final de Pages/);
@@ -150,6 +154,20 @@ test("Pages publica y verifica exactamente el mismo build antes de aprobar produ
   assert.match(admin, /--environment production/);
   assert.match(admin, /"--branch", \$script:PagesProductionBranch/);
   assert.match(admin, /Verify-Production -DeploymentUrl/);
+});
+
+test("la verificación del Service Worker detecta versiones obsoletas y contenido diferente", () => {
+  const local = inspectServiceWorkerAsset(Buffer.from('const CACHE_NAME = "hopper-shell-v7";'));
+  const same = inspectServiceWorkerAsset(Buffer.from('const CACHE_NAME = "hopper-shell-v7";'));
+  const stale = inspectServiceWorkerAsset(Buffer.from('const CACHE_NAME = "hopper-shell-v6";'));
+  const changed = inspectServiceWorkerAsset(Buffer.from('const CACHE_NAME = "hopper-shell-v7"; /* distinto */'));
+
+  assert.equal(compareServiceWorkerAssets(local, same).matches, true);
+  assert.match(compareServiceWorkerAssets(local, stale).detail, /caché remota hopper-shell-v6/);
+  assert.equal(compareServiceWorkerAssets(local, stale).matches, false);
+  assert.match(compareServiceWorkerAssets(local, changed).detail, /contenido diferente/);
+  assert.equal(compareServiceWorkerAssets(local, changed).matches, false);
+  assert.throws(() => inspectServiceWorkerAsset(Buffer.from("<html>falló la publicación</html>")), /versión de caché Hopper única/);
 });
 
 test("el CSS grande quedó dividido sin alterar su orden de cascada", () => {
