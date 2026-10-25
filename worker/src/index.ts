@@ -11,6 +11,8 @@ import type { HopperContext, HopperHonoEnv } from "./routes/common.ts";
 import { responseOrigin, runCleanup } from "./routes/common.ts";
 import { registerItemRoutes } from "./routes/items.ts";
 import { registerRoomRoutes } from "./routes/rooms.ts";
+import { registerExclusiveRoutes } from "./routes/exclusive.ts";
+import { getExclusiveMode, maybeCloseExclusiveMode } from "./services/exclusive.ts";
 import type { Env, ExecutionContextLike } from "./types/env.ts";
 
 export const app = new Hono<HopperHonoEnv>();
@@ -23,6 +25,15 @@ app.use("*", async (c: HopperContext, next: Next) => {
     return jsonResponse({ ok: true }, 204, origin);
   }
 
+  await next();
+});
+
+// Exclusive mode locks the real API, including existing room tokens. The admin route is the sole exception.
+app.use("/api/*", async (c: HopperContext, next: Next) => {
+  const path = c.req.path;
+  if (path === "/api/exclusive/status" || path === "/api/auth/login" || path === "/api/security/status" || path.startsWith("/api/admin/super/")) { await next(); return; }
+  const mode = await getExclusiveMode(c.env);
+  if (mode) throw new HttpError(423, "exclusive-mode", "Hopper está deshabilitado temporalmente mientras Administración utiliza el almacenamiento exclusivo.");
   await next();
 });
 
@@ -41,6 +52,7 @@ registerAuthRoutes(app);
 registerItemRoutes(app);
 registerRoomRoutes(app);
 registerAdminRoutes(app);
+registerExclusiveRoutes(app);
 
 app.notFound((c: HopperContext) => jsonResponse({
   ok: false,
@@ -68,6 +80,8 @@ app.onError((error: Error, c: HopperContext) => {
 });
 
 async function scheduledMaintenance(env: Env): Promise<void> {
+  await maybeCloseExclusiveMode(env);
+  if (await getExclusiveMode(env)) return;
   await runCleanup(env);
   await Promise.all([
     cleanupRateLimits(env.DB),

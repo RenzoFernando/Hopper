@@ -433,3 +433,72 @@ export async function checkB2Access(env: Env) {
     throw error;
   }
 }
+
+// B2 S3-compatible multipart requests never pass file bytes through a Worker.
+export async function createB2Multipart(env: Env, objectName: string): Promise<string> {
+  const url = await createSignedB2Url(env, { method: "POST", objectName, expiresSeconds: 60, queryParameters: { uploads: "" } });
+  const response = await fetch(url, { method: "POST" });
+  await requireB2Ok(response, "No se pudo iniciar la subida multipartes de B2.", "multipart-init-failed");
+  const id = tagValue(await response.text(), "UploadId");
+  if (!id) throw new HttpError(502, "multipart-invalid-id", "B2 no devolvió un identificador de subida.");
+  return id;
+}
+
+export async function abortB2Multipart(env: Env, objectName: string, uploadId: string): Promise<void> {
+  const url = await createSignedB2Url(env, { method: "DELETE", objectName, expiresSeconds: 60, queryParameters: { uploadId } });
+  const response = await fetch(url, { method: "DELETE" });
+  if (response.status !== 404) await requireB2Ok(response, "No se pudo cancelar la subida multipartes.", "multipart-abort-failed");
+}
+
+export async function completeB2Multipart(env: Env, objectName: string, uploadId: string, parts: Array<{partNumber:number;etag:string}>): Promise<void> {
+  const xml = `<CompleteMultipartUpload xmlns="http://s3.amazonaws.com/doc/2006-03-01/">${parts.map(part => `<Part><PartNumber>${part.partNumber}</PartNumber><ETag>"${part.etag.replaceAll('"', '')}"</ETag></Part>`).join("")}</CompleteMultipartUpload>`;
+  const url = await createSignedB2Url(env, { method: "POST", objectName, expiresSeconds: 60, queryParameters: { uploadId } });
+  const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/xml" }, body: xml });
+  const body = await response.text();
+  if (!response.ok || /<Error(?:\s|>)/i.test(body)) {
+    console.error("B2 multipart finalization failed", response.status, body.slice(0,500));
+    throw new HttpError(502,"multipart-complete-failed","B2 no pudo ensamblar los fragmentos.");
+  }
+}
+
+/** Enumera subidas S3 incompletas. La limpieza no debe ignorar fragmentos ocultos a ListVersions. */
+export async function listB2MultipartUploads(env: Env, prefix = "drop/", maxPages = 20) {
+  const uploads: Array<{key:string;uploadId:string}> = [];
+  let keyMarker = "";
+  let uploadIdMarker = "";
+  let truncated = false;
+  let pages = 0;
+  do {
+    const queryParameters: QueryParameters = {uploads:"",prefix,"max-uploads":"1000"};
+    if (keyMarker) queryParameters["key-marker"] = keyMarker;
+    if (uploadIdMarker) queryParameters["upload-id-marker"] = uploadIdMarker;
+    const url = await createSignedB2Url(env,{method:"GET",expiresSeconds:60,queryParameters});
+    const response = await fetch(url,{method:"GET"});
+    await requireB2Ok(response,"No se pudieron enumerar las subidas multipartes pendientes.","multipart-list-failed");
+    const xml = await response.text();
+    const pattern = /<Upload(?:\s[^>]*)?>([\s\S]*?)<\/Upload>/gi;
+    let match;
+    while ((match = pattern.exec(xml)) !== null) {
+      const key = tagValue(match[1],"Key");
+      const uploadId = tagValue(match[1],"UploadId");
+      if (key.startsWith(prefix) && uploadId) uploads.push({key,uploadId});
+    }
+    truncated = tagValue(xml,"IsTruncated").toLowerCase() === "true";
+    keyMarker = tagValue(xml,"NextKeyMarker");
+    uploadIdMarker = tagValue(xml,"NextUploadIdMarker");
+    pages += 1;
+  } while (truncated && keyMarker && pages < Math.max(1,maxPages));
+  return { uploads, truncated, pages };
+}
+
+export async function abortB2MultipartByPrefix(env: Env, prefix = "drop/") {
+  const listing = await listB2MultipartUploads(env,prefix,30);
+  let failed = listing.truncated ? 1 : 0;
+  for (const upload of listing.uploads) {
+    try { await abortB2Multipart(env,upload.key,upload.uploadId); }
+    catch (error) {console.error("No se pudo cancelar una carga incompleta de B2",error);failed++;}
+  }
+  const verified = await listB2MultipartUploads(env,prefix,1);
+  if (verified.truncated || verified.uploads.length > 0) failed++;
+  return {failed,scanned:listing.uploads.length};
+}
