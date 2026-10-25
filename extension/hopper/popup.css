@@ -1,0 +1,44 @@
+:root { color-scheme:light; --page:#f7f7f8; --surface:#fff; --surface-subtle:#f3f4f4; --surface-strong:#eceeed; --text:#202123; --soft:#60646c; --faint:#858990; --border:#dedfdf; --info:#4f6f8f; --accent:#2f6f5e; --danger:#a63a3a; font:13px ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+* { box-sizing:border-box; }
+body { width:385px; min-height:240px; max-height:590px; overflow-y:auto; background:var(--page); margin:0; color:var(--text); }
+.app-header { position:sticky; top:0; z-index:3; display:flex; justify-content:space-between; align-items:center; padding:11px 14px; background:var(--surface); border-bottom:1px solid var(--border); }
+.brand,.connection,.section-heading,.text-row,.queue-footer { display:flex; align-items:center; gap:8px; }
+.brand strong { letter-spacing:0.14em; font-size:12px; }
+.connection { color:var(--soft); font-size:11px; }
+.status-dot { width:7px; height:7px; background:var(--faint); border-radius:50%; }
+.status-dot.is-ready { background:var(--accent); }
+main { padding:11px; }
+.panel { padding:12px; margin-bottom:10px; background:var(--surface); border:1px solid var(--border); border-radius:13px; }
+.section-heading { justify-content:space-between; margin-bottom:10px; }
+h2 { font-size:13px; margin:0; }
+p, small, .quiet { color:var(--soft); font-size:11px; line-height:1.55; }
+.ttl-choice { display:flex; align-items:center; gap:6px; color:var(--faint); font-size:11px; }
+select { max-width:102px; padding:6px; border:1px solid var(--border); background:var(--surface); border-radius:7px; color:var(--text); }
+.text-row { align-items:stretch; }
+textarea { width:100%; min-height:70px; resize:none; font:inherit; line-height:1.5; padding:10px; border:1px solid var(--border); border-radius:9px; background:#fcfcfc; }
+button { cursor:pointer; font:inherit; }
+button:disabled { cursor:not-allowed; opacity:.45; }
+button:focus-visible, textarea:focus-visible, select:focus-visible, #drop:focus-visible { outline:3px solid #4f6f8f33; outline-offset:2px; }
+.button { border:1px solid var(--border); border-radius:9px; padding:9px 11px; background:var(--surface); color:var(--text); font-weight:650; }
+.main-button { background:#202123; color:#fff; border-color:#202123; }
+.icon-button { width:39px; min-width:39px; display:grid; place-items:center; padding:0; }
+svg { display:block; width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+.quick-actions { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-bottom:10px; }
+.quick-actions button { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:9px 4px; background:var(--surface); border:1px solid var(--border); border-radius:10px; color:var(--info); }
+.quick-actions button span { font-size:10px; color:var(--soft); }
+.drop { padding:15px 10px; text-align:center; color:var(--soft); border:1px dashed #c7c9c8; border-radius:9px; background:var(--surface-subtle); cursor:pointer; font-size:11px; }
+.drop.is-dragging { border-color:var(--accent); background:#e9f2ef; }
+.queue { display:grid; gap:6px; margin-top:8px; }
+.queue:empty { display:none; }
+.queue-item { position:relative; display:flex; gap:8px; align-items:center; padding:8px; border:1px solid var(--border); border-radius:9px; overflow:hidden; }
+.queue-copy { min-width:0; flex:1; display:grid; gap:3px; }
+.queue-name { font-weight:650; font-size:11px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.queue-state { color:var(--soft); font-size:10px; }
+.queue-remove { display:grid; place-items:center; border:1px solid var(--border); background:#fff; color:var(--danger); width:24px; height:24px; border-radius:7px; }
+.progress { position:absolute; left:0; bottom:0; width:100%; height:3px; background:var(--surface-strong); }
+.progress > span { display:block; height:100%; background:var(--info); transition:width 120ms ease; }
+.queue-footer { justify-content:space-between; align-items:flex-end; margin-top:9px; }
+.queue-footer small { max-width:245px; }
+.bottom-button { display:flex; width:100%; justify-content:center; align-items:center; gap:10px; background:var(--surface); }
+#message { background:#f8ecec; color:var(--danger); border:1px solid #e2b9b9; border-radius:9px; padding:8px 10px; margin-bottom:10px; font-size:11px; }
+#message.is-success { background:#e9f2ef; color:var(--accent); border-color:#b8d5cc; }

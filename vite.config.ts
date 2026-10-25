@@ -27,7 +27,24 @@ function readProductionConfig(): ProductionConfig {
 
 const productionConfig = readProductionConfig();
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // En desarrollo, el proxy local mantiene CORS de producción sin cambios en el Worker.
+  server: {
+    host: "127.0.0.1",
+    proxy: {
+      "/_hopper_proxy": {
+        target: productionConfig.workerBaseUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/_hopper_proxy/, ""),
+        configure: (proxy) => {
+          proxy.on("proxyReq", (request) => {
+            request.removeHeader("origin");
+            request.removeHeader("referer");
+          });
+        }
+      }
+    }
+  },
   plugins: [
     react(),
     VitePWA({
@@ -76,7 +93,7 @@ export default defineConfig({
   ],
   define: {
     __HOPPER_APP_CONFIG__: JSON.stringify({
-      workerBaseUrl: productionConfig.workerBaseUrl,
+      workerBaseUrl: command === "serve" ? "/_hopper_proxy" : productionConfig.workerBaseUrl,
       publicAppUrl: productionConfig.publicAppUrl,
       defaultTtlMinutes: 5,
       roomDefaultTtlMinutes: 10,
@@ -86,4 +103,4 @@ export default defineConfig({
       uploadConcurrency: 2
     })
   }
-});
+}));

@@ -3,7 +3,7 @@ import { useRef } from "react";
 import { formatBytes, ttlLabel } from "../../lib/format";
 import type { SelectedFileEntry } from "../../features/transfers/types";
 import { TransferQueue } from "./TransferQueue";
-import { UploadIcon } from "./icons";
+import { SendIcon, UploadIcon } from "./icons";
 
 type Props = {
   text: string;
@@ -61,7 +61,7 @@ export function Composer(props: Props) {
           <div className="compose-panel-heading"><h2>Texto</h2><span>Ctrl + Enter para enviar</span></div>
           <label className="sr-only" htmlFor="text-input">Texto o código</label>
           <textarea id="text-input" rows={3} maxLength={250000} placeholder="Pega tu texto aquí…" value={props.text} disabled={props.sending} onChange={(event) => props.onTextChange(event.target.value)} onKeyDown={onKeyDown} onPaste={pasteFiles} />
-          <div className="composer-actions"><button className="primary-button send-button" id="send-button" type="button" disabled={props.sending || !props.text.trim()} onClick={props.onSendText}>{props.sending ? "Procesando…" : "Enviar texto"}</button></div>
+          <div className="composer-actions"><button className="primary-button send-button" id="send-button" type="button" title="Enviar texto" aria-label="Enviar texto" disabled={props.sending || !props.text.trim()} onClick={props.onSendText}><SendIcon /><span className="send-caption">{props.sending ? "Procesando…" : "Enviar texto"}</span></button></div>
         </section>
         <section className="compose-panel compose-files" aria-label="Enviar archivos">
           <div className="compose-panel-heading"><h2>Archivos</h2><span>{props.selectedFiles.length ? `${readyCount} de ${props.selectedFiles.length} preparados` : "Se suben al adjuntarlos"}</span></div>
@@ -71,7 +71,7 @@ export function Composer(props: Props) {
             <span className="drop-limit" id="drop-limit">Máx. {formatBytes(props.maxFileBytes)}</span>
           </div>
           <TransferQueue entries={props.selectedFiles} onRemove={props.onRemove} onCancel={props.onCancel} onRetry={props.onRetry} />
-          <div className="composer-actions"><span className="upload-help">Los archivos se mantienen ocultos hasta publicarlos.</span><button className="primary-button send-button" id="send-files-button" type="button" disabled={props.sending || !filesReady} onClick={props.onSendFiles}>{props.sending ? "Procesando…" : `Enviar archivos${filesReady ? ` (${readyCount})` : ""}`}</button></div>
+          <div className="composer-actions"><span className="upload-help">Los archivos se mantienen ocultos hasta publicarlos.</span><button className="primary-button send-button" id="send-files-button" type="button" title="Publicar archivos preparados" aria-label="Enviar archivos" disabled={props.sending || !filesReady} onClick={props.onSendFiles}><SendIcon /><span className="send-caption">{props.sending ? "Procesando…" : `Enviar archivos${filesReady ? ` (${readyCount})` : ""}`}</span></button></div>
         </section>
       </div>
     </section>

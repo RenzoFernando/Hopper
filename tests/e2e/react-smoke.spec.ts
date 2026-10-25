@@ -177,6 +177,26 @@ test("los textos admiten selección y descarga como TXT", async ({ page }) => {
   expect((await downloadPromise).suggestedFilename()).toMatch(/\.txt$/);
 });
 
+test("el compositor prioriza archivos y mantiene controles iconográficos accesibles", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  await page.goto("/space");
+  const widths = await page.evaluate(() => {
+    const text = document.querySelector<HTMLElement>(".compose-text")?.getBoundingClientRect().width || 0;
+    const files = document.querySelector<HTMLElement>(".compose-files")?.getBoundingClientRect().width || 0;
+    return { text, files, resize: getComputedStyle(document.querySelector("#text-input")!).resize };
+  });
+  expect(widths.text / (widths.text + widths.files)).toBeGreaterThan(0.22);
+  expect(widths.text / (widths.text + widths.files)).toBeLessThan(0.28);
+  expect(widths.resize).toBe("none");
+  await expect(page.getByRole("button", { name: "Enviar texto" })).toBeVisible();
+  await page.locator("#text-input").fill("Control de tiempo");
+  await page.locator("#send-button").click();
+  await expect(page.locator(".expiry-countdown svg")).toBeVisible();
+  await expect(page.getByLabel("Editar tiempo de expiración")).toBeVisible();
+});
+
 test("crear y entrar a una sala conserva el flujo legado", async ({ page }) => {
   await installApiMock(page);
   await page.goto("/");

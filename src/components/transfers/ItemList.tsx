@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { TransferApi } from "../../features/transfers/types";
 import type { HopperItem } from "../../schemas/item";
 import { ItemCard } from "./ItemCard";
@@ -49,9 +49,34 @@ export function ItemList(props: Props) {
   const selectedItems = activeItems.filter((item) => selectedSet.has(item.id));
   const allSelected = activeItems.length > 0 && selectedItems.length === activeItems.length;
   const knownIds = useRef<Set<string> | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const previousPositions = useRef(new Map<string, number>());
   const arriving = knownIds.current === null ? new Set<string>() : new Set(activeItems.filter((item) => !knownIds.current?.has(item.id)).map((item) => item.id));
   useEffect(() => {
     knownIds.current = new Set(activeItems.map((item) => item.id));
+  }, [activeItems]);
+
+  useLayoutEffect(() => {
+    const container = listRef.current;
+    if (!container) return;
+    const nextPositions = new Map<string, number>();
+    const containerTop = container.getBoundingClientRect().top;
+    const reducedMotion = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const element of Array.from(container.querySelectorAll<HTMLElement>("[data-item-id]"))) {
+      const id = element.dataset.itemId;
+      if (!id) continue;
+      const top = element.getBoundingClientRect().top - containerTop + container.scrollTop;
+      nextPositions.set(id, top);
+      const previous = previousPositions.current.get(id);
+      const offset = previous === undefined ? 0 : previous - top;
+      if (!reducedMotion && Math.abs(offset) > 2 && typeof element.animate === "function") {
+        element.animate(
+          [{ transform: `translateY(${offset}px)` }, { transform: "translateY(0)" }],
+          { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }
+        );
+      }
+    }
+    previousPositions.current = nextPositions;
   }, [activeItems]);
 
   const invoke = (operation: () => Promise<void>) => {
@@ -76,9 +101,9 @@ export function ItemList(props: Props) {
         <div className="bulk-actions">
           {props.downloadDirectorySupported && <>
             <button type="button" className={`bulk-button ${props.downloadDirectoryName ? "is-active" : ""}`.trim()} title={props.downloadDirectoryName ? `Carpeta activa: ${props.downloadDirectoryName}` : "Seleccionar carpeta para descargas temporales"} disabled={props.batchBusy} onClick={() => { void props.onChooseDownloadDirectory(); }}><FolderIcon /><span>{props.downloadDirectoryName || "Elegir carpeta"}</span></button>
-            {props.downloadDirectoryName && <button type="button" className="bulk-button" title="Dejar de usar la carpeta y volver a las descargas normales" disabled={props.batchBusy} onClick={() => invoke(props.onDisableDownloadDirectory)}><span>Usar Descargas</span></button>}
+            {props.downloadDirectoryName && <button type="button" className="bulk-button" aria-label="Volver a Descargas" title="Dejar de usar la carpeta y volver a las descargas normales" disabled={props.batchBusy} onClick={() => invoke(props.onDisableDownloadDirectory)}><DownloadIcon /><span>Usar Descargas</span></button>}
           </>}
-          {activeItems.length > 0 && <button type="button" className="bulk-button" disabled={props.batchBusy} onClick={() => invoke(() => props.onDownloadMany(activeItems))}><DownloadIcon /><span>{activeItems.length === 1 ? "Descargar elemento" : "Descargar todos"}</span></button>}
+          {activeItems.length > 0 && <button type="button" className="bulk-button" aria-label="Descargar todos los elementos" title="Descargar todos" disabled={props.batchBusy} onClick={() => invoke(() => props.onDownloadMany(activeItems))}><DownloadIcon /><span>{activeItems.length === 1 ? "Descargar elemento" : "Descargar todos"}</span></button>}
           {selectedItems.length > 0 && <button type="button" className="bulk-button" disabled={props.batchBusy} onClick={() => invoke(() => props.onDownloadMany(selectedItems))}><DownloadIcon /><span>Descargar selección ({selectedItems.length})</span></button>}
           {selectedItems.length > 0 && <button type="button" className="bulk-button is-danger" disabled={props.batchBusy} onClick={() => props.onDeleteManyRequest(selectedItems)}><DeleteIcon /><span>Eliminar selección</span></button>}
         </div>
@@ -86,7 +111,7 @@ export function ItemList(props: Props) {
       <div className="items-frame">
         <div className="loading-state" id="loading-state" hidden={!props.loading}><span className="spinner" aria-hidden="true" /><span>Cargando contenido temporal…</span></div>
         <div className="empty-state" id="empty-state" hidden={props.loading || activeItems.length > 0}><div className="empty-mark" aria-hidden="true"><EmptyIcon /></div><h3>{props.emptyTitle}</h3><p>{props.emptyCopy}</p></div>
-        <div className="item-list" id="item-list" aria-live="polite" hidden={props.loading || activeItems.length === 0}>
+        <div className="item-list" ref={listRef} id="item-list" aria-live="polite" hidden={props.loading || activeItems.length === 0}>
           {activeItems.map((item) => <ItemCard key={item.id} arriving={arriving.has(item.id)} item={item} now={props.now} api={props.api} allowTtlReset={props.allowTtlReset} ttlOptions={props.ttlOptions} selected={selectedSet.has(item.id)} onSelectionChange={toggleItem} onCopy={props.onCopy} onCopyFile={props.onCopyFile} onDownload={props.onDownload} onPreview={props.onPreview} onShare={props.onShare} onDeleteRequest={props.onDeleteRequest} onResetTtl={props.onResetTtl} onActivity={props.onActivity} onError={props.onError} />)}
         </div>
       </div>

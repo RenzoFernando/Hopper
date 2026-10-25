@@ -37,3 +37,7 @@ export function FileKindIcon({ kind }: { kind: FileKind }) {
   if (kind === "video") return <VideoIcon />;
   return <FileIcon />;
 }
+
+export function SendIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 11.3 17-7.2-6.5 16-2.4-6.8L3 11.3Zm8.1 2L20 4.1" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+export function ClockIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.7"/><path d="M12 7v5l3.5 2" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
+export function EditTimeIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5a7.5 7.5 0 1 0 7.5 7.5M12 8v4l2 1.5M15.5 5.5l3.6-3.5 2.4 2.4-3.6 3.5-3.2.8z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>; }

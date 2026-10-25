@@ -4,7 +4,7 @@ import { fileTypeInfo } from "../../lib/file-types";
 import { formatBytes, formatCountdown, textPreview, ttlLabel } from "../../lib/format";
 import { extractHttpUrls, splitHttpText } from "../../lib/links";
 import type { HopperItem } from "../../schemas/item";
-import { CopyIcon, DeleteIcon, DownloadIcon, ExternalLinkIcon, FileKindIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
+import { ClockIcon, CopyIcon, DeleteIcon, DownloadIcon, EditTimeIcon, ExternalLinkIcon, FileKindIcon, PlayIcon, PreviewIcon, ShareIcon, TextIcon } from "./icons";
 
 type Props = {
   item: HopperItem;
@@ -100,11 +100,11 @@ export function ItemCard(props: Props) {
       </div>
       <div className="item-actions">
         <div className="expiry-controls">
-          <span className="expiry-countdown" data-expires-at={item.expiresAt || undefined} aria-label="Tiempo restante">{formatCountdown(item.expiresAt, props.now)}</span>
-          {props.allowTtlReset && <select className="expiry-select" data-item-id={item.id} aria-label="Reiniciar tiempo de expiración" defaultValue="" onChange={(event) => { const minutes = Number(event.target.value); event.target.value = ""; if (Number.isFinite(minutes) && minutes >= 0) void props.onResetTtl(item, minutes); }}>
+          <span className="expiry-countdown" data-expires-at={item.expiresAt || undefined} aria-label={`Tiempo restante: ${formatCountdown(item.expiresAt, props.now)}`}><ClockIcon /><span>{formatCountdown(item.expiresAt, props.now)}</span></span>
+          {props.allowTtlReset && <label className="expiry-edit" title="Editar tiempo de expiración"><EditTimeIcon /><span className="sr-only">Editar tiempo</span><select className="expiry-select" data-item-id={item.id} aria-label="Editar tiempo de expiración" defaultValue="" onChange={(event) => { const minutes = Number(event.target.value); event.target.value = ""; if (Number.isFinite(minutes) && minutes >= 0) void props.onResetTtl(item, minutes); }}>
             <option value="">Tiempo</option>
             {props.ttlOptions.map((minutes) => <option value={minutes} key={minutes}>{ttlLabel(minutes)}</option>)}
-          </select>}
+          </select></label>}
         </div>
         {item.type === "text" ? <>{textLinks[0] && <ActionLink label="Abrir enlace" href={textLinks[0]}><ExternalLinkIcon /></ActionLink>}<ActionButton label="Copiar" onClick={() => invoke(() => props.onCopy(item))}><CopyIcon /></ActionButton><ActionButton label="Descargar TXT" onClick={() => invoke(() => props.onDownload(item))}><DownloadIcon /></ActionButton></> : <>
           {canPreview && <ActionButton label="Ver" onClick={() => invoke(() => props.onPreview(item))}><PreviewIcon /></ActionButton>}
