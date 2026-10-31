@@ -134,9 +134,8 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   });
 
   useEffect(() => {
-    const uploading = sending || selectedFiles.some((entry) =>
-      entry.status === "preparando" || entry.status === "subiendo" || entry.status === "confirmando"
-    );
+    // Un archivo "listo" sigue pendiente de publicación: recargar la PWA lo perdería.
+    const uploading = sending || selectedFiles.some((entry) => entry.status !== "error");
     if (uploading && !transferReleaseRef.current) transferReleaseRef.current = beginTransfer();
     if (!uploading && transferReleaseRef.current) {
       transferReleaseRef.current();
@@ -427,11 +426,35 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   }, [showToast]);
 
   const fetchItemBlob = useCallback(async (item: HopperItem) => {
-    const result = await api.getFileUrl(item.id, "download");
-    const response = await fetch(result.url);
-    if (!response.ok) throw new ApiError(`No fue posible leer ${item.name || "el archivo"}.`, { status: response.status, code: "download-failed" });
-    onActivity();
-    return response.blob();
+    let lastError: ApiError | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        // Cada intento obtiene una firma nueva; las URLs de B2 son temporales.
+        const result = await api.getFileUrl(item.id, "download");
+        const response = await fetch(result.url, { cache: "no-store" });
+        if (!response.ok) {
+          const missing = response.status === 404;
+          throw new ApiError(
+            missing ? "El archivo ya no está disponible en el almacenamiento. Vuelve a enviarlo." : `No fue posible descargar ${item.name || "el archivo"} (${response.status}).`,
+            { status: response.status, code: missing ? "file-not-in-storage" : "download-failed" }
+          );
+        }
+        const blob = await response.blob();
+        if (Number.isFinite(item.size) && blob.size !== item.size) {
+          throw new ApiError("La descarga llegó incompleta. Inténtalo nuevamente.", { code: "incomplete-download" });
+        }
+        onActivity();
+        return blob;
+      } catch (caught) {
+        const error = errorInfo(caught);
+        lastError = error;
+        const retryable = error.code === "network-error" || error.code === "incomplete-download"
+          || error.status === 403 || error.status === 408 || error.status === 429 || error.status >= 500;
+        if (!retryable || attempt === 2) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+    throw lastError ?? new ApiError("No fue posible descargar el archivo.");
   }, [api, onActivity]);
 
   const copyFileItem = useCallback(async (item: HopperItem) => {
@@ -508,18 +531,6 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     setDownloadDirectoryLoading(false);
   }, []);
 
-  const triggerSignedDownload = useCallback(async (item: HopperItem) => {
-    const result = await api.getFileUrl(item.id, "download");
-    const link = document.createElement("a");
-    link.href = result.url;
-    link.download = item.name || "archivo";
-    link.rel = "noopener";
-    document.body.append(link);
-    link.click();
-    link.remove();
-    onActivity();
-  }, [api, onActivity]);
-
   const downloadItem = useCallback(async (item: HopperItem) => {
     const directory = await permittedDirectory();
     if (item.type === "text") {
@@ -532,15 +543,17 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
       } else downloadBlobWithBrowser(name, blob);
       return;
     }
+    // Un enlace externo a B2 no respeta `download` en numerosos navegadores/PWA.
+    // Guardar un blob local permite conservar el nombre y verificar que llegó completo.
+    const blob = await fetchItemBlob(item);
     if (!directory) {
-      await triggerSignedDownload(item);
+      downloadBlobWithBrowser(item.name || "archivo", blob);
       return;
     }
-    const blob = await fetchItemBlob(item);
     const downloadId = crypto.randomUUID();
     await saveTemporaryDownload(directory, temporaryFileName(item.name || "archivo", downloadId), blob, `${queryKey}:file:${downloadId}`, queryKey, [item.id], item.expiresAt);
     showToast(`Archivo temporal guardado en ${directory.name}.`, "success");
-  }, [fetchItemBlob, permittedDirectory, queryKey, showToast, triggerSignedDownload]);
+  }, [fetchItemBlob, permittedDirectory, queryKey, showToast]);
 
   const downloadItems = useCallback(async (items: HopperItem[]) => {
     if (items.length === 0) throw new ApiError("No hay elementos para descargar.");

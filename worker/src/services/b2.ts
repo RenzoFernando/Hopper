@@ -278,6 +278,28 @@ async function requireB2Ok(response: Response, message: string, code = "b2-error
   throw new HttpError(502, code, message);
 }
 
+export async function headB2ObjectMetadata(env: Env, objectName: string) {
+  const url = await createSignedB2Url(env, {
+    method: "HEAD",
+    objectName: String(objectName),
+    expiresSeconds: 60
+  });
+  const response = await fetch(url, { method: "HEAD" });
+  if (response.status === 404) return null;
+  await requireB2Ok(response, "Backblaze B2 no pudo verificar el archivo subido.", "storage-error");
+  const contentLength = response.headers.get("content-length");
+  if (!contentLength || !/^\d+$/.test(contentLength) || !Number.isSafeInteger(Number(contentLength))) {
+    throw new HttpError(502, "storage-error", "Backblaze B2 no confirmó el tamaño del archivo.");
+  }
+  return {
+    size: Number(contentLength),
+    contentType: response.headers.get("content-type") || "",
+    versionId: response.headers.get("x-amz-version-id") || "",
+    etag: response.headers.get("etag")?.replace(/^"|"$/g, "") || null,
+    lastModified: response.headers.get("last-modified") || null
+  };
+}
+
 export async function getB2ObjectMetadata(env: Env, objectName: string) {
   const normalizedObjectName = String(objectName);
   const listed = await listB2ObjectVersions(env, normalizedObjectName);

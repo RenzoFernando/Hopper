@@ -60,6 +60,10 @@ test("flujo integrado de sala: crear, unir, transferir, descargar y revocar", as
       const url = new URL(typeof input === "string" ? input : input.url);
       const method = String(init.method || input?.method || "GET").toUpperCase();
 
+      if (url.hostname === "s3.us-east-005.backblazeb2.com" && method === "HEAD") {
+        return new Response(null, { status: 200, headers: { "content-length": "4", "content-type": "audio/mp4", "etag": '"etag-integration"' } });
+      }
+
       if (url.hostname === "s3.us-east-005.backblazeb2.com" && method === "GET" && url.searchParams.has("versions")) {
         const key = url.searchParams.get("prefix") || "";
         return new Response(b2Xml(key), { status: 200, headers: { "Content-Type": "application/xml" } });

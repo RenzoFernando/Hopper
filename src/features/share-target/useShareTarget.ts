@@ -8,6 +8,7 @@ import { appConfig } from "../../lib/config";
 import { PERSONAL_TTL_OPTIONS, ROOM_TTL_MINUTES } from "../../lib/retention";
 import { formatBytes } from "../../lib/format";
 import { roomPath } from "../../lib/navigation";
+import { beginTransfer } from "../../lib/transfer-activity";
 import { isCompleteRoomCode, normalizeRoomCode } from "../../lib/room-code";
 import { clearSharedPayload, readSharedPayload, writeSharedPayload, type PendingShareDelivery, type SharedPayload, type ShareDestination } from "../../lib/share-target-storage";
 import type { TransferApi } from "../transfers/types";
@@ -235,6 +236,7 @@ export function useShareTarget(enabled = true) {
   const uploadFile = useCallback(async (api: ShareTransferApi, file: File, ttl: number, index: number, total: number) => {
     if (file.size > api.maxFileBytes) throw new Error(`${file.name || "El archivo"} supera el límite de ${formatBytes(api.maxFileBytes)}.`);
     let uploadId = "";
+    let uploaded = false;
     try {
       setProgress(`${index + 1}/${total} · Preparando ${file.name || "archivo"}`);
       const initialized = await api.initializeUpload(file, ttl);
@@ -242,12 +244,23 @@ export function useShareTarget(enabled = true) {
       const uploadUrl = initialized.upload.uploadUrl;
       if (!uploadId || !uploadUrl) throw new Error("Hopper no devolvió una URL de subida válida.");
       await putWithRetry(api, file, uploadUrl, (value) => setProgress(`${index + 1}/${total} · ${value}% · ${file.name || "archivo"}`), initialized.upload.mimeType || file.type || "application/octet-stream");
+      uploaded = true;
       setProgress(`${index + 1}/${total} · 100% · Confirmando`);
       const confirmed = await confirmWithRetry(api, uploadId, ttl);
       if (!confirmed.item.id || confirmed.item.id !== uploadId) throw new Error("Hopper no confirmó correctamente el archivo compartido.");
       return confirmed.item.id;
     } catch (error) {
-      if (uploadId) void api.cancelUpload(uploadId, true).catch(() => undefined);
+      if (uploadId && uploaded) {
+        // La confirmación pudo completarse aunque se perdiera la respuesta en la red.
+        try {
+          const items = await api.listItems();
+          if (items.items.some((item) => item.id === uploadId)) return uploadId;
+        } catch {
+          // Una lectura fallida tampoco autoriza a borrar un archivo ya subido.
+        }
+      } else if (uploadId) {
+        void api.cancelUpload(uploadId, true).catch(() => undefined);
+      }
       throw error;
     }
   }, []);
@@ -280,6 +293,7 @@ export function useShareTarget(enabled = true) {
     const text = [currentPayload.title, currentPayload.text, currentPayload.url].filter(Boolean).join("\n").trim();
     const files = currentPayload.files;
     sendBusyRef.current = true;
+    const releaseTransfer = beginTransfer();
     setSendBusy(true);
     setMessage("Enviando…");
     setMessageKind("");
@@ -323,6 +337,7 @@ export function useShareTarget(enabled = true) {
       setMessageKind("error");
       return false;
     } finally {
+      releaseTransfer();
       if (!completed) {
         sendBusyRef.current = false;
         setSendBusy(false);

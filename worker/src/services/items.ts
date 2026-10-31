@@ -15,7 +15,7 @@ import { HttpError, normalizeText } from "../lib/http.ts";
 import {
   createSignedB2Url,
   deleteB2Object,
-  getB2ObjectMetadata
+  headB2ObjectMetadata
 } from "./b2.ts";
 import {
   recordCleanupFailure,
@@ -580,7 +580,8 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
     throw new HttpError(410, "upload-expired", "La ventana de subida de este archivo ya venció.");
   }
 
-  const metadata = await getB2ObjectMetadata(env, storageKeyFor(item));
+  // HEAD comprueba que el objeto sea legible; un listado de versiones puede estar desfasado.
+  const metadata = await headB2ObjectMetadata(env, storageKeyFor(item));
 
   if (!metadata) {
     throw new HttpError(409, "upload-not-found", "Backblaze B2 todavía no confirma la subida del archivo.");
@@ -677,6 +678,11 @@ export async function createItemDownloadUrl(env: Env, id: unknown, mode: string 
 
   if (mode === "stream" && !isAudio(item)) {
     throw new HttpError(400, "stream-not-supported", "Este tipo de archivo no admite reproducción de audio.");
+  }
+
+  const metadata = await headB2ObjectMetadata(env, storageKeyFor(item));
+  if (!metadata) {
+    throw new HttpError(404, "file-not-in-storage", "Este archivo ya no está disponible en el almacenamiento. Vuelve a enviarlo.");
   }
 
   const remainingSeconds = item.expiresAt === null

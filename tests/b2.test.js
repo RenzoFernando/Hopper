@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   canonicalQueryString,
   createSignedB2Url,
+  headB2ObjectMetadata,
   parseB2Endpoint,
   parseB2VersionList
 } from "../worker/src/services/b2.ts";
@@ -78,4 +79,34 @@ test("interpreta versiones y marcadores de borrado de Backblaze B2", () => {
     nextKeyMarker: "drop/a&b.txt",
     nextVersionIdMarker: "v-next"
   });
+});
+
+test("confirma directamente en B2 el tamaño y la existencia del objeto", async () => {
+  const env = {
+    B2_ENDPOINT: "https://s3.us-west-004.backblazeb2.com",
+    B2_BUCKET_NAME: "hopper-files-test",
+    B2_KEY_ID: "test-access-key",
+    B2_APPLICATION_KEY: "test-secret-key"
+  };
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  try {
+    globalThis.fetch = async (url, options) => {
+      requests.push({ url: String(url), method: options.method });
+      return new Response(null, {
+        status: 200,
+        headers: { "content-length": "1456", "content-type": "audio/mp4", "etag": '"etag-audio"' }
+      });
+    };
+    const metadata = await headB2ObjectMetadata(env, "drop/personal/temporal/grabacion.m4a");
+    assert.equal(metadata.size, 1456);
+    assert.equal(metadata.contentType, "audio/mp4");
+    assert.equal(metadata.etag, "etag-audio");
+    assert.equal(requests[0].method, "HEAD");
+    assert.ok(new URL(requests[0].url).searchParams.get("X-Amz-Signature"));
+    globalThis.fetch = async () => new Response(null, { status: 404 });
+    assert.equal(await headB2ObjectMetadata(env, "drop/no-existe.m4a"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

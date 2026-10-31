@@ -135,7 +135,8 @@ export function downloadBlobWithBrowser(name: string, blob: Blob) {
   document.body.append(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Safari y las PWA móviles pueden abrir el selector de guardado después del clic.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function clearDownloadDirectory(): Promise<void> {
