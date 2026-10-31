@@ -239,7 +239,7 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
 
   const completeUploadWithRetry = useCallback(async (id: string, ttl: number) => {
     let lastError: ApiError | null = null;
-    const retryableCodes = new Set(["upload-not-found", "storage-error", "network-error"]);
+    const retryableCodes = new Set(["upload-not-found", "upload-size-mismatch", "storage-error", "network-error"]);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       try {
         return await api.completeUpload(id, ttl);
@@ -395,7 +395,11 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
       replaceSelected((current) => current.filter((entry) => !published.has(entry.key)));
       const failures = results.filter((result) => !result.ok);
       if (!failures.length) showToast(`${published.size} ${published.size === 1 ? "archivo publicado" : "archivos publicados"}.`, "success");
-      else showToast(`${published.size} publicados; ${failures.length} no pudieron publicarse.`, "error");
+      else {
+        const firstError = failures[0]?.error;
+        const detail = firstError ? ` ${firstError.message} (${firstError.code}).` : "";
+        showToast(`${published.size} publicados; ${failures.length} no pudieron publicarse.${detail}`, "error");
+      }
       if (published.size) await queryClient.invalidateQueries({ queryKey: itemQueryKey });
       onActivity();
     } finally {

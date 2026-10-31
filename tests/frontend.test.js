@@ -56,8 +56,18 @@ test("el Service Worker conserva rutas limpias y activa builds nuevos sin quedar
   assert.match(sw, /url\.pathname === "\/" \|\| url\.pathname === "\/index\.html"/);
 
   const pwa = read("src/hooks/usePwa.tsx");
-  assert.match(pwa, /next\.update\(\)/);
+  assert.match(pwa, /activeRegistration\.update\(\)/);
+  assert.match(pwa, /visible && wasHidden/);
+  assert.match(pwa, /checkNewVersion\(true\)/);
   assert.match(pwa, /activateWaitingWorker/);
+});
+
+test("el selector de archivos centra el contenido en móvil y escritorio", () => {
+  const transfers = read("src/styles/transfers.css");
+  const mobile = read("src/styles/responsive-core.css");
+  assert.match(transfers, /\.drop-copy \{[^}]*align-items: center;[^}]*justify-content: center;/);
+  assert.match(transfers, /\.drop-copy \{[^}]*text-align: center;/);
+  assert.match(mobile, /\.drop-zone \{\s*align-items: center;\s*justify-content: center;/);
 });
 
 test("el router expone solo las rutas actuales", () => {

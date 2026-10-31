@@ -15,6 +15,7 @@ import { HttpError, normalizeText } from "../lib/http.ts";
 import {
   createSignedB2Url,
   deleteB2Object,
+  getB2ObjectMetadata,
   headB2ObjectMetadata
 } from "./b2.ts";
 import {
@@ -562,6 +563,38 @@ export async function initializeFileUpload(env: Env, payload: { name?: unknown; 
   }
 }
 
+// La comprobación por HEAD puede fallar aunque B2 haya aceptado el PUT.
+// Contrastar la versión más reciente evita descartar un archivo válido por una respuesta incompleta.
+async function confirmedB2Metadata(env: Env, item: DropItem) {
+  const key = storageKeyFor(item);
+  let headMetadata: Awaited<ReturnType<typeof headB2ObjectMetadata>> = null;
+  let headFailure: unknown = null;
+
+  try {
+    headMetadata = await headB2ObjectMetadata(env, key);
+    if (headMetadata && headMetadata.size === item.size) return headMetadata;
+  } catch (error) {
+    headFailure = error;
+  }
+
+  let listedMetadata: Awaited<ReturnType<typeof getB2ObjectMetadata>> = null;
+  try {
+    listedMetadata = await getB2ObjectMetadata(env, key);
+    if (listedMetadata && listedMetadata.size === item.size) {
+      return { ...listedMetadata, contentType: item.mimeType };
+    }
+  } catch (error) {
+    if (!headMetadata && headFailure) throw headFailure;
+    if (!headMetadata) throw error;
+  }
+
+  if (headMetadata || listedMetadata) {
+    throw new HttpError(409, "upload-size-mismatch", "B2 no confirmó el tamaño completo. El archivo se conserva para reintentar la publicación.");
+  }
+  if (headFailure) throw headFailure;
+  throw new HttpError(409, "upload-not-found", "Backblaze B2 todavía no confirma la subida del archivo.");
+}
+
 export async function completeFileUpload(env: Env, id: unknown, context: ItemContext = personalContext(), ttlValue?: unknown) {
   const scope = normalizeContext(context);
   const item = await getDropItem(env, validateItemId(id));
@@ -580,21 +613,8 @@ export async function completeFileUpload(env: Env, id: unknown, context: ItemCon
     throw new HttpError(410, "upload-expired", "La ventana de subida de este archivo ya venció.");
   }
 
-  // HEAD comprueba que el objeto sea legible; un listado de versiones puede estar desfasado.
-  const metadata = await headB2ObjectMetadata(env, storageKeyFor(item));
-
-  if (!metadata) {
-    throw new HttpError(409, "upload-not-found", "Backblaze B2 todavía no confirma la subida del archivo.");
-  }
-
-  const actualSize = Number(metadata.size || 0);
-
-  if (actualSize !== item.size) {
-    await deleteB2Object(env, storageKeyFor(item)).catch(() => {});
-    await deleteDropItemRow(env, item.id).catch(() => {});
-    await recordUploadFailure(env.DB).catch(() => {});
-    throw new HttpError(409, "upload-size-mismatch", "La subida quedó incompleta y fue descartada.");
-  }
+  const metadata = await confirmedB2Metadata(env, item);
+  const actualSize = metadata.size;
 
   const createdAt = new Date();
   const confirmedTtl = ttlValue === undefined ? item.ttlMinutes : normalizeTtlMinutes(ttlValue, scope.ttlOptions);
@@ -680,11 +700,8 @@ export async function createItemDownloadUrl(env: Env, id: unknown, mode: string 
     throw new HttpError(400, "stream-not-supported", "Este tipo de archivo no admite reproducción de audio.");
   }
 
-  const metadata = await headB2ObjectMetadata(env, storageKeyFor(item));
-  if (!metadata) {
-    throw new HttpError(404, "file-not-in-storage", "Este archivo ya no está disponible en el almacenamiento. Vuelve a enviarlo.");
-  }
-
+  // El enlace GET comprueba la existencia al transferir; evitar HEAD aquí impide
+  // bloquear descargas de archivos ya publicados cuando B2 falla temporalmente.
   const remainingSeconds = item.expiresAt === null
     ? DOWNLOAD_URL_TTL_SECONDS
     : Math.max(1, Math.floor((Date.parse(item.expiresAt) - Date.now()) / 1000));

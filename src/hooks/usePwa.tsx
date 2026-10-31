@@ -39,6 +39,7 @@ function usePwaController(): PwaController {
     let reloadPending = false;
     const hadController = Boolean(navigator.serviceWorker.controller);
     let lastUpdateCheck = 0;
+    let wasHidden = document.visibilityState === "hidden";
     let activeRegistration: ServiceWorkerRegistration | null = null;
     const target = serviceWorkerTarget();
 
@@ -48,20 +49,21 @@ function usePwaController(): PwaController {
       worker.postMessage({ type: "SKIP_WAITING" });
     };
 
+    const checkNewVersion = (force = false) => {
+      if (!alive || !activeRegistration || !navigator.onLine || document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (!force && now - lastUpdateCheck < 60_000) return;
+      lastUpdateCheck = now;
+      void activeRegistration.update().catch(() => undefined);
+    };
+
     navigator.serviceWorker.register(target.url, target.options)
       .then((next) => {
         if (!alive) return;
         activeRegistration = next;
         setRegistration(next);
         activateWaitingWorker(next.waiting);
-        const checkNewVersion = () => {
-          if (!alive || !navigator.onLine || document.visibilityState !== "visible") return;
-          const now = Date.now();
-          if (now - lastUpdateCheck < 60_000) return;
-          lastUpdateCheck = now;
-          void next.update().catch(() => undefined);
-        };
-        checkNewVersion();
+        checkNewVersion(true);
         next.addEventListener("updatefound", () => {
           const worker = next.installing;
           worker?.addEventListener("statechange", () => {
@@ -84,21 +86,20 @@ function usePwaController(): PwaController {
     navigator.serviceWorker.addEventListener("controllerchange", controllerChange);
     window.addEventListener("hopper:transfers-idle", onTransferIdle);
     const checkOnResume = () => {
-      if (!alive || !activeRegistration || !navigator.onLine || document.visibilityState !== "visible") return;
-      const now = Date.now();
-      if (now - lastUpdateCheck < 60_000) return;
-      lastUpdateCheck = now;
-      void activeRegistration.update().catch(() => undefined);
+      const visible = document.visibilityState === "visible";
+      if (visible && wasHidden) checkNewVersion(true);
+      wasHidden = !visible;
     };
-    const periodicCheck = window.setInterval(checkOnResume, 180_000);
-    window.addEventListener("focus", checkOnResume);
-    window.addEventListener("online", checkOnResume);
+    const periodicCheck = window.setInterval(() => checkNewVersion(), 180_000);
+    const onFocus = () => checkNewVersion();
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onFocus);
     document.addEventListener("visibilitychange", checkOnResume);
     return () => {
       alive = false;
       window.clearInterval(periodicCheck);
-      window.removeEventListener("focus", checkOnResume);
-      window.removeEventListener("online", checkOnResume);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onFocus);
       document.removeEventListener("visibilitychange", checkOnResume);
       navigator.serviceWorker.removeEventListener("controllerchange", controllerChange);
       window.removeEventListener("hopper:transfers-idle", onTransferIdle);

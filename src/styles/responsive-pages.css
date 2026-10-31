@@ -230,7 +230,7 @@
   .compose-panel-heading { margin-bottom: 7px; align-items: baseline; flex-wrap: nowrap; }
   .compose-panel-heading > span { font-size: .69rem; text-align: right; }
   .compose-panel #text-input { height: 86px; min-height: 86px; max-height: 86px; }
-  .compose-panel .drop-zone { min-height: 49px; padding-block: 10px; }
+  .compose-panel .drop-zone { min-height: 49px; padding: 10px 12px; align-items: center; justify-content: center; }
   .compose-panel .composer-actions { padding-top: 6px; justify-content: flex-end; align-items: center; }
   .compose-panel .send-button { min-width: 40px; width: 40px; min-height: 36px; padding: 0; }
   .compose-panel .send-caption { display: none; }
