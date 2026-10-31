@@ -220,7 +220,7 @@
 
 /* Mobile parity: icon-first, compact composer, consistent headings. */
 @media (max-width: 760px) {
-  .workspace-inner { padding: 10px 10px 15px; gap: 11px; display: flex; flex-direction: column; min-height: calc(100dvh - var(--header-height)); height: auto; }
+  .workspace-inner { padding: 10px 10px max(15px, env(safe-area-inset-bottom)); gap: 11px; display: flex; flex-direction: column; min-height: calc(100dvh - var(--header-height)); height: auto; }
   .composer-card { padding: 12px; border-radius: 15px; flex: 0 0 auto; }
   .composer-heading { align-items: center; margin-bottom: 9px; }
   .ttl-field-inline { flex: 0 0 auto; flex-wrap: nowrap; gap: 7px; }
@@ -234,8 +234,15 @@
   .compose-panel .composer-actions { padding-top: 6px; justify-content: flex-end; align-items: center; }
   .compose-panel .send-button { min-width: 40px; width: 40px; min-height: 36px; padding: 0; }
   .compose-panel .send-caption { display: none; }
-  .items-frame { min-height: 360px; flex: 1 0 auto; }
-  .item-list { max-height: none; }
+  /* Una sola superficie de desplazamiento: evita que la última fila quede recortada. */
+  .workspace-screen {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+  .recent-section { flex: 0 0 auto; min-height: 0; }
+  .items-frame { flex: 0 0 auto; min-height: 360px; overflow: visible; }
+  .item-list { height: auto; max-height: none; overflow: visible; scrollbar-gutter: auto; }
   .recent-header { margin-top: 2px; }
   .bulk-toolbar { gap: 7px; }
 }

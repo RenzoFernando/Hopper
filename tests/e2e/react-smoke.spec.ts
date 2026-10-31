@@ -544,3 +544,62 @@ test("Administración expone el acceso a Supercarga", async ({page})=>{
   await expect(page).toHaveURL(/\/admin\/super$/);
   await expect(page.getByRole("heading",{name:"Supercarga",exact:true})).toBeVisible();
 });
+
+test("en móvil, la bandeja permite desplazarse hasta el último de siete archivos", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 700 });
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  const files = Array.from({ length: 7 }, (_, index) => ({
+    id: `0000000${index}-2222-4222-8222-222222222222`,
+    type: "file",
+    status: "ready",
+    name: `archivo-${index + 1}.mp4`,
+    mimeType: "video/mp4",
+    size: 1024 * 1024,
+    createdAt: nowIso,
+    expiresAt: laterIso,
+    ttlMinutes: 5,
+    audio: false
+  }));
+  await page.route("**/api/items", (route) => json(route, { ok: true, items: files, serverTime: nowIso }));
+  await page.goto("/space");
+  await expect(page.locator(".item-card")).toHaveCount(7);
+  const viewport = await page.locator("#workspace-screen").evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight
+  }));
+  expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+  await page.locator("#workspace-screen").evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect(page.locator(".item-card").last()).toBeInViewport();
+});
+
+test("una descarga lenta informa inicio, finalización y error", async ({ page }) => {
+  await seedPersonalSession(page);
+  await installApiMock(page);
+  const file = {
+    id: "aaaaaaaa-2222-4222-8222-222222222222",
+    type: "file", status: "ready", name: "grabacion.m4a", mimeType: "audio/mp4",
+    size: 1024, createdAt: nowIso, expiresAt: laterIso, ttlMinutes: 5, audio: true
+  };
+  await page.route("**/api/items", (route) => json(route, { ok: true, items: [file], serverTime: nowIso }));
+  await page.route(`**/api/items/${file.id}/url?*`, (route) => json(route, {
+    ok: true, url: "https://storage.test/descarga", expiresIn: 300
+  }));
+  let shouldFail = false;
+  await page.route("https://storage.test/descarga", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    if (shouldFail) return route.fulfill({ status: 404, body: "Not found", headers: corsHeaders });
+    return route.fulfill({ status: 200, body: Buffer.alloc(1024), contentType: "audio/mp4", headers: corsHeaders });
+  });
+  await page.goto("/space");
+  await expect(page.locator(".item-card")).toHaveCount(1);
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Descargar", exact: true }).click();
+  await expect(page.locator(".download-toast-region")).toContainText("Iniciando descarga");
+  expect((await download).suggestedFilename()).toBe("grabacion.m4a");
+  await expect(page.locator(".download-toast-region")).toContainText("Descarga enviada al navegador");
+
+  shouldFail = true;
+  await page.getByRole("button", { name: "Descargar", exact: true }).click();
+  await expect(page.locator(".download-toast-region")).toContainText("Falló la descarga de grabacion.m4a");
+});

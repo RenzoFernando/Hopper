@@ -798,6 +798,51 @@
   margin-top: 22px;
 }
 
+.download-toast-region {
+  position: fixed;
+  z-index: 51;
+  top: calc(var(--header-height) + 12px);
+  right: 20px;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.download-toast-region .toast {
+  width: min(380px, calc(100vw - 32px));
+}
+
+.toast.is-progress {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+}
+
+.toast.is-progress::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 8px;
+  border: 2px solid var(--info);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: download-spinning 800ms linear infinite;
+  vertical-align: -1px;
+}
+
+@keyframes download-spinning {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 760px) {
+  .download-toast-region {
+    left: 12px;
+    right: 12px;
+    top: calc(var(--header-height) + 8px);
+  }
+  .download-toast-region .toast { width: 100%; }
+}
+
 .toast-region {
   position: fixed;
   z-index: 50;

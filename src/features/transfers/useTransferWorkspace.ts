@@ -7,6 +7,7 @@ import { fileExtension, fileTypeInfo } from "../../lib/file-types";
 import { formatBytes } from "../../lib/format";
 import { createZipBlob } from "../../lib/zip";
 import { beginTransfer } from "../../lib/transfer-activity";
+import type { ToastController } from "../../hooks/useToasts";
 import type { HopperItem, ItemsResponse } from "../../schemas/item";
 import type { PreviewState, SelectedFileEntry, TransferWorkspaceOptions } from "./types";
 
@@ -75,7 +76,7 @@ async function imageToClipboardBlob(blob: Blob) {
   }
 }
 
-export function useTransferWorkspace(options: TransferWorkspaceOptions, showToast: (message: string, kind?: "" | "success" | "error") => void) {
+export function useTransferWorkspace(options: TransferWorkspaceOptions, showToast: ToastController["showToast"], downloadNotice: Pick<ToastController, "startToast" | "updateToast">) {
   const {
     api,
     queryKey,
@@ -429,7 +430,7 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
     showToast("Texto copiado.", "success");
   }, [showToast]);
 
-  const fetchItemBlob = useCallback(async (item: HopperItem) => {
+  const fetchItemBlob = useCallback(async (item: HopperItem, onProgress?: (bytes: number, total: number) => void) => {
     let lastError: ApiError | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -443,7 +444,24 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
             { status: response.status, code: missing ? "file-not-in-storage" : "download-failed" }
           );
         }
-        const blob = await response.blob();
+        let blob: Blob;
+        const total = item.size || Number(response.headers.get("content-length")) || 0;
+        if (onProgress && response.body && typeof TransformStream !== "undefined") {
+          let received = 0;
+          const measured = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+            transform(chunk, controller) {
+              received += chunk.byteLength;
+              onProgress(received, total);
+              controller.enqueue(chunk);
+            }
+          }));
+          blob = await new Response(measured, {
+            headers: { "content-type": response.headers.get("content-type") || item.mimeType || "application/octet-stream" }
+          }).blob();
+        } else {
+          blob = await response.blob();
+          onProgress?.(blob.size, total);
+        }
         if (Number.isFinite(item.size) && blob.size !== item.size) {
           throw new ApiError("La descarga llegó incompleta. Inténtalo nuevamente.", { code: "incomplete-download" });
         }
@@ -536,28 +554,42 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
   }, []);
 
   const downloadItem = useCallback(async (item: HopperItem) => {
-    const directory = await permittedDirectory();
-    if (item.type === "text") {
-      const name = `texto-hopper-${item.id.slice(0, 8)}.txt`;
-      const blob = new Blob([item.content || ""], { type: "text/plain;charset=utf-8" });
+    const name = item.type === "text" ? `texto-hopper-${item.id.slice(0, 8)}.txt` : item.name || "archivo";
+    const noticeId = downloadNotice.startToast(`Iniciando descarga de ${name}…`);
+    const release = beginTransfer();
+    let lastProgress = 0;
+    let lastPercent = -1;
+    const progress = (bytes: number, total: number) => {
+      const percent = total > 0 ? Math.min(100, Math.floor(bytes / total * 100)) : -1;
+      const now = Date.now();
+      if (percent === lastPercent && now - lastProgress < 900) return;
+      if (bytes < total && now - lastProgress < 650) return;
+      lastProgress = now;
+      lastPercent = percent;
+      const detail = percent >= 0 ? `${percent}%` : `${formatBytes(bytes)} recibidos`;
+      downloadNotice.updateToast(noticeId, `Descargando ${name}: ${detail}`);
+    };
+    try {
+      const directory = await permittedDirectory();
+      const blob = item.type === "text"
+        ? new Blob([item.content || ""], { type: "text/plain;charset=utf-8" })
+        : await fetchItemBlob(item, progress);
       if (directory) {
+        downloadNotice.updateToast(noticeId, `Guardando ${name} en ${directory.name}…`);
         const downloadId = crypto.randomUUID();
-        await saveTemporaryDownload(directory, temporaryFileName(name, downloadId), blob, `${queryKey}:text:${downloadId}`, queryKey, [item.id], item.expiresAt);
-        showToast(`Texto temporal guardado en ${directory.name}.`, "success");
-      } else downloadBlobWithBrowser(name, blob);
-      return;
+        await saveTemporaryDownload(directory, temporaryFileName(name, downloadId), blob, `${queryKey}:${item.type}:${downloadId}`, queryKey, [item.id], item.expiresAt);
+        downloadNotice.updateToast(noticeId, `Descarga completada en ${directory.name}: ${name}.`, "success");
+      } else {
+        downloadBlobWithBrowser(name, blob);
+        // El navegador no permite confirmar que el usuario haya terminado de guardar.
+        downloadNotice.updateToast(noticeId, `Archivo listo: ${name}. Descarga enviada al navegador.`, "success");
+      }
+    } catch (caught) {
+      downloadNotice.updateToast(noticeId, `Falló la descarga de ${name}: ${errorInfo(caught).message}`, "error");
+    } finally {
+      release();
     }
-    // Un enlace externo a B2 no respeta `download` en numerosos navegadores/PWA.
-    // Guardar un blob local permite conservar el nombre y verificar que llegó completo.
-    const blob = await fetchItemBlob(item);
-    if (!directory) {
-      downloadBlobWithBrowser(item.name || "archivo", blob);
-      return;
-    }
-    const downloadId = crypto.randomUUID();
-    await saveTemporaryDownload(directory, temporaryFileName(item.name || "archivo", downloadId), blob, `${queryKey}:file:${downloadId}`, queryKey, [item.id], item.expiresAt);
-    showToast(`Archivo temporal guardado en ${directory.name}.`, "success");
-  }, [fetchItemBlob, permittedDirectory, queryKey, showToast]);
+  }, [downloadNotice, fetchItemBlob, permittedDirectory, queryKey]);
 
   const downloadItems = useCallback(async (items: HopperItem[]) => {
     if (items.length === 0) throw new ApiError("No hay elementos para descargar.");
@@ -565,27 +597,45 @@ export function useTransferWorkspace(options: TransferWorkspaceOptions, showToas
       await downloadItem(items[0]);
       return;
     }
+    const noticeId = downloadNotice.startToast(`Preparando descarga de ${items.length} elementos…`);
+    const release = beginTransfer();
     setBatchBusy(true);
     try {
       const directory = await permittedDirectory();
       const entries: Array<{ name: string; blob: Blob; modifiedAt: Date }> = [];
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
         const isText = item.type === "text";
-        const blob = isText ? new Blob([item.content || ""], { type: "text/plain;charset=utf-8" }) : await fetchItemBlob(item);
-        entries.push({ name: isText ? `texto-hopper-${item.id.slice(0, 8)}.txt` : item.name || "archivo", blob, modifiedAt: new Date(item.createdAt) });
+        const name = isText ? `texto-hopper-${item.id.slice(0, 8)}.txt` : item.name || "archivo";
+        downloadNotice.updateToast(noticeId, `Preparando archivo ${index + 1} de ${items.length}: ${name}…`);
+        let lastUpdated = 0;
+        const blob = isText ? new Blob([item.content || ""], { type: "text/plain;charset=utf-8" }) : await fetchItemBlob(item, (bytes, total) => {
+          const now = Date.now();
+          if (now - lastUpdated < 800 && bytes < total) return;
+          lastUpdated = now;
+          const detail = total > 0 ? `${Math.min(100, Math.floor(bytes / total * 100))}%` : formatBytes(bytes);
+          downloadNotice.updateToast(noticeId, `Descargando ${index + 1} de ${items.length}: ${detail}`);
+        });
+        entries.push({ name, blob, modifiedAt: new Date(item.createdAt) });
       }
+      downloadNotice.updateToast(noticeId, `Creando ZIP de ${items.length} elementos…`);
       const zip = await createZipBlob(entries);
       const name = zipFileName();
       if (directory) {
         const downloadId = crypto.randomUUID();
         const expiresAt = items.map((item) => item.expiresAt).filter((value): value is string => Boolean(value)).sort()[0] ?? null;
         await saveTemporaryDownload(directory, temporaryFileName(name, downloadId), zip, `${queryKey}:bundle:${downloadId}`, queryKey, items.map((item) => item.id), expiresAt);
-      } else downloadBlobWithBrowser(name, zip);
-      showToast(`${items.length} elementos empaquetados en ZIP.`, "success");
+        downloadNotice.updateToast(noticeId, `ZIP de ${items.length} elementos guardado en ${directory.name}.`, "success");
+      } else {
+        downloadBlobWithBrowser(name, zip);
+        downloadNotice.updateToast(noticeId, `ZIP de ${items.length} elementos listo. Descarga enviada al navegador.`, "success");
+      }
+    } catch (caught) {
+      downloadNotice.updateToast(noticeId, `Falló la descarga del ZIP: ${errorInfo(caught).message}`, "error");
     } finally {
       setBatchBusy(false);
+      release();
     }
-  }, [downloadItem, fetchItemBlob, permittedDirectory, queryKey, showToast]);
+  }, [downloadItem, downloadNotice, fetchItemBlob, permittedDirectory, queryKey]);
 
   const previewItem = useCallback(async (item: HopperItem) => {
     const info = fileTypeInfo(item.name || "", item.mimeType || "");

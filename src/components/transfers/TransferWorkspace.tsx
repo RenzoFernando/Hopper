@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TransferWorkspaceOptions } from "../../features/transfers/types";
 import { useTransferWorkspace } from "../../features/transfers/useTransferWorkspace";
 import { useNow } from "../../hooks/useNow";
@@ -15,7 +15,7 @@ type Props = TransferWorkspaceOptions & { roomMode?: boolean; showRoomSync?: boo
 
 export function TransferWorkspace(props: Props) {
   const localToasts = useToasts();
-  const { toasts, showToast } = props.toastController ?? localToasts;
+  const { toasts, showToast, startToast, updateToast } = props.toastController ?? localToasts;
   const [sync, setSync] = useState<{ label: string; variant: SyncVariant }>({ label: "Sincronizado", variant: "" });
   const internalSync = useCallback((label: string, variant: SyncVariant) => {
     setSync((current) => current.label === label && current.variant === variant
@@ -23,7 +23,8 @@ export function TransferWorkspace(props: Props) {
       : { label, variant });
   }, []);
   const syncCallback = props.onSyncChange ?? internalSync;
-  const workspace = useTransferWorkspace({ ...props, onSyncChange: syncCallback }, showToast);
+  const downloadNotice = useMemo(() => ({ startToast, updateToast }), [startToast, updateToast]);
+  const workspace = useTransferWorkspace({ ...props, onSyncChange: syncCallback }, showToast, downloadNotice);
   const { addFiles } = workspace;
   const now = useNow();
   const previewRef = useRef<HTMLDialogElement>(null);
